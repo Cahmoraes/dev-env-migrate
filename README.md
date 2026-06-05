@@ -18,12 +18,14 @@ elas vêm* — e deixa o Claude Code **reconstruir** o ambiente no destino,
 adaptando ao SO de lá.
 
 ```
-  MÁQUINA ATUAL (WSL)              git push          MÁQUINA NOVA (macOS/Linux)
-  ./export.sh  ───────►  profile/  ──────────►  clone + "leia profile/SETUP.md"
-                         ├ manifest.json                      │
-                         ├ SETUP.md  (prompt p/ Claude)        ▼
-                         └ dotfiles/             Claude detecta SO, traduz
-                                                 apt→brew, pula linhas WSL-only
+  MÁQUINA ORIGEM                   git push          MÁQUINA DESTINO
+  "exporte meu ambiente"  ──────►  profile/  ──────►  "importe meu ambiente"
+   (skill export-env)              ├ manifest.json     (skill import-env)
+                                   ├ SETUP.md                 │
+                                   └ dotfiles/                ▼
+                                          Claude detecta o SO local, traduz o
+                                          gerenciador e adapta as linhas por
+                                          plataforma — em qualquer direção
 ```
 
 O projeto tem **duas pontas**:
@@ -38,33 +40,44 @@ O projeto tem **duas pontas**:
 
 ## Início rápido
 
+A forma recomendada é **conversar com o Claude Code**: duas skills versionadas no
+repo (`export-env` e `import-env`) fazem todo o trabalho — você não roda scripts
+à mão.
+
 ### 1. Na máquina de origem — exportar
 
+Abra o Claude Code no repositório e diga:
+
+> **"Exporte meu ambiente"**
+
+A skill `export-env` gera os profiles (shell + Claude Code), confere que nenhum
+segredo vazou e — com sua confirmação — faz commit e push.
+
+_Alternativa manual:_
 ```bash
-./export.sh           # config de shell (zsh, ferramentas, plugins, tema)
-./export-claude.sh    # config do Claude Code (plugins, LSP, statusline, settings)
-git add -A && git commit -m "snapshot do ambiente"
-git push
+./export.sh && ./export-claude.sh
+git add -A && git commit -m "snapshot do ambiente" && git push
 ```
 
 ### 2. Na máquina nova — importar
 
 ```bash
 git clone <seu-repo> && cd export-shell-config
-./scripts/dry-run.sh   # opcional: veja o plano antes (não instala nada)
 claude
 ```
 
 E diga ao Claude:
 
-> Leia `profile/SETUP.md` e prepare meu ambiente.
+> **"Importe meu ambiente"**
 
-Pronto. O Claude detecta o SO, instala o que falta, monta o `.zshrc` adaptado e
-verifica tudo — pedindo confirmação nos passos sensíveis.
+A skill `import-env` (que viaja no repo) mostra o plano via dry-run, faz backup,
+instala e adapta o shell + a config do Claude Code ao SO local, e verifica tudo —
+pedindo confirmação nos passos sensíveis. **Funciona em qualquer direção**
+(WSL↔macOS↔Linux).
 
-E, para levar também o **Claude Code** (plugins, language servers, statusline):
-
-> Leia `profile/claude/CLAUDE_SETUP.md` e reconstrua minha config do Claude Code.
+_Alternativa manual:_ rode `./scripts/dry-run.sh` para ver o plano e depois diga
+ao Claude *"Leia profile/SETUP.md e prepare meu ambiente"* e *"Leia
+profile/claude/CLAUDE_SETUP.md e reconstrua minha config do Claude Code"*.
 
 ---
 
@@ -72,6 +85,21 @@ E, para levar também o **Claude Code** (plugins, language servers, statusline):
 
 Esta seção documenta cada componente executável: **o que faz**, **como funciona**
 e **os comandos**. Serve tanto para você quanto para o Claude Code.
+
+### Skills `export-env` e `import-env` (a camada Claude-driven)
+
+São skills de projeto em `.claude/skills/`, carregadas pelo Claude Code ao abrir
+o repo. Em vez de você rodar scripts, descreve a intenção e o Claude conduz:
+
+- **`export-env`** (origem): roda os dois exports, faz a checagem de segredos,
+  prepara o commit e — com sua confirmação — dá push. Dispare com *"exporte meu
+  ambiente"*, *"atualize o snapshot e suba"*.
+- **`import-env`** (destino): pré-checagem → dry-run → backup → executa o
+  `SETUP.md` e o `CLAUDE_SETUP.md` adaptando ao SO local → verifica → oferece
+  revert. Dispare com *"importe meu ambiente"*, *"prepare meu ambiente aqui"*.
+
+As skills são uma casca fina sobre os scripts/roteiros abaixo — você pode usar
+qualquer das duas camadas.
 
 ### `export.sh` — exportar o ambiente (origem)
 
@@ -151,7 +179,8 @@ de aplicar as flags de segurança) e verifica tudo no final.
     comando de instalação que *seria* usado neste SO);
   - quais plugins já estão em disco e o status do tema (inclusive se exige ação
     manual, como o `dracula-pro` pago);
-  - quantas linhas WSL-only seriam removidas do `.zshrc`;
+  - o **plano de adaptação** `origem → este destino`: quais linhas do `.zshrc`
+    MANTER × REMOVER (por plataforma) e se há aliases `bat`/`fd` a ADICIONAR;
   - um resumo: quantas ferramentas já existem × faltam.
 - **Por que existe:** confere se a detecção e o plano batem com a realidade do
   alvo antes de mexer no sistema. Usa a mesma lógica de detecção do exporter
@@ -212,7 +241,7 @@ segue na máquina nova. Resumo das fases:
 | 1 | Instala o Oh My Zsh se faltar. |
 | 2 | Instala só as ferramentas CLI faltantes, com o gerenciador do SO. |
 | 3 | Clona plugins; resolve o tema (pergunta no caso do `dracula-pro` pago). |
-| 4 | Monta o `.zshrc` adaptado, removendo as linhas WSL-only. |
+| 4 | Monta o `.zshrc` adaptado: remove as linhas cuja plataforma ≠ destino e ajusta `bat`/`fd` (bidirecional). |
 | 5 | Copia as configs de apps (`~/.config/...`). |
 | 6 | **Verificação obrigatória**: smoke-test de cada ferramenta + relatório `instalado`/`já presente`/`pulado`/`FALHOU`. |
 
@@ -243,22 +272,23 @@ quebrar o que já existe), **verificação** (testar, não presumir) e **backup*
 
 | Caminho | Papel |
 |---|---|
+| `CLAUDE.md` | Contexto do projeto para o Claude Code (comandos, arquitetura, gotchas). |
+| `.claude/skills/export-env/` | Skill: exporta o ambiente e publica (origem). |
+| `.claude/skills/import-env/` | Skill: reconstrói o ambiente no destino, com backup e verificação. |
 | `export.sh` | Entry point do **export de shell** (origem). Wrapper sobre o exporter. |
-| `lib/catalog.json` | Base de conhecimento: como instalar/verificar cada ferramenta em cada SO. **Edite aqui para adicionar ferramentas.** |
-| `lib/exporter.py` | Motor do export de shell: detecção, cópia de dotfiles, geração do profile. |
+| `lib/catalog.json` | Base de conhecimento de ferramentas + `platform_specific_patterns` (por SO). **Edite aqui para adicionar ferramentas.** |
+| `lib/exporter.py` | Motor do export de shell: detecção, classificação por plataforma, geração do profile. |
 | `export-claude.sh` | Entry point do **export do Claude Code** (origem). |
 | `lib/claude_catalog.json` | Conhecimento: language servers por plugin LSP + regras de sanitização/segurança. |
 | `lib/claude_exporter.py` | Motor do export do Claude: plugins, LSP, sanitização de segredos, geração de `profile/claude/`. |
-| `scripts/dry-run.sh` | **Import:** simula o setup (read-only), mostra o plano sem instalar. |
+| `scripts/dry-run.sh` · `scripts/dryrun.py` | **Import:** simula o setup (read-only) e mostra o plano de adaptação. |
 | `scripts/backup.sh` | **Import:** snapshot das configs do alvo antes de alterar. |
 | `scripts/restore.sh` | **Import:** reverte para um snapshot (auto-suficiente). |
-| `tests/test_exporter.py` | Testes de regressão do export de shell (`unittest`, sem deps). |
+| `tests/test_exporter.py` | Testes do export de shell + classificação por plataforma. |
 | `tests/test_claude_exporter.py` | Testes do export do Claude (foco em sanitização de segredos). |
+| `tests/test_dryrun.py` | Testes do plano de adaptação (regra bidirecional manter×remover). |
 | `profile/` | Saída do export de shell (commitada — é o que viaja). |
 | `profile/claude/` | Saída do export do Claude Code (manifest + CLAUDE_SETUP.md + config/). |
-| `profile/manifest.json` | Inventário estruturado do ambiente de origem. |
-| `profile/SETUP.md` | Roteiro em fases que o Claude executa no destino. |
-| `profile/dotfiles/` | Cópias dos arquivos de config originais. |
 
 ---
 
@@ -292,13 +322,14 @@ Os testes de regressão do exporter rodam só com a stdlib do Python (sem
 `pip install`):
 
 ```bash
-python3 -m unittest tests.test_exporter tests.test_claude_exporter
+python3 -m unittest tests.test_exporter tests.test_claude_exporter tests.test_dryrun
 ```
 
-Cobrem o export de shell (parsing do `.zshrc`, detecção de ferramentas, linhas
-WSL-only, geração do `manifest.json`/`SETUP.md`) e o export do Claude (com foco
-em **sanitização de segredos** e detecção de language servers). Rode-os após
-qualquer mudança em `lib/exporter.py`, `lib/claude_exporter.py` ou nos catálogos.
+Cobrem o export de shell (parsing do `.zshrc`, detecção de ferramentas,
+classificação de linhas por plataforma, geração do `manifest.json`/`SETUP.md`), o
+export do Claude (com foco em **sanitização de segredos** e detecção de language
+servers) e o **plano de adaptação** bidirecional (manter×remover por destino).
+Rode-os após qualquer mudança em `lib/`, `scripts/dryrun.py` ou nos catálogos.
 
 ## Segurança
 
