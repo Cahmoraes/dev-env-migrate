@@ -1,0 +1,327 @@
+{
+  "generated_from": {
+    "os": "debian",
+    "is_wsl": true,
+    "hostname": "caique"
+  },
+  "framework": "oh-my-zsh",
+  "theme": {
+    "name": "dracula-pro",
+    "source": "https://draculatheme.com/pro",
+    "install": null,
+    "manual": true,
+    "note": "Tema PRO (PAGO) da Dracula. NÃO está em repo público. Você precisa baixar do seu acesso comprado em draculatheme.com/pro e copiar o arquivo .zsh-theme para ${ZSH_CUSTOM}/themes/. A versão gratuita equivalente é 'dracula' (git clone https://github.com/dracula/zsh). O Claude deve PERGUNTAR qual você quer usar na máquina nova.",
+    "known": true
+  },
+  "omz_plugins": [
+    {
+      "name": "git",
+      "source": "builtin",
+      "install": "# plugin nativo do Oh My Zsh, nada a instalar",
+      "known": true
+    },
+    {
+      "name": "zsh-completions",
+      "source": "https://github.com/zsh-users/zsh-completions",
+      "install": "git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-completions",
+      "known": true
+    },
+    {
+      "name": "zsh-autosuggestions",
+      "source": "https://github.com/zsh-users/zsh-autosuggestions",
+      "install": "git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions",
+      "known": true
+    },
+    {
+      "name": "zsh-syntax-highlighting",
+      "source": "https://github.com/zsh-users/zsh-syntax-highlighting",
+      "install": "git clone https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting",
+      "known": true
+    }
+  ],
+  "cli_tools": [
+    {
+      "name": "zoxide",
+      "source": "https://github.com/ajeetdsouza/zoxide",
+      "install": {
+        "macos": "brew install zoxide",
+        "debian": "sudo apt install -y zoxide",
+        "fallback": "curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh"
+      },
+      "verify": "zoxide --version",
+      "detect": "zoxide",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": "eval \"$(zoxide init zsh)\"",
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "fzf",
+      "source": "https://github.com/junegunn/fzf",
+      "install": {
+        "macos": "brew install fzf",
+        "debian": "sudo apt install -y fzf",
+        "fallback": "git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf && ~/.fzf/install --all"
+      },
+      "verify": "fzf --version",
+      "detect": "fzf",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": "[[ -f \"$HOME/.fzf.zsh\" ]] && source \"$HOME/.fzf.zsh\"",
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "bat",
+      "source": "https://github.com/sharkdp/bat",
+      "install": {
+        "macos": "brew install bat",
+        "debian": "sudo apt install -y bat"
+      },
+      "verify": "bat --version || batcat --version",
+      "detect": "bat",
+      "detect_alt": "batcat",
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "No Debian/Ubuntu o binário se chama 'batcat' (conflito de nome). Por isso seu .zshrc tem `alias bat=\"batcat\"`. No macOS o binário JÁ se chama 'bat' — esse alias deve ser REMOVIDO, senão quebra o comando."
+    },
+    {
+      "name": "fd",
+      "source": "https://github.com/sharkdp/fd",
+      "install": {
+        "macos": "brew install fd",
+        "debian": "sudo apt install -y fd-find"
+      },
+      "verify": "fd --version || fdfind --version",
+      "detect": "fd",
+      "detect_alt": "fdfind",
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "No Debian/Ubuntu o binário se chama 'fdfind'. Daí o `alias fd=\"fdfind\"` no seu .zshrc. No macOS é 'fd' nativo — remover o alias."
+    },
+    {
+      "name": "eza",
+      "source": "https://github.com/eza-community/eza",
+      "install": {
+        "macos": "brew install eza",
+        "debian": "sudo apt install -y eza",
+        "fallback": "cargo install eza"
+      },
+      "verify": "eza --version",
+      "detect": "eza",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "eza em apt só existe em distros recentes; se falhar, use cargo."
+    },
+    {
+      "name": "glow",
+      "source": "https://github.com/charmbracelet/glow",
+      "install": {
+        "macos": "brew install glow",
+        "debian": "sudo mkdir -p /etc/apt/keyrings && curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg && echo \"deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *\" | sudo tee /etc/apt/sources.list.d/charm.list && sudo apt update && sudo apt install -y glow"
+      },
+      "verify": "glow --version",
+      "detect": "glow",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "micro",
+      "source": "https://github.com/zyedidia/micro",
+      "install": {
+        "macos": "brew install micro",
+        "debian": "sudo apt install -y micro",
+        "fallback": "cd ~/.local/bin && curl https://getmic.ro | bash"
+      },
+      "verify": "micro --version",
+      "detect": "micro",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": [
+        "~/.config/micro"
+      ],
+      "note": null
+    },
+    {
+      "name": "kubectl",
+      "source": "https://kubernetes.io/docs/tasks/tools/",
+      "install": {
+        "macos": "brew install kubectl",
+        "debian": "sudo apt install -y kubectl || (curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && sudo install -m 0755 kubectl /usr/local/bin/kubectl)"
+      },
+      "verify": "kubectl version --client",
+      "detect": "kubectl",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    }
+  ],
+  "version_managers": [
+    {
+      "name": "nvm",
+      "source": "https://github.com/nvm-sh/nvm",
+      "install": "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash",
+      "verify": "nvm --version  # rodar em shell interativa, após carregar o nvm",
+      "detect": null,
+      "detect_alt": null,
+      "detect_path": "~/.nvm",
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "pyenv",
+      "source": "https://github.com/pyenv/pyenv",
+      "install": {
+        "macos": "brew install pyenv",
+        "debian": "curl -fsSL https://pyenv.run | bash"
+      },
+      "verify": "pyenv --version",
+      "detect": "pyenv",
+      "detect_alt": null,
+      "detect_path": "~/.pyenv",
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "bun",
+      "source": "https://bun.sh",
+      "install": "curl -fsSL https://bun.sh/install | bash",
+      "verify": "bun --version",
+      "detect": "bun",
+      "detect_alt": null,
+      "detect_path": "~/.bun",
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "pnpm",
+      "source": "https://pnpm.io",
+      "install": {
+        "macos": "brew install pnpm",
+        "fallback": "curl -fsSL https://get.pnpm.io/install.sh | sh -"
+      },
+      "verify": "pnpm --version",
+      "detect": "pnpm",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    },
+    {
+      "name": "go",
+      "source": "https://go.dev/dl/",
+      "install": {
+        "macos": "brew install go",
+        "debian": "sudo apt install -y golang-go"
+      },
+      "verify": "go version",
+      "detect": "go",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": null
+    }
+  ],
+  "frameworks": [
+    {
+      "name": "oh-my-zsh",
+      "source": "https://github.com/ohmyzsh/ohmyzsh",
+      "install": "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\" \"\" --unattended",
+      "verify": null,
+      "detect": null,
+      "detect_alt": null,
+      "detect_path": "~/.oh-my-zsh",
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "Instalar PRIMEIRO, antes de plugins e temas (eles vão para dentro de ~/.oh-my-zsh/custom)."
+    }
+  ],
+  "dotfiles_copied": [
+    ".zshrc",
+    ".zshenv",
+    ".p10k.zsh",
+    ".fzf.zsh",
+    ".config/micro",
+    ".config/glow",
+    ".config/starship.toml"
+  ],
+  "platform_specific_lines": [
+    {
+      "line": 54,
+      "pattern": "WARP_ENABLE_WAYLAND",
+      "text": "export WARP_ENABLE_WAYLAND=1"
+    },
+    {
+      "line": 55,
+      "pattern": "MESA_D3D12",
+      "text": "export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA"
+    },
+    {
+      "line": 59,
+      "pattern": "WarpTerminal",
+      "text": "if [[ \"$TERM_PROGRAM\" == \"WarpTerminal\" ]]; then"
+    },
+    {
+      "line": 60,
+      "pattern": "SourcedRcFileForWarp",
+      "text": "printf '\\ePsf{\"hook\":\"SourcedRcFileForWarp\",\"value\":{\"shell\":\"zsh\"}}\\x9c'"
+    },
+    {
+      "line": 64,
+      "pattern": "alias bat=\"batcat\"",
+      "text": "alias bat=\"batcat\""
+    },
+    {
+      "line": 65,
+      "pattern": "alias fd=\"fdfind\"",
+      "text": "alias fd=\"fdfind\""
+    },
+    {
+      "line": 136,
+      "pattern": "/mnt/c",
+      "text": "VSCODE_BIN=\"/mnt/c/Users/ike_m/AppData/Local/Programs/Microsoft VS Code/bin\""
+    },
+    {
+      "line": 137,
+      "pattern": "VSCODE_BIN",
+      "text": "[[ -d \"$VSCODE_BIN\" ]] && path=(\"$VSCODE_BIN\" $path)"
+    },
+    {
+      "line": 141,
+      "pattern": "nice-vscode",
+      "text": "alias nice-vscode='bash ~/nice-vscode.sh'"
+    },
+    {
+      "line": 142,
+      "pattern": "nice-vscode",
+      "text": "alias nice-vscode-restore='bash ~/nice-vscode.sh 0'"
+    },
+    {
+      "line": 143,
+      "pattern": "pastepng",
+      "text": "alias pscreen='pastepng /tmp/screen.png && echo /tmp/screen.png'"
+    },
+    {
+      "line": 146,
+      "pattern": "/mnt/wslg",
+      "text": "export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native"
+    }
+  ],
+  "_note": "Gerado por export.sh. As linhas em 'platform_specific_lines' são específicas de WSL/Windows e NÃO devem ser aplicadas em macOS/Linux nativo."
+}

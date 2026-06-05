@@ -1,0 +1,258 @@
+# export-shell-config
+
+Leva sua configuração de shell (zsh + Oh My Zsh + ferramentas CLI + plugins +
+tema) de uma máquina para outra — **incluindo entre Linux/WSL e macOS** — sem
+copiar arquivos manualmente e sem quebrar nada no destino.
+
+## A ideia
+
+Copiar o `.zshrc` cru não funciona entre SOs: ele contém aliases e paths
+específicos de uma máquina (ex.: `alias bat="batcat"` só existe no Ubuntu;
+`/mnt/c/...` só existe no WSL). Em vez de copiar texto, este projeto **gera um
+inventário estruturado** do seu ambiente — quais ferramentas você usa e *de onde
+elas vêm* — e deixa o Claude Code **reconstruir** o ambiente no destino,
+adaptando ao SO de lá.
+
+```
+  MÁQUINA ATUAL (WSL)              git push          MÁQUINA NOVA (macOS/Linux)
+  ./export.sh  ───────►  profile/  ──────────►  clone + "leia profile/SETUP.md"
+                         ├ manifest.json                      │
+                         ├ SETUP.md  (prompt p/ Claude)        ▼
+                         └ dotfiles/             Claude detecta SO, traduz
+                                                 apt→brew, pula linhas WSL-only
+```
+
+O projeto tem **duas pontas**:
+
+- **Export** (máquina de origem): `export.sh` escaneia o ambiente e gera o
+  `profile/`. Roda uma vez, é determinístico, não altera nada.
+- **Import** (máquina de destino): o Claude Code lê `profile/SETUP.md` e
+  reconstrói o ambiente, usando `scripts/backup.sh` e `scripts/restore.sh` como
+  rede de segurança.
+
+---
+
+## Início rápido
+
+### 1. Na máquina de origem — exportar
+
+```bash
+./export.sh
+git add -A && git commit -m "snapshot do ambiente shell"
+git push
+```
+
+### 2. Na máquina nova — importar
+
+```bash
+git clone <seu-repo> && cd export-shell-config
+./scripts/dry-run.sh   # opcional: veja o plano antes (não instala nada)
+claude
+```
+
+E diga ao Claude:
+
+> Leia `profile/SETUP.md` e prepare meu ambiente.
+
+Pronto. O Claude detecta o SO, instala o que falta, monta o `.zshrc` adaptado e
+verifica tudo — pedindo confirmação nos passos sensíveis.
+
+---
+
+## Referência dos scripts
+
+Esta seção documenta cada componente executável: **o que faz**, **como funciona**
+e **os comandos**. Serve tanto para você quanto para o Claude Code.
+
+### `export.sh` — exportar o ambiente (origem)
+
+```bash
+./export.sh
+```
+
+- **Onde roda:** na máquina de origem (a que tem o ambiente que você quer levar).
+- **O que faz:** wrapper fino que verifica `python3` e chama `lib/exporter.py`.
+- **Efeito colateral:** nenhum no sistema — só **escreve** em `./profile/`. Não
+  instala, não move ferramentas, não altera seu `.zshrc`.
+- **Saída:** `profile/manifest.json`, `profile/SETUP.md` e `profile/dotfiles/`,
+  além de um resumo no terminal (o que foi detectado e copiado).
+- **Quando rodar de novo:** sempre que mudar suas ferramentas/configs e quiser
+  atualizar o snapshot. É seguro rodar quantas vezes quiser (regenera o profile).
+
+### `lib/exporter.py` — o motor do export
+
+Chamado pelo `export.sh` (você normalmente não o roda direto). Em ordem:
+
+1. Carrega a base de conhecimento `lib/catalog.json`.
+2. Detecta o SO de origem e se é WSL.
+3. Lê o `~/.zshrc` e extrai o **tema** (`ZSH_THEME`) e os **plugins** (`plugins=()`).
+4. Detecta quais ferramentas/version managers estão **realmente instalados**
+   (via `which` e checagem de paths como `~/.nvm`).
+5. Marca as linhas do `.zshrc` que são **específicas de WSL/Windows** (`/mnt/c`,
+   `PULSE_SERVER`, aliases `batcat`/`fdfind`, etc.) — elas viajam, mas vêm
+   sinalizadas para o destino removê-las.
+6. Copia os dotfiles para `profile/dotfiles/`.
+7. Cruza "detectado" × "catálogo" e escreve `profile/manifest.json` e
+   `profile/SETUP.md`.
+
+### `scripts/dry-run.sh` — simular o setup sem instalar nada (destino)
+
+```bash
+./scripts/dry-run.sh
+```
+
+- **Onde roda:** na máquina de destino, **antes** do setup real (opcional, mas
+  recomendado).
+- **O que faz:** lê o `profile/manifest.json`, detecta o SO atual e mostra o
+  **plano de execução** em modo read-only — sem instalar nem alterar nada:
+  - presença de `zsh`, `git` e Oh My Zsh;
+  - para cada ferramenta: `● já presente` (será pulada) ou `○ faltando` (com o
+    comando de instalação que *seria* usado neste SO);
+  - quais plugins já estão em disco e o status do tema (inclusive se exige ação
+    manual, como o `dracula-pro` pago);
+  - quantas linhas WSL-only seriam removidas do `.zshrc`;
+  - um resumo: quantas ferramentas já existem × faltam.
+- **Por que existe:** confere se a detecção e o plano batem com a realidade do
+  alvo antes de mexer no sistema. Usa a mesma lógica de detecção do exporter
+  (binário, alias do Debian como `batcat`/`fdfind`, ou path como `~/.nvm`).
+- **Requer:** `python3` (só para o diagnóstico; o setup real é feito pelo Claude).
+
+### `scripts/backup.sh` — snapshot antes de alterar (destino)
+
+```bash
+./scripts/backup.sh
+```
+
+- **Onde roda:** na máquina de destino, **antes** de qualquer alteração. O
+  `SETUP.md` obriga isso na Fase 0.5.
+- **O que faz:** copia todas as configs existentes do alvo para
+  `~/.shell-config-backups/<timestamp>/`, preservando a estrutura relativa ao
+  `$HOME`. Configs cobertas: `.zshrc`, `.zshenv`, `.p10k.zsh`, `.fzf.zsh`,
+  `~/.config/micro`, `~/.config/glow`, `~/.config/starship.toml`.
+- **O que gera dentro da pasta de backup:**
+  - cópia de cada arquivo/diretório salvo;
+  - `MANIFEST.txt` — a lista do que foi salvo (usada pelo restore);
+  - `restore.sh` — uma **cópia do antídoto**, para reverter mesmo sem o repo.
+- **Saída:** a **última linha** impressa é o caminho absoluto do backup. Guarde-o.
+- **Portável:** funciona em macOS, Linux e WSL (bash + utilitários POSIX).
+
+### `scripts/restore.sh` — reverter para um snapshot (destino)
+
+```bash
+# opção A — a partir do repo, apontando o backup:
+./scripts/restore.sh ~/.shell-config-backups/<timestamp>
+
+# opção B — auto-suficiente, de dentro do próprio backup (não precisa do repo):
+~/.shell-config-backups/<timestamp>/restore.sh
+```
+
+- **Onde roda:** na máquina de destino, quando você quer desfazer as mudanças.
+- **O que faz:** lê o `MANIFEST.txt` do backup e restaura cada arquivo para sua
+  posição original no `$HOME`.
+- **Segurança extra:** antes de sobrescrever, salva o estado atual em
+  `<backup>/.pre-restore-<timestamp>/`. Ou seja, **o próprio revert é
+  reversível** — se você restaurar o backup errado, ainda pode voltar.
+- **Sem argumento:** se chamado sem caminho, usa a pasta onde o próprio script
+  está (por isso a cópia dentro do backup funciona sozinha).
+- **Escopo (importante):** reverte **arquivos de config**, não pacotes
+  instalados. Ferramentas instaladas via `brew`/`apt` permanecem; desinstale-as
+  à parte se quiser (o relatório final do Claude lista o que foi "instalado agora").
+- **Depois de restaurar:** abra um novo shell (`exec zsh`) para aplicar.
+
+### `profile/SETUP.md` — o roteiro que o Claude executa (destino)
+
+Não é um script, mas **é executável pelo Claude**: um roteiro em fases que ele
+segue na máquina nova. Resumo das fases:
+
+| Fase | O que acontece |
+|---|---|
+| 0 | Detecta o SO; instala `zsh` se faltar (pergunta antes); inventaria o que já existe no destino. |
+| 0.5 | **Backup obrigatório** (`scripts/backup.sh`) antes de qualquer alteração. |
+| 1 | Instala o Oh My Zsh se faltar. |
+| 2 | Instala só as ferramentas CLI faltantes, com o gerenciador do SO. |
+| 3 | Clona plugins; resolve o tema (pergunta no caso do `dracula-pro` pago). |
+| 4 | Monta o `.zshrc` adaptado, removendo as linhas WSL-only. |
+| 5 | Copia as configs de apps (`~/.config/...`). |
+| 6 | **Verificação obrigatória**: smoke-test de cada ferramenta + relatório `instalado`/`já presente`/`pulado`/`FALHOU`. |
+
+Os três princípios que o Claude segue em todas as fases: **idempotência** (não
+quebrar o que já existe), **verificação** (testar, não presumir) e **backup**
+(todo revert tem que ser possível).
+
+---
+
+## Garantias do processo
+
+- **Cross-platform:** o Claude detecta macOS / Linux nativo / Windows+WSL e usa
+  `brew` / `apt` / `dnf` / `pacman` conforme o caso, pulando as linhas WSL-only.
+- **Não precisa ter zsh no destino:** se faltar, o Claude pergunta e instala (e
+  oferece torná-lo o shell padrão).
+- **Idempotente:** o que já existe é detectado e pulado — nada é reinstalado ou
+  quebrado. Rodar o setup duas vezes é seguro.
+- **Verificado:** cada ferramenta passa por um smoke-test (`zoxide --version`,
+  `glow --version`, etc.) e o Claude entrega um relatório de status real.
+- **Reversível:** backup automático antes de alterar, com revert auto-suficiente.
+
+---
+
+## Estrutura do repositório
+
+| Caminho | Papel |
+|---|---|
+| `export.sh` | Entry point do **export** (origem). Wrapper sobre o exporter. |
+| `lib/catalog.json` | Base de conhecimento: como instalar/verificar cada ferramenta em cada SO. **Edite aqui para adicionar ferramentas.** |
+| `lib/exporter.py` | Motor do export: detecção, cópia de dotfiles, geração do profile. |
+| `scripts/dry-run.sh` | **Import:** simula o setup (read-only), mostra o plano sem instalar. |
+| `scripts/backup.sh` | **Import:** snapshot das configs do alvo antes de alterar. |
+| `scripts/restore.sh` | **Import:** reverte para um snapshot (auto-suficiente). |
+| `tests/test_exporter.py` | Testes de regressão do exporter (`unittest`, sem deps). |
+| `profile/` | Saída gerada pelo export (commitada — é o que viaja). |
+| `profile/manifest.json` | Inventário estruturado do ambiente de origem. |
+| `profile/SETUP.md` | Roteiro em fases que o Claude executa no destino. |
+| `profile/dotfiles/` | Cópias dos arquivos de config originais. |
+
+---
+
+## Adicionar uma ferramenta nova
+
+Tudo é dado, não código. Edite `lib/catalog.json` e adicione uma entrada em
+`cli_tools`:
+
+```json
+"ripgrep": {
+  "describe": "grep recursivo ultrarrápido",
+  "detect": "rg",
+  "source": "https://github.com/BurntSushi/ripgrep",
+  "verify": "rg --version",
+  "install": {
+    "macos": "brew install ripgrep",
+    "debian": "sudo apt install -y ripgrep"
+  }
+}
+```
+
+Campos: `detect` (nome do binário procurado), `verify` (smoke-test) e `install`
+(comando por SO: `macos`/`debian`/`fallback`). Rode `./export.sh` de novo — a
+ferramenta entra no manifest e na tabela de verificação automaticamente.
+
+---
+
+## Desenvolvimento
+
+Os testes de regressão do exporter rodam só com a stdlib do Python (sem
+`pip install`):
+
+```bash
+python3 tests/test_exporter.py        # ou: python3 -m unittest -v tests.test_exporter
+```
+
+Cobrem parsing do `.zshrc`, detecção de ferramentas, marcação de linhas
+WSL-only, geração do `manifest.json` e do `SETUP.md`. Rode-os após qualquer
+mudança em `lib/exporter.py` ou `lib/catalog.json`.
+
+## Segurança
+
+- O `.zsh_history` **nunca** é exportado (está no `.gitignore`).
+- Revise `profile/dotfiles/.zshrc` antes do `git push` se você guarda segredos no
+  `.zshrc` — o ideal é movê-los para um `~/.zshrc.local` fora do versionamento.
+- O export **não executa** nada do seu ambiente: só lê e copia.

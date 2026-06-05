@@ -1,0 +1,61 @@
+# Dracula Pro colorscheme for micro
+# accent: #7970A9 | background: #22212C | foreground: #F8F8F2
+
+# ── Base ──────────────────────────────────────────────────────────────────────
+color-link default              "#F8F8F2,#22212C"
+color-link indent-char          "#454158,#22212C"
+
+# ── Syntax ────────────────────────────────────────────────────────────────────
+color-link comment              "#7970A9,#22212C"
+color-link todo                 "#FFCA80,#22212C"
+
+color-link statement            "#9580FF,#22212C"
+color-link conditional          "#9580FF,#22212C"
+color-link repeat               "#9580FF,#22212C"
+color-link keyword              "#9580FF,#22212C"
+color-link exception            "#9580FF,#22212C"
+color-link label                "#9580FF,#22212C"
+color-link operator             "#FF80BF,#22212C"
+
+color-link preproc              "#FF80BF,#22212C"
+color-link macro                "#FF80BF,#22212C"
+
+color-link identifier           "#F8F8F2,#22212C"
+color-link function             "#8AFF80,#22212C"
+
+color-link type                 "#80FFEA,#22212C"
+color-link typedef              "#80FFEA,#22212C"
+
+color-link constant             "#9580FF,#22212C"
+color-link string               "#FFCA80,#22212C"
+color-link stringdelimiter      "#FFCA80,#22212C"
+color-link character            "#FFCA80,#22212C"
+color-link number               "#9580FF,#22212C"
+color-link float                "#9580FF,#22212C"
+color-link bool                 "#9580FF,#22212C"
+
+color-link special              "#FF80BF,#22212C"
+color-link specialchar          "#FF80BF,#22212C"
+color-link underlined           "#80FFEA,#22212C"
+
+color-link error                "#FF9580,#22212C"
+color-link warning              "#FFCA80,#22212C"
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+color-link statusline           "#F8F8F2,#7970A9"
+color-link statusline.inactive  "#7970A9,#454158"
+color-link tabbar               "#F8F8F2,#22212C"
+color-link tabbar.inactive      "#7970A9,#22212C"
+
+color-link line-number          "#7970A9,#22212C"
+color-link current-line-number  "#F8F8F2,#22212C"
+color-link gutter-error         "#FF9580,#22212C"
+color-link gutter-warning       "#FFCA80,#22212C"
+
+color-link selection            "#F8F8F2,#3B3951"
+color-link matchbrace           "#22212C,#8AFF80"
+
+# ── Diff ──────────────────────────────────────────────────────────────────────
+color-link diff-added           "#8AFF80,#22212C"
+color-link diff-modified        "#FFCA80,#22212C"
+color-link diff-deleted         "#FF9580,#22212C"
