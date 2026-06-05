@@ -15,6 +15,7 @@ Usa só a stdlib.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,8 @@ sys.path.insert(0, str(REPO / "scripts"))
 import exporter          # type: ignore  # noqa: E402
 import claude_exporter as ce  # type: ignore  # noqa: E402
 import dryrun            # type: ignore  # noqa: E402
+import reconcile         # type: ignore  # noqa: E402
+import receipt           # type: ignore  # noqa: E402
 
 # ── Fixtures: dois .zshrc realistas, um por plataforma de origem ──────────────
 ZSHRC_WSL = '''ZSH_THEME="dracula-pro"
@@ -190,6 +193,75 @@ class TestBackupRestoreRoundtrip(unittest.TestCase):
         subprocess.run(["bash", f"{backup_dir}/restore.sh"], env=env,
                        capture_output=True, text=True)
         self.assertEqual((home / ".zshrc").read_text(), "ORIGINAL\n")
+
+
+class TestRemovalReconciliationFlow(unittest.TestCase):
+    """Fluxo de REMOÇÃO ponta-a-ponta: recibo do import anterior (prev) × manifest
+    novo da origem (curr), usando a POLÍTICA real dos catálogos. Prova que apagar
+    algo na origem (cli, plugin, skill, security flag) é refletido no destino —
+    e que a ação certa (prompt_remove × report_only) é escolhida."""
+
+    def _dims(self, catalog_name):
+        cat = json.loads((REPO / "lib" / catalog_name).read_text(encoding="utf-8"))
+        return cat["removal_policy"]["dimensions"]
+
+    def test_shell_cli_e_plugin_removidos(self):
+        dims = self._dims("catalog.json")
+        prev = {"cli_tools": [{"name": "bat"}, {"name": "fd"}],
+                "omz_plugins": [{"name": "zsh-autosuggestions"}, {"name": "zsh-syntax"}],
+                "version_managers": [], "frameworks": [], "theme": None, "dotfiles_copied": []}
+        curr = {"cli_tools": [{"name": "bat"}],                       # fd removido (sistema)
+                "omz_plugins": [{"name": "zsh-autosuggestions"}],     # zsh-syntax removido (tool-owned)
+                "version_managers": [], "frameworks": [], "theme": None, "dotfiles_copied": []}
+        plan = reconcile.compute_removal_plan(prev, curr, dims)
+        prompt, report = reconcile.split_by_action(plan)
+        # plugin OMZ → o roteiro remove (tool-owned); cli → só avisa (binário de sistema)
+        self.assertEqual({p["id"] for p in prompt}, {"zsh-syntax"})
+        self.assertEqual({p["id"] for p in report}, {"fd"})
+
+    def test_claude_skill_e_flag_removidas(self):
+        dims = self._dims("claude_catalog.json")
+        prev = {"plugins": [], "marketplaces": [], "language_servers": [],
+                "hook_dependencies": [], "security_flags": {"skipAutoPermissionPrompt": True},
+                "config_inventory": {"skills": ["spec", "handoff"], "agents": [], "commands": [], "hooks": []}}
+        curr = {"plugins": [], "marketplaces": [], "language_servers": [],
+                "hook_dependencies": [], "security_flags": {},
+                "config_inventory": {"skills": ["spec"], "agents": [], "commands": [], "hooks": []}}
+        plan = reconcile.compute_removal_plan(prev, curr, dims)
+        prompt, _ = reconcile.split_by_action(plan)
+        ids = {(p["label"], p["id"]) for p in prompt}
+        self.assertIn(("skill", "handoff"), ids)            # skill apagada propaga
+        self.assertIn(("security flag", "skipAutoPermissionPrompt"), ids)  # flag removida propaga
+
+    def test_receipt_roundtrip_e_primeiro_import(self):
+        """Recibo grava/lê via DEV_ENV_MIGRATE_STATE; sem recibo = primeiro import."""
+        state = Path(tempfile.mkdtemp()) / "state"
+        prev_env = os.environ.get("DEV_ENV_MIGRATE_STATE")
+        os.environ["DEV_ENV_MIGRATE_STATE"] = str(state)
+        try:
+            # Sem recibo ainda → load devolve None → plano vazio (nada a remover).
+            self.assertIsNone(receipt.load("shell"))
+            self.assertEqual(reconcile.compute_removal_plan(receipt.load("shell"),
+                             {"cli_tools": [{"name": "bat"}]}, self._dims("catalog.json")), [])
+            # Grava um recibo à mão (simulando o fim de um import) e relê.
+            state.mkdir(parents=True, exist_ok=True)
+            (state / "manifest.json").write_text(json.dumps(
+                {"cli_tools": [{"name": "bat"}, {"name": "fd"}], "omz_plugins": [],
+                 "version_managers": [], "frameworks": [], "theme": None,
+                 "dotfiles_copied": []}), encoding="utf-8")
+            prev = receipt.load("shell")
+            self.assertIsNotNone(prev)
+            # Agora a origem perdeu 'fd' → órfão detectado a partir do recibo lido.
+            plan = reconcile.compute_removal_plan(
+                prev, {"cli_tools": [{"name": "bat"}], "omz_plugins": [],
+                       "version_managers": [], "frameworks": [], "theme": None,
+                       "dotfiles_copied": []}, self._dims("catalog.json"))
+            self.assertEqual([p["id"] for p in plan], ["fd"])
+        finally:
+            if prev_env is None:
+                os.environ.pop("DEV_ENV_MIGRATE_STATE", None)
+            else:
+                os.environ["DEV_ENV_MIGRATE_STATE"] = prev_env
 
 
 if __name__ == "__main__":

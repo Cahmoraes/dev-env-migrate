@@ -53,6 +53,15 @@ Categorias: `CLI` · `plugin` · `language-server` · `hook-binary` · `dotfile`
 |---|---|---|---|---|---|---|
 | `rtk` | hook-binary | macOS | `<método que o roteiro tentou>` | não resolveu sozinho | manual: `brew install rtk` | ✋ resolvido manual |
 
+## Remoções (órfãos que sumiram da origem)
+Itens que um import anterior aplicou e que não estão mais no profile (detectados
+pelo dry-run via recibo). `tool-owned` = removido com confirmação; `sistema` =
+só avisado, não desinstalado.
+
+| Item | Categoria | Tipo | Ação tomada | Estado |
+|---|---|---|---|---|
+| `<nome>` | skill / plugin / cli / security-flag / … | tool-owned / sistema | removido / avisado / recusado | 🗑️ removido / ⚠️ avisado / ✋ recusado |
+
 ## Decisões manuais (sensíveis — não são falhas)
 Itens que o roteiro manda PERGUNTAR antes de aplicar:
 - [ ] tema pago (ex.: `dracula-pro`) — instalado? como?

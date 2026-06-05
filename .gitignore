@@ -15,3 +15,6 @@ RELATORIO_IMPORT.md
 # Worktrees do Claude Code (diretórios temporários de sessão)
 .claude/worktrees/
 .vscode
+
+# Backup legível gerado pelo caveman-compress (o CLAUDE.md comprimido é o canônico).
+*.original.md

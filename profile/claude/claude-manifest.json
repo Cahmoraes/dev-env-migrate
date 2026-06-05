@@ -232,5 +232,31 @@
     "agents/",
     "skills/"
   ],
+  "config_inventory": {
+    "hooks": [
+      "caveman-activate.js",
+      "caveman-config.js",
+      "caveman-mode-tracker.js",
+      "caveman-stats.js",
+      "caveman-statusline.ps1",
+      "caveman-statusline.sh",
+      "context-mode-cache-heal.mjs",
+      "package.json"
+    ],
+    "agents": [
+      "code-architect.md",
+      "code-simplifier.md"
+    ],
+    "skills": [
+      "birchline-html",
+      "commit-push-pr",
+      "dedupe",
+      "deep-teach",
+      "frontend-design",
+      "handoff",
+      "oncall-triage",
+      "spec"
+    ]
+  },
   "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem e os hook_dependencies (binários) para os hooks do settings.json não falharem. Revise security_flags e non_portable_markers antes de aplicar."
 }

@@ -263,9 +263,28 @@ def copy_claude_config(catalog: dict, sanitized_settings: dict) -> list:
     return copied
 
 
+def inventory_config_dirs(catalog: dict) -> dict:
+    """Lista, por NOME, o conteúdo de cada diretório de config exportado.
+
+    Existe só para a RECONCILIAÇÃO DE REMOÇÃO: o claude-manifest passa a registrar
+    quais skills/agents/commands/hooks viajaram (não só que o diretório viajou).
+    Assim, se uma skill some da origem, o destino detecta o órfão por nome
+    (ver lib/reconcile.py + removal_policy.config_inventory.* no catálogo).
+
+    É inventário (dado), não lógica: lê o que copy_claude_config já depositou em
+    profile/claude/config/<dir>/ e devolve os nomes dos filhos imediatos.
+    """
+    inv = {}
+    for name in catalog["config_to_export"]["dirs"]:
+        d = CONFIG_OUT / name
+        if d.is_dir():
+            inv[name] = sorted(child.name for child in d.iterdir())
+    return inv
+
+
 def build_manifest(settings, plugins_data, marketplaces, lsp, node_pkgs,
                    non_portable, security, removed_secrets, copied,
-                   hook_deps=None) -> dict:
+                   hook_deps=None, config_inventory=None) -> dict:
     enabled = settings.get("enabledPlugins", {})
     plugins = []
     for full_name, installs in (plugins_data or {}).get("plugins", {}).items():
@@ -293,6 +312,7 @@ def build_manifest(settings, plugins_data, marketplaces, lsp, node_pkgs,
         "non_portable_markers_found": non_portable,
         "secrets_removed_from_settings": removed_secrets,
         "config_files_copied": copied,
+        "config_inventory": config_inventory or {},
         "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. "
                  "Instale os language_servers (binários) para os plugins LSP funcionarem e "
                  "os hook_dependencies (binários) para os hooks do settings.json não falharem. "
@@ -497,9 +517,13 @@ def main() -> int:
     copied = copy_claude_config(catalog, sanitized)  # type: ignore[arg-type]
     print(f"→ Config copiada: {', '.join(copied)}")
 
+    config_inventory = inventory_config_dirs(catalog)
+    inv_summary = ", ".join(f"{k}={len(v)}" for k, v in config_inventory.items())
+    print(f"→ Inventário de config (p/ reconciliação): {inv_summary or '(vazio)'}")
+
     manifest = build_manifest(settings, plugins_data, marketplaces, lsp,
                               node_pkgs, non_portable, security, removed, copied,
-                              hook_deps)
+                              hook_deps, config_inventory)
     (OUT / "claude-manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     (OUT / "CLAUDE_SETUP.md").write_text(render_setup_md(manifest), encoding="utf-8")

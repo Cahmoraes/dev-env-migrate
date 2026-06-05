@@ -129,5 +129,20 @@
       "skipAutoPermissionPrompt"
     ],
     "note": "bypassPermissions + skip* desativa as confirmações de segurança. Pode ser indesejado numa máquina nova ou compartilhada."
+  },
+
+  "removal_policy": {
+    "_comment": "RECONCILIAÇÃO DE REMOÇÃO da config do Claude (deleção propagada origem→destino). O destino compara o recibo do último import (prev) com o claude-manifest atual (curr): item no recibo e ausente agora = órfão. 'action': prompt_remove = o roteiro REMOVE com confirmação+backup (item tool-owned: plugin, marketplace, skill, agent, command, hook-script, security flag); report_only = só AVISA (language server / hook-binary são binários de sistema — não desinstalar). 'config_inventory.*' depende do bloco config_inventory do manifest (lista skills/agents/commands/hooks por nome). Adicionar dimensão = entrada aqui (dado, não código). 'kind': ver lib/reconcile.py.",
+    "dimensions": [
+      {"path": "plugins",                  "kind": "list_dict",   "id": "name",            "action": "prompt_remove", "label": "plugin Claude"},
+      {"path": "marketplaces",             "kind": "list_dict",   "id": "name",            "action": "prompt_remove", "label": "marketplace"},
+      {"path": "language_servers",         "kind": "list_dict",   "id": "language_server", "action": "report_only",   "label": "language server"},
+      {"path": "hook_dependencies",        "kind": "list_dict",   "id": "name",            "action": "report_only",   "label": "hook-binary"},
+      {"path": "security_flags",           "kind": "dict_keys",                            "action": "prompt_remove", "label": "security flag"},
+      {"path": "config_inventory.skills",  "kind": "list_scalar",                          "action": "prompt_remove", "label": "skill"},
+      {"path": "config_inventory.agents",  "kind": "list_scalar",                          "action": "prompt_remove", "label": "agent"},
+      {"path": "config_inventory.commands","kind": "list_scalar",                          "action": "prompt_remove", "label": "command"},
+      {"path": "config_inventory.hooks",   "kind": "list_scalar",                          "action": "prompt_remove", "label": "hook-script"}
+    ]
   }
 }

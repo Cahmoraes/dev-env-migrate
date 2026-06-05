@@ -21,6 +21,15 @@ Rode `./scripts/dry-run.sh` e mostre ao usuário o **plano de adaptação**
 (origem → este destino): o que já existe e será pulado, o que falta instalar, e
 as linhas do `.zshrc` a manter/remover/adicionar. **Peça confirmação para seguir.**
 
+O dry-run também imprime o **Plano de remoção** (deleção propagada origem→destino):
+itens que ESTE destino aplicou num import anterior e que **sumiram da origem**
+(via recibo em `~/.dev-env-migrate/`). Há duas categorias — destaque ambas:
+- **REMOVER** (tool-owned: skill, plugin, marketplace, security flag, hook-script,
+  plugin OMZ) → você vai removê-los na Fase 4.5, **com confirmação**.
+- **AVISO** (binário de sistema: CLI, language server, hook-binary) → **não
+  desinstale** (pode quebrar a máquina); só registre no relatório.
+No **primeiro import** desta máquina não há recibo → nada a remover (normal).
+
 ## 2. Backup (rede de segurança — obrigatório)
 Rode `./scripts/backup.sh` e **guarde o caminho impresso na última linha**. Cite-o
 ao usuário: é o ponto de revert (`./scripts/restore.sh <caminho>`).
@@ -43,6 +52,25 @@ Leia `profile/claude/CLAUDE_SETUP.md` e execute-o:
   as flags de segurança (`bypassPermissions`); condicione/remova hooks que não são
   desta plataforma.
 
+## 4.5 Remoções (órfãos que sumiram da origem)
+Execute o **Plano de remoção** do dry-run. O backup da Fase 2 já cobre o revert.
+Trate cada categoria conforme a ação:
+- **REMOVER (tool-owned)** — para cada órfão, **PERGUNTE ao usuário** e, com o
+  aceite, remova pelo método certo:
+  - `plugin Claude` → `claude plugin uninstall <nome>` · `marketplace` →
+    `claude plugin marketplace remove <nome>`.
+  - `skill`/`agent`/`command`/`hook-script` → apague o item em
+    `~/.claude/<skills|agents|commands|hooks>/<nome>` (já há backup na Fase 2 do
+    `CLAUDE_SETUP.md`).
+  - `security flag` → remova a chave do `~/.claude/settings.json` no merge da Fase 4.
+  - `plugin OMZ` → remova de `plugins=(...)` no `.zshrc` e apague a pasta clonada
+    em `${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/<nome>`.
+- **AVISO (binário de sistema)** — **não** desinstale. Apenas registre no
+  relatório que saiu da origem (o usuário desinstala manualmente se quiser).
+- Se o usuário recusar uma remoção, registre como pendência e siga — o recibo da
+  Fase 5 só grava o estado novo, então o item voltará a aparecer no próximo
+  dry-run até ser resolvido.
+
 ## 5. Verificação e relatório
 - Rode os smoke-tests da Fase 6 do `SETUP.md` e o `claude plugin list`.
 - **Durante as fases 3 e 4, anote cada tropeço** (item que não instalou pelo
@@ -60,5 +88,11 @@ Leia `profile/claude/CLAUDE_SETUP.md` e execute-o:
 - Sempre que houver falha ou intervenção manual, preencha a seção **"Sugestões
   para a ORIGEM"** do relatório — é o que fecha a lacuna no `lib/catalog.json` na
   próxima importação.
+- **Grave o recibo** (baseline da próxima reconciliação de remoção): rode
+  `python3 ./scripts/receipt.py save`. Ele copia os manifests aplicados para
+  `~/.dev-env-migrate/receipt/`. Sem isto, o próximo import não detecta o que foi
+  removido da origem. Faça isto **ao final**, só se o import chegou ao fim sem
+  erro bloqueante (senão o baseline registraria um estado que não foi de fato
+  aplicado).
 - Mostre o resumo ao usuário e cite o caminho do `RELATORIO_IMPORT.md`.
 - Lembre o usuário de como reverter, se necessário: `./scripts/restore.sh <backup>`.

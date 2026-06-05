@@ -132,7 +132,7 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "autoCompactEnabled": true,

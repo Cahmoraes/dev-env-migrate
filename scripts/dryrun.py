@@ -27,6 +27,15 @@ from pathlib import Path
 HOME = Path.home()
 REPO = Path(__file__).resolve().parent.parent
 MANIFEST = REPO / "profile" / "manifest.json"
+CLAUDE_MANIFEST = REPO / "profile" / "claude" / "claude-manifest.json"
+CATALOG = REPO / "lib" / "catalog.json"
+CLAUDE_CATALOG = REPO / "lib" / "claude_catalog.json"
+
+# reconcile mora em lib/; receipt é vizinho em scripts/. Garante os dois no path.
+sys.path.insert(0, str(REPO / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import reconcile  # type: ignore  # noqa: E402
+import receipt    # type: ignore  # noqa: E402
 
 # Cores só se for um terminal de verdade.
 _tty = sys.stdout.isatty()
@@ -88,6 +97,62 @@ def compute_adaptation_plan(lines, dest_os, dest_is_wsl):
     origin_has_aliases = any(l.get("platform") == "debian_binary_rename" for l in lines)
     add_debian_aliases = dest_os == "debian" and not origin_has_aliases
     return keep, remove, add_debian_aliases
+
+
+def load_removal_dimensions(catalog_path: Path) -> list:
+    """Lê removal_policy.dimensions de um catálogo (vazio se ausente/inválido)."""
+    try:
+        cat = json.loads(catalog_path.read_text(encoding="utf-8"))
+        return cat.get("removal_policy", {}).get("dimensions", [])
+    except (OSError, ValueError):
+        return []
+
+
+def render_removal_section(curr_shell: dict) -> int:
+    """Mostra o PLANO DE REMOÇÃO (deleção propagada origem→destino).
+
+    Compara o recibo do último import (prev) com os manifests atuais (curr). Sem
+    recibo ⇒ primeiro import, nada a remover. Retorna quantos itens são
+    prompt_remove (para o resumo) — os report_only só são avisados, não contam
+    como ação a executar.
+    """
+    header("Plano de remoção (itens que sumiram da origem)")
+    prev_shell = receipt.load("shell")
+    prev_claude = receipt.load("claude")
+
+    if prev_shell is None and prev_claude is None:
+        print(DIM(f"  recibo: nenhum em {receipt.receipt_dir()}"))
+        print("  Primeiro import nesta máquina (sem histórico) → nada a remover.")
+        print(DIM("  O recibo será criado ao final do import e servirá de baseline."))
+        return 0
+
+    print(DIM(f"  recibo: {receipt.receipt_dir()}"))
+    plan = reconcile.compute_removal_plan(
+        prev_shell, curr_shell, load_removal_dimensions(CATALOG))
+    if prev_claude is not None:
+        if CLAUDE_MANIFEST.exists():
+            curr_claude = json.loads(CLAUDE_MANIFEST.read_text(encoding="utf-8"))
+            plan += reconcile.compute_removal_plan(
+                prev_claude, curr_claude, load_removal_dimensions(CLAUDE_CATALOG))
+        else:
+            print(YELLOW("  (recibo tem config do Claude, mas o claude-manifest "
+                         "atual sumiu — pulando reconciliação do Claude por segurança)"))
+
+    prompt, report = reconcile.split_by_action(plan)
+    if not plan:
+        print(f"  {GREEN('nada a remover')} — origem e destino alinhados.")
+        return 0
+    if prompt:
+        print(f"  {YELLOW('REMOVER')} {len(prompt)} item(ns) tool-owned "
+              f"(o import vai PERGUNTAR; backup já cobre):")
+        for p in prompt:
+            print(DIM(f"      [{p['label']}] {p['id']}"))
+    if report:
+        print(f"  {CYAN('AVISO')} {len(report)} item(ns) de sistema "
+              f"(NÃO desinstala — remova manualmente se quiser):")
+        for p in report:
+            print(DIM(f"      [{p['label']}] {p['id']}"))
+    return len(prompt)
 
 
 def header(title: str):
@@ -199,12 +264,17 @@ def main() -> int:
         print(f"  {CYAN('ADICIONAR')} alias bat=\"batcat\", alias fd=\"fdfind\" "
               f"(binários renomeados no Debian/Ubuntu)")
 
+    # ── Plano de remoção (deleção propagada origem → destino) ────────
+    n_remove_prompt = render_removal_section(manifest)
+
     # ── Resumo ───────────────────────────────────────────────────────
     header("Resumo do plano")
     print(f"  {GREEN(str(summary['present']))} ferramenta(s) já presente(s) → serão puladas")
     print(f"  {YELLOW(str(summary['missing']))} ferramenta(s) faltando → seriam instaladas")
     print(f"  adaptação do .zshrc: manter {len(keep)} · remover {len(remove)}"
           + (" · adicionar aliases bat/fd" if add_aliases else ""))
+    print(f"  remoção (órfãos da origem): {n_remove_prompt} a confirmar"
+          + (DIM(" · ver avisos acima") if n_remove_prompt == 0 else ""))
     print()
     print(BOLD(GREEN("DRY-RUN concluído. Nada foi instalado ou alterado.")))
     print(DIM("Para executar de verdade: abra o Claude Code e diga "

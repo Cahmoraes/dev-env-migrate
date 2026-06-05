@@ -243,5 +243,16 @@
       "_comment": "Aliases que existem só por causa de binários renomeados no Debian/Ubuntu (bat→batcat, fd→fdfind). No DESTINO: manter/adicionar se for Debian; remover se for macOS/outros.",
       "patterns": ["alias bat=\"batcat\"", "alias fd=\"fdfind\"", "batcat", "fdfind"]
     }
+  },
+  "removal_policy": {
+    "_comment": "RECONCILIAÇÃO DE REMOÇÃO (deleção propagada origem→destino). O destino compara o recibo do último import (prev) com o manifest atual (curr): item no recibo e ausente agora = órfão. 'action': prompt_remove = o roteiro REMOVE com confirmação+backup (item tool-owned); report_only = só AVISA, não desinstala (binário de sistema compartilhado — desinstalar quebraria a máquina). Adicionar dimensão = entrada aqui (dado, não código). 'kind': como extrair os ids — ver lib/reconcile.py.",
+    "dimensions": [
+      {"path": "cli_tools",        "kind": "list_dict",   "id": "name", "action": "report_only",   "label": "CLI"},
+      {"path": "version_managers", "kind": "list_dict",   "id": "name", "action": "report_only",   "label": "version manager"},
+      {"path": "frameworks",       "kind": "list_dict",   "id": "name", "action": "report_only",   "label": "framework"},
+      {"path": "omz_plugins",      "kind": "list_dict",   "id": "name", "action": "prompt_remove", "label": "plugin OMZ"},
+      {"path": "theme",            "kind": "single_dict", "id": "name", "action": "report_only",   "label": "tema"},
+      {"path": "dotfiles_copied",  "kind": "list_scalar",               "action": "report_only",   "label": "dotfile"}
+    ]
   }
 }
