@@ -45,6 +45,20 @@ Leia `profile/claude/CLAUDE_SETUP.md` e execute-o:
 
 ## 5. Verificação e relatório
 - Rode os smoke-tests da Fase 6 do `SETUP.md` e o `claude plugin list`.
-- Entregue um relatório: `instalado` / `já presente` / `pulado` / **`FALHOU`** por
-  item, mais o que exigiu decisão manual (tema pago, hooks, flags de segurança).
+- **Durante as fases 3 e 4, anote cada tropeço** (item que não instalou pelo
+  método do roteiro, erro do gerenciador, decisão sensível) — não confie só na
+  memória da conversa.
+- **Gere o `RELATORIO_IMPORT.md`** na raiz do repo, seguindo o molde em
+  `references/relatorio-import.template.md`. É um report **sumarizado** e
+  específico desta máquina (está no `.gitignore`, não viaja no profile). Ele
+  existe para o caso em que **o destino não consegue instalar uma biblioteca
+  sozinho** — o método de instalação costuma variar por SO (ex.: `rtk` →
+  `brew install rtk` no macOS, `install.sh` no Linux/WSL). Registre por item:
+  o que foi tentado, o sintoma, como resolveu (ou não) e o **estado** padronizado
+  (`✅ instalado` / `➖ já presente` / `⏭️ pulado` / `✋ resolvido manual` /
+  `⚠️ resolvido com ressalva` / `❌ não resolvido`).
+- Sempre que houver falha ou intervenção manual, preencha a seção **"Sugestões
+  para a ORIGEM"** do relatório — é o que fecha a lacuna no `lib/catalog.json` na
+  próxima importação.
+- Mostre o resumo ao usuário e cite o caminho do `RELATORIO_IMPORT.md`.
 - Lembre o usuário de como reverter, se necessário: `./scripts/restore.sh <backup>`.

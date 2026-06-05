@@ -9,6 +9,9 @@ __pycache__/
 # Backups locais
 *.backup-*
 
+# Relatório do import-env — específico de cada DESTINO, não viaja no profile.
+RELATORIO_IMPORT.md
+
 # Worktrees do Claude Code (diretórios temporários de sessão)
 .claude/worktrees/
 .vscode

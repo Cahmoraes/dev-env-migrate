@@ -24,7 +24,7 @@ Mudar `lib/*.py` ou `lib/*.json` → **regenere profile** (`./export.sh && ./exp
 
 **Fluxo via Claude (sem scripts à mão)** — skills em `.claude/skills/`:
 - `export-env` — ORIGEM: gera profiles, checa segredos, commita, push.
-- `import-env` — DESTINO: dry-run → backup → executa `SETUP.md` e `CLAUDE_SETUP.md` adaptando ao SO → verifica. Viaja com repo (após `git clone`).
+- `import-env` — DESTINO: dry-run → backup → executa `SETUP.md` e `CLAUDE_SETUP.md` adaptando ao SO → verifica → gera `RELATORIO_IMPORT.md` (falhas/intervenções; molde em `references/`). Viaja com repo (após `git clone`).
 
 ## Arquitetura
 
