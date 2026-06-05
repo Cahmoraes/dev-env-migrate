@@ -169,11 +169,13 @@ def copy_dotfiles() -> list[str]:
         config_out.mkdir(parents=True, exist_ok=True)
         dst = config_out / name
         if src.is_dir():
-            # Ignora estado volátil (não-config): buffers/histórico/caches/logs.
+            # Ignora APENAS estado volátil (não-config). 'buffers' e 'backups' são
+            # os diretórios de histórico/crash-recovery do micro — contêm conteúdo
+            # de arquivos editados e não devem viajar. Mantemos 'history'/'cache'
+            # soltos FORA do filtro: poderiam ser config legítima de outros apps.
             shutil.copytree(src, dst, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(
-                                "buffers", "backups", "cache", "*.log",
-                                "history", ".DS_Store"))
+                                "buffers", "backups", "*.log", ".DS_Store"))
         else:
             shutil.copy2(src, dst)
         copied.append(f".config/{name}")
