@@ -1,5 +1,3 @@
-O arquivo não existe no disco — o conteúdo foi fornecido diretamente no prompt. Vou aplicar todas as correções e retornar o arquivo corrigido.
-
 # CLAUDE.md
 
 Ferramenta exportar ambiente (zsh + Claude Code), reconstruir outra máquina. **Bidirecional** WSL/macOS/Linux. Export determinístico; import híbrido (Claude lê roteiro, adapta).
