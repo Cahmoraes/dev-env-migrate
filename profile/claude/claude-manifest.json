@@ -1,0 +1,219 @@
+{
+  "exported_from": {
+    "home": "${HOME}",
+    "claude_dir": "${HOME}/.claude"
+  },
+  "marketplaces": [
+    {
+      "name": "claude-plugins-official",
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    {
+      "name": "caveman",
+      "source": "github",
+      "repo": "JuliusBrussee/caveman"
+    },
+    {
+      "name": "context-mode",
+      "source": "github",
+      "repo": "mksglu/context-mode"
+    },
+    {
+      "name": "claude-code-warp",
+      "source": "github",
+      "repo": "warpdotdev/claude-code-warp"
+    }
+  ],
+  "plugins": [
+    {
+      "name": "caveman@caveman",
+      "enabled": false,
+      "version": "655b7d9c5431",
+      "gitCommitSha": "655b7d9c5431f822264b7732e9901c5578ac84cf"
+    },
+    {
+      "name": "context-mode@context-mode",
+      "enabled": true,
+      "version": "1.0.162",
+      "gitCommitSha": "be7387d9c4633b6e236a75bc4424119de0744965"
+    },
+    {
+      "name": "frontend-design@claude-plugins-official",
+      "enabled": true,
+      "version": "unknown",
+      "gitCommitSha": null
+    },
+    {
+      "name": "typescript-lsp@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "claude-md-management@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "warp@claude-code-warp",
+      "enabled": true,
+      "version": "2.1.0",
+      "gitCommitSha": "bb6c1cf2f5cd7eb609678a2b175e7f4504ca61c2"
+    },
+    {
+      "name": "explanatory-output-style@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "prisma@claude-plugins-official",
+      "enabled": [
+        "Prisma-Local"
+      ],
+      "version": "815dbc4a045a",
+      "gitCommitSha": "815dbc4a045a29e3b81510ba0e3ab806f1baaf0e"
+    },
+    {
+      "name": "pyright-lsp@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "gopls-lsp@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "rust-analyzer-lsp@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
+    },
+    {
+      "name": "commit-commands@claude-plugins-official",
+      "enabled": true,
+      "version": "unknown",
+      "gitCommitSha": null
+    }
+  ],
+  "language_servers": [
+    {
+      "language_server": "typescript-language-server",
+      "binary": "typescript-language-server",
+      "for_plugins": [
+        "typescript-lsp@claude-plugins-official"
+      ],
+      "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
+      "installed_on_source": true,
+      "source_path": "/home/cahmoraes/.local/share/pnpm/typescript-language-server",
+      "install": {
+        "pnpm": "pnpm add -g typescript-language-server typescript",
+        "npm": "npm install -g typescript-language-server typescript"
+      }
+    },
+    {
+      "language_server": "vtsls",
+      "binary": "vtsls",
+      "for_plugins": [
+        "typescript-lsp@claude-plugins-official"
+      ],
+      "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
+      "installed_on_source": true,
+      "source_path": "/home/cahmoraes/.local/share/pnpm/vtsls",
+      "install": {
+        "pnpm": "pnpm add -g @vtsls/language-server",
+        "npm": "npm install -g @vtsls/language-server"
+      }
+    },
+    {
+      "language_server": "pyright",
+      "binary": "pyright-langserver",
+      "for_plugins": [
+        "pyright-lsp@claude-plugins-official"
+      ],
+      "describe": "LSP de Python (Pyright)",
+      "installed_on_source": true,
+      "source_path": "/home/cahmoraes/.pyenv/versions/3.13.4/bin/pyright-langserver",
+      "install": {
+        "pnpm": "pnpm add -g pyright",
+        "npm": "npm install -g pyright",
+        "pip": "pip install pyright"
+      }
+    },
+    {
+      "language_server": "gopls",
+      "binary": "gopls",
+      "for_plugins": [
+        "gopls-lsp@claude-plugins-official"
+      ],
+      "describe": "LSP de Go (gopls)",
+      "installed_on_source": true,
+      "source_path": "/home/cahmoraes/go/bin/gopls",
+      "install": {
+        "go": "go install golang.org/x/tools/gopls@latest"
+      }
+    },
+    {
+      "language_server": "rust-analyzer",
+      "binary": "rust-analyzer",
+      "for_plugins": [
+        "rust-analyzer-lsp@claude-plugins-official"
+      ],
+      "describe": "LSP de Rust (rust-analyzer)",
+      "installed_on_source": true,
+      "source_path": "/home/cahmoraes/.cargo/bin/rust-analyzer",
+      "install": {
+        "rustup": "rustup component add rust-analyzer",
+        "cargo": "cargo install --git https://github.com/rust-lang/rust-analyzer rust-analyzer"
+      }
+    }
+  ],
+  "global_node_packages": {
+    "pnpm": [
+      "@biomejs/biome@2.3.10",
+      "@github/copilot@0.0.406",
+      "@nestjs/cli@11.0.16",
+      "@openai/codex@0.130.0",
+      "@playwright/cli@0.1.13",
+      "@vtsls/language-server@0.3.0",
+      "ctx7@0.4.0",
+      "ntl@5.1.0",
+      "opencode-ai@1.15.3",
+      "pnpm@10.23.0",
+      "typescript-language-server@5.3.0",
+      "typescript@6.0.3"
+    ],
+    "npm": [
+      "@github/copilot@1.0.48",
+      "@mermaid-js/mermaid-cli@11.15.0",
+      "@playwright/cli@0.1.13",
+      "corepack@0.34.6",
+      "npm@11.10.0",
+      "taze@19.14.1"
+    ]
+  },
+  "security_flags": {
+    "permissions.defaultMode": "bypassPermissions",
+    "skipDangerousModePermissionPrompt": true,
+    "skipAutoPermissionPrompt": true
+  },
+  "non_portable_markers_found": [
+    "wsl-screenshot-cli",
+    "~/bin/claude-notify"
+  ],
+  "secrets_removed_from_settings": [],
+  "config_files_copied": [
+    "settings.json",
+    "keybindings.json",
+    "statusline-command.sh",
+    "hooks/",
+    "agents/",
+    "skills/"
+  ],
+  "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem. Revise security_flags e non_portable_markers antes de aplicar."
+}

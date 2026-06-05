@@ -1,8 +1,12 @@
 # export-shell-config
 
-Leva sua configuração de shell (zsh + Oh My Zsh + ferramentas CLI + plugins +
-tema) de uma máquina para outra — **incluindo entre Linux/WSL e macOS** — sem
-copiar arquivos manualmente e sem quebrar nada no destino.
+Leva seu ambiente de uma máquina para outra — **incluindo entre Linux/WSL e
+macOS** — sem copiar arquivos manualmente e sem quebrar nada no destino. Cobre
+duas frentes:
+
+- **Shell** (`export.sh`): zsh + Oh My Zsh + ferramentas CLI + plugins + tema.
+- **Claude Code** (`export-claude.sh`): plugins + marketplaces + language servers
+  (LSP) + statusline + hooks + `settings.json` sanitizado.
 
 ## A ideia
 
@@ -37,8 +41,9 @@ O projeto tem **duas pontas**:
 ### 1. Na máquina de origem — exportar
 
 ```bash
-./export.sh
-git add -A && git commit -m "snapshot do ambiente shell"
+./export.sh           # config de shell (zsh, ferramentas, plugins, tema)
+./export-claude.sh    # config do Claude Code (plugins, LSP, statusline, settings)
+git add -A && git commit -m "snapshot do ambiente"
 git push
 ```
 
@@ -56,6 +61,10 @@ E diga ao Claude:
 
 Pronto. O Claude detecta o SO, instala o que falta, monta o `.zshrc` adaptado e
 verifica tudo — pedindo confirmação nos passos sensíveis.
+
+E, para levar também o **Claude Code** (plugins, language servers, statusline):
+
+> Leia `profile/claude/CLAUDE_SETUP.md` e reconstrua minha config do Claude Code.
 
 ---
 
@@ -94,6 +103,38 @@ Chamado pelo `export.sh` (você normalmente não o roda direto). Em ordem:
 6. Copia os dotfiles para `profile/dotfiles/`.
 7. Cruza "detectado" × "catálogo" e escreve `profile/manifest.json` e
    `profile/SETUP.md`.
+
+### `export-claude.sh` — exportar a config do Claude Code (origem)
+
+```bash
+./export-claude.sh
+```
+
+- **Onde roda:** na máquina de origem, **depois** do `export.sh` (são
+  independentes). Wrapper sobre `lib/claude_exporter.py`.
+- **O que faz:** lê `~/.claude/` e gera `profile/claude/` com tudo o que define
+  a *identidade* do seu Claude Code, **sem segredos**:
+  - **plugins + marketplaces** de origem (para reinstalar via `claude plugin`);
+  - **language servers** que cada plugin LSP exige e como instalar cada binário
+    (TS via pnpm, pyright via pip/pnpm, gopls via go, rust-analyzer via cargo);
+  - **pacotes node globais** (onde moram `typescript-language-server`,
+    `typescript`, `@vtsls/language-server`);
+  - `settings.json` **sanitizado** (paths do `$HOME` viram `${HOME}`, chaves de
+    segredo removidas), `keybindings.json`, `statusline-command.sh`, e os
+    diretórios `hooks/`, `agents/`, `skills/`.
+- **O que NUNCA exporta:** `.credentials.json`, `.claude.json`, `history.jsonl`,
+  `projects/`, `sessions/` — tokens, histórico e estado de sessão (ver
+  `sensitive_never_export` em `lib/claude_catalog.json`).
+- **Sinaliza riscos:** flags de segurança (`bypassPermissions`) e hooks
+  não-portáveis (`wsl-screenshot-cli`, `~/bin/claude-notify`) vão marcados no
+  manifesto para o Claude tratar no destino.
+- **Saída:** `profile/claude/claude-manifest.json`, `profile/claude/CLAUDE_SETUP.md`
+  e `profile/claude/config/`.
+
+No destino, diga ao Claude: *"Leia `profile/claude/CLAUDE_SETUP.md` e reconstrua
+minha config do Claude Code."* Ele adiciona os marketplaces, instala os plugins,
+garante os language servers no PATH, mescla o `settings.json` (perguntando antes
+de aplicar as flags de segurança) e verifica tudo no final.
 
 ### `scripts/dry-run.sh` — simular o setup sem instalar nada (destino)
 
@@ -199,14 +240,19 @@ quebrar o que já existe), **verificação** (testar, não presumir) e **backup*
 
 | Caminho | Papel |
 |---|---|
-| `export.sh` | Entry point do **export** (origem). Wrapper sobre o exporter. |
+| `export.sh` | Entry point do **export de shell** (origem). Wrapper sobre o exporter. |
 | `lib/catalog.json` | Base de conhecimento: como instalar/verificar cada ferramenta em cada SO. **Edite aqui para adicionar ferramentas.** |
-| `lib/exporter.py` | Motor do export: detecção, cópia de dotfiles, geração do profile. |
+| `lib/exporter.py` | Motor do export de shell: detecção, cópia de dotfiles, geração do profile. |
+| `export-claude.sh` | Entry point do **export do Claude Code** (origem). |
+| `lib/claude_catalog.json` | Conhecimento: language servers por plugin LSP + regras de sanitização/segurança. |
+| `lib/claude_exporter.py` | Motor do export do Claude: plugins, LSP, sanitização de segredos, geração de `profile/claude/`. |
 | `scripts/dry-run.sh` | **Import:** simula o setup (read-only), mostra o plano sem instalar. |
 | `scripts/backup.sh` | **Import:** snapshot das configs do alvo antes de alterar. |
 | `scripts/restore.sh` | **Import:** reverte para um snapshot (auto-suficiente). |
-| `tests/test_exporter.py` | Testes de regressão do exporter (`unittest`, sem deps). |
-| `profile/` | Saída gerada pelo export (commitada — é o que viaja). |
+| `tests/test_exporter.py` | Testes de regressão do export de shell (`unittest`, sem deps). |
+| `tests/test_claude_exporter.py` | Testes do export do Claude (foco em sanitização de segredos). |
+| `profile/` | Saída do export de shell (commitada — é o que viaja). |
+| `profile/claude/` | Saída do export do Claude Code (manifest + CLAUDE_SETUP.md + config/). |
 | `profile/manifest.json` | Inventário estruturado do ambiente de origem. |
 | `profile/SETUP.md` | Roteiro em fases que o Claude executa no destino. |
 | `profile/dotfiles/` | Cópias dos arquivos de config originais. |
@@ -243,12 +289,13 @@ Os testes de regressão do exporter rodam só com a stdlib do Python (sem
 `pip install`):
 
 ```bash
-python3 tests/test_exporter.py        # ou: python3 -m unittest -v tests.test_exporter
+python3 -m unittest tests.test_exporter tests.test_claude_exporter
 ```
 
-Cobrem parsing do `.zshrc`, detecção de ferramentas, marcação de linhas
-WSL-only, geração do `manifest.json` e do `SETUP.md`. Rode-os após qualquer
-mudança em `lib/exporter.py` ou `lib/catalog.json`.
+Cobrem o export de shell (parsing do `.zshrc`, detecção de ferramentas, linhas
+WSL-only, geração do `manifest.json`/`SETUP.md`) e o export do Claude (com foco
+em **sanitização de segredos** e detecção de language servers). Rode-os após
+qualquer mudança em `lib/exporter.py`, `lib/claude_exporter.py` ou nos catálogos.
 
 ## Segurança
 
@@ -256,3 +303,14 @@ mudança em `lib/exporter.py` ou `lib/catalog.json`.
 - Revise `profile/dotfiles/.zshrc` antes do `git push` se você guarda segredos no
   `.zshrc` — o ideal é movê-los para um `~/.zshrc.local` fora do versionamento.
 - O export **não executa** nada do seu ambiente: só lê e copia.
+
+**Export do Claude Code** (`export-claude.sh`):
+- **Nunca** copia `.credentials.json`, `.claude.json`, `history.jsonl`,
+  `projects/` nem `sessions/` (tokens OAuth, histórico e estado de sessão). No
+  destino você faz login normalmente.
+- O `settings.json` é **sanitizado**: chaves que casam `api_key|token|secret|
+  password|credential` são removidas e os paths do seu `$HOME` viram `${HOME}`.
+- Os hashes `gitCommitSha` no manifesto são SHAs de commit **públicos** do
+  GitHub (fixam a versão exata de cada plugin) — não são segredos.
+- Ainda assim, revise `profile/claude/config/settings.json` antes do push se você
+  tiver adicionado configs incomuns.

@@ -1,0 +1,102 @@
+{
+  "_comment": "Conhecimento para exportar a config do Claude Code. 'language_servers' mapeia cada plugin LSP ao binário que ele exige e a como instalá-lo. 'sensitive_never_export' nunca é copiado. 'non_portable_markers' sinaliza o que quebra fora do WSL.",
+
+  "language_servers": {
+    "typescript-language-server": {
+      "binary": "typescript-language-server",
+      "for_plugins": ["typescript-lsp@claude-plugins-official"],
+      "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
+      "install": {
+        "pnpm": "pnpm add -g typescript-language-server typescript",
+        "npm": "npm install -g typescript-language-server typescript"
+      }
+    },
+    "vtsls": {
+      "binary": "vtsls",
+      "package": "@vtsls/language-server",
+      "for_plugins": ["typescript-lsp@claude-plugins-official"],
+      "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
+      "install": {
+        "pnpm": "pnpm add -g @vtsls/language-server",
+        "npm": "npm install -g @vtsls/language-server"
+      }
+    },
+    "pyright": {
+      "binary": "pyright-langserver",
+      "for_plugins": ["pyright-lsp@claude-plugins-official"],
+      "describe": "LSP de Python (Pyright)",
+      "install": {
+        "pnpm": "pnpm add -g pyright",
+        "npm": "npm install -g pyright",
+        "pip": "pip install pyright"
+      }
+    },
+    "gopls": {
+      "binary": "gopls",
+      "for_plugins": ["gopls-lsp@claude-plugins-official"],
+      "describe": "LSP de Go (gopls)",
+      "install": {
+        "go": "go install golang.org/x/tools/gopls@latest"
+      }
+    },
+    "rust-analyzer": {
+      "binary": "rust-analyzer",
+      "for_plugins": ["rust-analyzer-lsp@claude-plugins-official"],
+      "describe": "LSP de Rust (rust-analyzer)",
+      "install": {
+        "rustup": "rustup component add rust-analyzer",
+        "cargo": "cargo install --git https://github.com/rust-lang/rust-analyzer rust-analyzer"
+      }
+    }
+  },
+
+  "sensitive_never_export": {
+    "_comment": "Arquivos/diretórios com segredos, histórico ou estado de sessão. NUNCA copiar.",
+    "files": [
+      ".credentials.json",
+      ".claude.json",
+      ".claude.json.backup",
+      "history.jsonl",
+      ".caveman-history.jsonl",
+      ".last-update-result.json",
+      "gh-pr-status-cache.json",
+      "mcp-needs-auth-cache.json",
+      "stats-cache.json",
+      "daemon.log",
+      "settings.json.bak"
+    ],
+    "dirs": [
+      "projects", "sessions", "todos", "shell-snapshots", "file-history",
+      "statsig", "cache", "image-cache", "paste-cache", "downloads", "uploads",
+      "daemon", "ide", "jobs", "worktrees", "backups", "session-env", "tasks",
+      "plans", "context-mode"
+    ]
+  },
+
+  "config_to_export": {
+    "_comment": "O que copiar de ~/.claude/ para o profile (config/identidade, sem segredos).",
+    "files": ["settings.json", "keybindings.json", "statusline-command.sh"],
+    "dirs": ["hooks", "agents", "skills", "commands"]
+  },
+
+  "non_portable_markers": {
+    "_comment": "Trechos em settings/hooks que só funcionam no WSL/Windows ou dependem de scripts locais. O Claude no destino deve revisar/condicionar.",
+    "patterns": [
+      "wsl-screenshot-cli",
+      "powershell.exe",
+      "/mnt/c",
+      "~/bin/claude-notify",
+      ".ps1"
+    ]
+  },
+
+  "security_flags": {
+    "_comment": "Chaves de settings.json que afetam segurança. O Claude no destino DEVE perguntar antes de aplicar.",
+    "keys": [
+      "permissions.defaultMode",
+      "skipDangerousModePermissionPrompt",
+      "skipAutoPermissionPrompt"
+    ],
+    "note": "bypassPermissions + skip* desativa as confirmações de segurança. Pode ser indesejado numa máquina nova ou compartilhada."
+  }
+}
