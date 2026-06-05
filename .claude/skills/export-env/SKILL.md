@@ -1,10 +1,13 @@
 ---
-description: Exporta o ambiente desta máquina (shell + Claude Code) e sobe para o GitHub
+name: export-env
+description: Exporta o ambiente DESTA máquina (shell zsh + Claude Code) e publica no GitHub. Use na máquina de ORIGEM quando o usuário quer salvar ou atualizar o snapshot do ambiente para levar a outra máquina (ex.: "exporte meu ambiente", "salve minhas configs", "atualize o snapshot e suba").
 ---
 
-Você vai exportar o ambiente **desta máquina (origem)** e publicá-lo no GitHub,
-para que ele possa ser reconstruído em outra máquina. Execute os passos abaixo;
-não peça ao usuário para rodar nada manualmente.
+# export-env
+
+Exporta o ambiente **desta máquina (origem)** e publica no GitHub, para depois
+reconstruí-lo em outra máquina. Execute os passos; não peça ao usuário para rodar
+nada manualmente.
 
 1. **Gere os profiles** rodando os dois exports:
    - `./export.sh` — ambiente shell (zsh, ferramentas, plugins, tema).
@@ -16,10 +19,10 @@ não peça ao usuário para rodar nada manualmente.
 
 3. **Checagem de segurança (obrigatória):** confirme que nenhum segredo entrou em
    `profile/`. O export já sanitiza, mas verifique:
-   - `git -C . status --short profile/` não deve incluir `.credentials.json`,
+   - `git status --short profile/` não deve incluir `.credentials.json`,
      `.claude.json`, `history.jsonl`.
-   - faça um grep rápido por credenciais em `profile/` (`sk-`, `ghp_`, `gho_`,
-     `bearer`, `oauth`) e ignore matches que sejam `gitCommitSha` (hashes públicos).
+   - grep rápido por credenciais em `profile/` (`sk-`, `ghp_`, `gho_`, `bearer`,
+     `oauth`), ignorando matches que sejam `gitCommitSha` (hashes públicos).
    - se achar algo suspeito, PARE e avise o usuário antes de continuar.
 
 4. **Prepare o commit:** `rm -rf tests/__pycache__ lib/__pycache__ scripts/__pycache__`,
@@ -28,8 +31,8 @@ não peça ao usuário para rodar nada manualmente.
 5. **Peça confirmação antes do push** — é uma publicação em repositório remoto.
    Mostre o resumo das mudanças e pergunte se pode subir.
 
-6. Após o aceite: faça `git commit` com mensagem descritiva (em português) e
-   `git push`. Confirme ao usuário o hash do commit e que está sincronizado.
+6. Após o aceite: `git commit` com mensagem descritiva (em português) e `git push`.
+   Confirme o hash do commit e que está sincronizado.
 
 Se não estiver num repositório git com remoto configurado, avise e ofereça
 inicializar / criar o repo com `gh` antes de prosseguir.

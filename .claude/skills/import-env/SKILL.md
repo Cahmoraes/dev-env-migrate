@@ -1,6 +1,9 @@
 ---
-description: Reconstrói nesta máquina o ambiente exportado (shell + Claude Code), com backup e verificação
+name: import-env
+description: Reconstrói nesta máquina (DESTINO) o ambiente exportado — shell zsh + Claude Code — adaptando ao SO, com backup e verificação. Use num clone deste repositório quando o usuário quer instalar o ambiente salvo (ex.: "prepare meu ambiente", "importe minhas configs", "reconstrua o ambiente aqui").
 ---
+
+# import-env
 
 Você está numa **máquina destino**, dentro de um clone deste repositório. Vai
 reconstruir o ambiente descrito em `profile/`, **adaptando ao SO desta máquina**.

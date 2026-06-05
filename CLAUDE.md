@@ -26,10 +26,10 @@ Após mudar qualquer `lib/*.py` ou `lib/*.json`, **regenere o profile**
 (`./export.sh && ./export-claude.sh`) — `profile/` é gerado mas é commitado (é o
 que viaja para a outra máquina).
 
-**Fluxo via Claude (sem rodar scripts à mão)** — slash commands em `.claude/commands/`:
-- `/export-env` — na ORIGEM: gera os profiles, checa segredos, commita e dá push.
-- `/import-env` — no DESTINO: dry-run → backup → executa `SETUP.md` e
-  `CLAUDE_SETUP.md` adaptando ao SO → verifica. Disponível após o `git clone`.
+**Fluxo via Claude (sem rodar scripts à mão)** — skills em `.claude/skills/`:
+- `export-env` — na ORIGEM: gera os profiles, checa segredos, commita e dá push.
+- `import-env` — no DESTINO: dry-run → backup → executa `SETUP.md` e
+  `CLAUDE_SETUP.md` adaptando ao SO → verifica. Viaja com o repo (após `git clone`).
 
 ## Arquitetura
 
