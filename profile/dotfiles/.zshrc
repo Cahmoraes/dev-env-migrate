@@ -125,7 +125,7 @@ add-zsh-hook chpwd load-nvmrc
 load-nvmrc
 
 # pnpm
-export PNPM_HOME="/home/cahmoraes/.local/share/pnpm"
+export PNPM_HOME="$HOME/.local/share/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
@@ -150,5 +150,5 @@ alias pscreen='pastepng /tmp/screen.png && echo /tmp/screen.png'
 export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native
 
 # bun completions
-[ -s "/home/cahmoraes/.bun/_bun" ] && source "/home/cahmoraes/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 export PATH="$HOME/.local/bin:$PATH"

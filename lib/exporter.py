@@ -164,6 +164,25 @@ def detect_tools(catalog: dict) -> dict:
     return detected
 
 
+def _copy_rc_home_normalized(src: Path, dst: Path, home_str: str) -> None:
+    """Copia um rc do shell trocando o home absoluto por `$HOME`.
+
+    Portável porque o zsh expande `$HOME` em runtime — assim `PNPM_HOME` e os
+    `source` do bun deixam de apontar para `/home/<user_da_origem>` (que não existe
+    no destino e falha silenciosamente). NÃO aplicar isto aos `.config/` (starship,
+    micro): esses apps NÃO expandem `$HOME` e quebrariam com o literal — por isso a
+    normalização vive só aqui, no loop dos rc sourçados. Binário/ilegível: cópia crua.
+
+    Ressalva: replace literal. Home dentro de aspas SIMPLES no rc não expandiria
+    (`'$HOME'`); hoje os paths de home estão em aspas duplas/sem aspas (ok).
+    """
+    try:
+        text = src.read_text(encoding="utf-8")
+        dst.write_text(text.replace(home_str, "$HOME"), encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        shutil.copy2(src, dst)
+
+
 def copy_dotfiles() -> list[str]:
     """Copia os dotfiles existentes para profile/dotfiles/. Retorna o que foi copiado."""
     if DOTFILES_OUT.exists():
@@ -171,10 +190,11 @@ def copy_dotfiles() -> list[str]:
     DOTFILES_OUT.mkdir(parents=True, exist_ok=True)
     copied = []
 
+    home_str = str(HOME)  # via global p/ testes mockarem HOME
     for name in DOTFILE_CANDIDATES:
         src = HOME / name
         if src.exists() and src.is_file():
-            shutil.copy2(src, DOTFILES_OUT / name)
+            _copy_rc_home_normalized(src, DOTFILES_OUT / name, home_str)
             copied.append(name)
 
     config_out = DOTFILES_OUT / "config"

@@ -273,6 +273,24 @@ class TestCopyDotfiles(unittest.TestCase):
             copied = exporter.copy_dotfiles()  # segunda vez não deve falhar
         self.assertIn(".zshrc", copied)
 
+    def test_normaliza_home_so_nos_rc_shell_nao_no_config(self):
+        # rc shell: home absoluto vira $HOME (zsh expande em runtime) → portável.
+        # .config/: NÃO normaliza (starship/micro não expandem $HOME) → cru.
+        tmp = Path(tempfile.mkdtemp())
+        home = tmp / "home"
+        write(home / ".zshrc", f'export PNPM_HOME="{home}/.local/share/pnpm"\n')
+        write(home / ".config" / "starship.toml", f'cmd = "{home}/bin/x"\n')
+        out = tmp / "out" / "dotfiles"
+        with mock.patch.object(exporter, "HOME", home), \
+             mock.patch.object(exporter, "DOTFILES_OUT", out):
+            exporter.copy_dotfiles()
+        rc = (out / ".zshrc").read_text(encoding="utf-8")
+        self.assertIn('export PNPM_HOME="$HOME/.local/share/pnpm"', rc)
+        self.assertNotIn(str(home), rc)                       # home absoluto sumiu do rc
+        star = (out / "config" / "starship.toml").read_text(encoding="utf-8")
+        self.assertIn(str(home), star)                        # config preservada crua
+        self.assertNotIn("$HOME", star)
+
 
 class TestOsDetection(unittest.TestCase):
     def test_macos(self):
