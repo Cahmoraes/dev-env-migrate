@@ -64,6 +64,32 @@ def install_cmd(install, os_key: str) -> str:
     return "(n/d)"
 
 
+def compute_adaptation_plan(lines, dest_os, dest_is_wsl):
+    """Decide, por linha, o que MANTER × REMOVER neste destino — a regra
+    bidirecional explícita. Uma linha de plataforma X sobrevive só se ESTE destino
+    é da plataforma X; caso contrário sai. Função pura (testável).
+
+    Retorna (keep, remove, add_debian_aliases).
+    """
+    keep, remove = [], []
+    for ln in lines:
+        p = ln.get("platform")
+        if p == "macos":
+            target = dest_os == "macos"
+        elif p == "wsl_windows":
+            target = dest_is_wsl
+        elif p == "debian_binary_rename":
+            target = dest_os == "debian"
+        else:
+            target = True  # desconhecido: conservador, mantém
+        (keep if target else remove).append(ln)
+    # No destino Debian/Ubuntu os binários viram batcat/fdfind → precisa dos aliases.
+    # Mas só "adicionar" se a origem NÃO os trouxe (senão já estão nas linhas mantidas).
+    origin_has_aliases = any(l.get("platform") == "debian_binary_rename" for l in lines)
+    add_debian_aliases = dest_os == "debian" and not origin_has_aliases
+    return keep, remove, add_debian_aliases
+
+
 def header(title: str):
     print()
     print(BOLD(CYAN(f"── {title} " + "─" * max(0, 56 - len(title)))))
@@ -151,24 +177,34 @@ def main() -> int:
         if theme.get("manual"):
             print(DIM(f"    → o setup vai PERGUNTAR: copiar o pago ou usar alternativa gratuita."))
 
-    # ── Linhas específicas de plataforma ─────────────────────────────
-    header("Linhas específicas de plataforma (seriam removidas do .zshrc)")
+    # ── Plano de adaptação (origem → este destino) ───────────────────
+    header("Plano de adaptação do .zshrc (origem → ESTE destino)")
     lines = manifest["platform_specific_lines"]
     from collections import Counter
-    by_plat = Counter(ln.get("platform", "?") for ln in lines)
-    breakdown = ", ".join(f"{p}: {n}" for p, n in by_plat.items()) or "nenhuma"
-    print(f"  {len(lines)} linha(s) específicas de plataforma ({breakdown}):")
-    for ln in lines[:6]:
-        plat = ln.get("platform", "?")
-        print(DIM(f"    L{ln['line']:>3} [{plat}] {ln['text'][:50]}"))
-    if len(lines) > 6:
-        print(DIM(f"    … e mais {len(lines) - 6}"))
+    src_os = manifest["generated_from"]["os"]
+    keep, remove, add_aliases = compute_adaptation_plan(lines, os_key, wsl)
+    dest_label = f"{os_key}{' (WSL)' if wsl else ''}"
+    print(f"  origem: {BOLD(src_os)}   →   destino: {BOLD(dest_label)}")
+    rem_brk = ", ".join(f"{p}: {n}" for p, n in
+                        Counter(l.get("platform", "?") for l in remove).items()) or "—"
+    keep_brk = ", ".join(f"{p}: {n}" for p, n in
+                         Counter(l.get("platform", "?") for l in keep).items()) or "—"
+    print(f"  {GREEN('MANTER')}  {len(keep)} linha(s)  ({keep_brk})")
+    print(f"  {YELLOW('REMOVER')} {len(remove)} linha(s)  ({rem_brk})")
+    for ln in remove[:5]:
+        print(DIM(f"      L{ln['line']:>3} [{ln.get('platform','?')}] {ln['text'][:46]}"))
+    if len(remove) > 5:
+        print(DIM(f"      … e mais {len(remove) - 5}"))
+    if add_aliases:
+        print(f"  {CYAN('ADICIONAR')} alias bat=\"batcat\", alias fd=\"fdfind\" "
+              f"(binários renomeados no Debian/Ubuntu)")
 
     # ── Resumo ───────────────────────────────────────────────────────
     header("Resumo do plano")
     print(f"  {GREEN(str(summary['present']))} ferramenta(s) já presente(s) → serão puladas")
     print(f"  {YELLOW(str(summary['missing']))} ferramenta(s) faltando → seriam instaladas")
-    print(f"  {len(lines)} linha(s) específicas de plataforma → ajustadas conforme o destino")
+    print(f"  adaptação do .zshrc: manter {len(keep)} · remover {len(remove)}"
+          + (" · adicionar aliases bat/fd" if add_aliases else ""))
     print()
     print(BOLD(GREEN("DRY-RUN concluído. Nada foi instalado ou alterado.")))
     print(DIM("Para executar de verdade: abra o Claude Code e diga "
