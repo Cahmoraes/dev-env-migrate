@@ -6,6 +6,7 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
+  "model": "sonnet",
   "hooks": {
     "PermissionRequest": [
       {
@@ -95,7 +96,7 @@
     "command": "bash ${HOME}/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "caveman@caveman": false,
+    "caveman@caveman": true,
     "context-mode@context-mode": true,
     "frontend-design@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
@@ -131,7 +132,7 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "autoCompactEnabled": true,

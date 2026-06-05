@@ -41,6 +41,8 @@ CONFIG_DIR_CANDIDATES = [
     "micro",
     "glow",
     "starship.toml",
+    "caveman",       # defaultMode do caveman (ex.: "off" — não auto-ativa nas sessões)
+    "token-crunch",  # denylist da compressão de saídas (config + var TOKEN_CRUNCH_CONFIG no .zshrc)
 ]
 
 

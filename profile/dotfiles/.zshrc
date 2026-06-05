@@ -50,6 +50,10 @@ fi
 [[ -f "$HOME/.fzf.zsh" ]] && source "$HOME/.fzf.zsh"
 command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
 
+# token-crunch: aponta para o config com denylist (JSON de config/manifest
+# não devem ser comprimidos — colapsar esconde campos e força releitura)
+[[ -f "$HOME/.config/token-crunch/config.json" ]] && export TOKEN_CRUNCH_CONFIG="$HOME/.config/token-crunch/config.json"
+
 # Env específicos de desktop (ajuste se não fizer sentido no seu setup)
 export WARP_ENABLE_WAYLAND=1
 export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA

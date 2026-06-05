@@ -1,0 +1,10 @@
+{
+  "denylist": [
+    "config show",
+    "plugin.json",
+    "settings.json",
+    "manifest.json",
+    "claude-manifest.json",
+    ".claude-plugin"
+  ]
+}

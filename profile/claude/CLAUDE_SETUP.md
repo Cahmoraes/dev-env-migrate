@@ -35,7 +35,7 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `context-mode` → `mksglu/context-mode` (`claude plugin marketplace add mksglu/context-mode`)
 - `claude-code-warp` → `warpdotdev/claude-code-warp` (`claude plugin marketplace add warpdotdev/claude-code-warp`)
 
-## Fase 2 — Plugins (11 habilitados)
+## Fase 2 — Plugins (12 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).

@@ -28,7 +28,7 @@
   "plugins": [
     {
       "name": "caveman@caveman",
-      "enabled": false,
+      "enabled": true,
       "version": "655b7d9c5431",
       "gitCommitSha": "655b7d9c5431f822264b7732e9901c5578ac84cf"
     },
