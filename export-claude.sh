@@ -17,5 +17,5 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "── export-shell-config :: Claude Code ────────────────"
+echo "── dev-env-migrate :: Claude Code ────────────────────"
 python3 "$SCRIPT_DIR/lib/claude_exporter.py"

@@ -1,4 +1,4 @@
-# export-shell-config
+# dev-env-migrate
 
 Leva seu ambiente de uma máquina para outra — **incluindo entre Linux/WSL e
 macOS** — sem copiar arquivos manualmente e sem quebrar nada no destino. Cobre
@@ -62,7 +62,7 @@ git add -A && git commit -m "snapshot do ambiente" && git push
 ### 2. Na máquina nova — importar
 
 ```bash
-git clone <seu-repo> && cd export-shell-config
+git clone <seu-repo> && cd dev-env-migrate
 claude
 ```
 

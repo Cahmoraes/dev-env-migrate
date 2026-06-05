@@ -17,5 +17,5 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "── export-shell-config ───────────────────────────────"
+echo "── dev-env-migrate ───────────────────────────────────"
 python3 "$SCRIPT_DIR/lib/exporter.py"
