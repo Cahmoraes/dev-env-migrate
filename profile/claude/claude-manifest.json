@@ -248,14 +248,30 @@
       "code-simplifier.md"
     ],
     "skills": [
+      "architectural-analyzer",
       "birchline-html",
       "commit-push-pr",
+      "context7",
       "dedupe",
       "deep-teach",
+      "exa-web-search-free",
+      "find-skills",
       "frontend-design",
+      "git-rebase",
       "handoff",
+      "improve-codebase-architecture",
+      "mermaid-diagrams",
+      "no-workarounds",
       "oncall-triage",
-      "spec"
+      "playwright-cli",
+      "refactoring",
+      "security-review",
+      "skill-creator",
+      "spec",
+      "to-adr",
+      "xstate",
+      "zod",
+      "zustand"
     ]
   },
   "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem e os hook_dependencies (binários) para os hooks do settings.json não falharem. Revise security_flags e non_portable_markers antes de aplicar."
