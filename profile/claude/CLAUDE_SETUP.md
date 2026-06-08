@@ -61,7 +61,7 @@ no PATH. Regras:
 | `vtsls` | typescript-lsp@claude-plugins-official | `vtsls` | pnpm, npm | sim |
 | `pyright` | pyright-lsp@claude-plugins-official | `pyright-langserver` | pnpm, npm, pip | sim |
 | `gopls` | gopls-lsp@claude-plugins-official | `gopls` | go | sim |
-| `rust-analyzer` | rust-analyzer-lsp@claude-plugins-official | `rust-analyzer` | rustup, cargo | sim |
+| `rust-analyzer` | rust-analyzer-lsp@claude-plugins-official | `rust-analyzer` | rustup, cargo | NÃO |
 
 A coluna "Gerenciadores" lista as chaves disponíveis em
 `manifest.language_servers[].install` — escolha a que existe nesta máquina.

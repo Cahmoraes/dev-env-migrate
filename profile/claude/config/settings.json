@@ -4,7 +4,8 @@
     "pr": ""
   },
   "permissions": {
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "skipDangerousModePermissionPrompt": true
   },
   "hooks": {
     "PermissionRequest": [
@@ -131,12 +132,13 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "autoCompactEnabled": true,
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "model": "opusplan"
 }
