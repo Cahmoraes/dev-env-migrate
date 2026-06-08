@@ -95,8 +95,8 @@ alias copiloty="copilot --yolo"
 alias nw="node --watch"
 # Git
 alias ammend="git commit --amend --no-edit"
-alias claudey="claude --dangerously-skip-permissions"
-alias claudya="claude agents --dangerously-skip-permissions"
+alias claudey="headroom wrap claude --dangerously-skip-permissions"
+alias claudya="headroom wrap claude agents --dangerously-skip-permissions"
 alias glow="glow -p"
 
 
