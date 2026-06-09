@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  },
   "attribution": {
     "commit": "",
     "pr": ""
@@ -8,6 +11,17 @@
     "skipDangerousModePermissionPrompt": true
   },
   "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Needs your input!\" &'"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -15,6 +29,16 @@
           {
             "type": "command",
             "command": "rtk hook claude"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${HOME}/.pyenv/versions/3.13.4/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
+            "timeout": 15
           }
         ]
       }
@@ -25,6 +49,35 @@
           {
             "type": "command",
             "command": "\"${HOME}/.claude/hooks/context-mode-cache-heal.mjs\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wsl-screenshot-cli start --daemon --quiet 2>/dev/null"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${HOME}/.pyenv/versions/3.13.4/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Done!\" &'"
           }
         ]
       }
@@ -51,7 +104,8 @@
     "pyright-lsp@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true
+    "commit-commands@claude-plugins-official": true,
+    "headroom@headroom-marketplace": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -71,10 +125,16 @@
         "source": "github",
         "repo": "warpdotdev/claude-code-warp"
       }
+    },
+    "headroom-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "chopratejas/headroom"
+      }
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "autoCompactEnabled": true,

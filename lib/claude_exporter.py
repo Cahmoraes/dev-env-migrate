@@ -68,12 +68,19 @@ def sanitize_settings(settings: dict):
     """Remove segredos e generaliza paths. Retorna (settings_limpo, segredos_removidos)."""
     removed = []
 
+    # Chaves do campo `env` gerenciadas por ferramentas externas em cada máquina:
+    # não devem viajar no profile (cada destino reconfigura via headroom init, etc.)
+    _env_machine_specific = {"ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE"}
+
     def clean(obj, trail=""):
         if isinstance(obj, dict):
             out = {}
             for k, val in obj.items():
                 if SECRET_KEY_RE.search(k):
                     removed.append(f"{trail}.{k}".lstrip("."))
+                    continue
+                if trail.lstrip(".") == "env" and k in _env_machine_specific:
+                    removed.append(f"env.{k}")
                     continue
                 out[k] = clean(val, f"{trail}.{k}")
             return out
@@ -466,12 +473,51 @@ pertence (regra simétrica — vale nos dois sentidos):
 - **Scripts locais** (`~/bin/claude-notify`) → se não existir nesta máquina,
   recrie-o ou remova o hook que o chama.
 
-## Fase 6 — Verificação
+## Fase 6 — Headroom (proxy de compressão de tokens)
+
+O `settings.json` já inclui `ENABLE_TOOL_SEARCH=true`. Essa flag é necessária para
+que o MCP Tool Search funcione mesmo com o proxy headroom ativo — sem ela, todos os
+MCP tools carregam eager e o baseline da sessão cresce ~16k tokens por sessão.
+
+### 6a — Instalar/atualizar headroom
+```bash
+pip install "headroom-ai[all]"   # ou: pip install --upgrade "headroom-ai[all]"
+```
+
+### 6b — Subir o proxy como serviço persistente
+```bash
+# Configura apenas claude e codex (sem copilot — requer BYOK não disponível)
+headroom install apply --providers manual --target claude --target codex
+headroom install start
+headroom install status   # confirme: Status: running, Healthy: yes
+```
+
+### 6c — Integrar com o Claude Code
+```bash
+headroom init claude   # escreve ANTHROPIC_BASE_URL em ~/.claude/settings.json + hooks
+```
+
+### 6d — Registrar MCPs (headroom + serena)
+O `headroom mcp` e a `serena` ficam em `~/.claude.json` (não viajam no profile).
+O headroom registra os dois ao rodar `headroom wrap claude` pela primeira vez,
+ou registre manualmente:
+```bash
+claude mcp add headroom -- headroom mcp serve
+claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \\
+  serena start-mcp-server --project-from-cwd --context claude-code
+```
+
+> **Nota:** `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` é gerenciado pelo
+> `headroom init claude` e **não viaja no profile** — cada destino configura via
+> sua própria instalação do headroom. Não o adicione manualmente.
+
+## Fase 7 — Verificação final
 1. `claude plugin list` mostra os plugins esperados (habilitados/desabilitados).
 2. Cada language server da Fase 3 responde: `typescript-language-server --version`,
    `pyright-langserver --version`, `gopls version`, `rust-analyzer --version`.
 3. A statusline aparece ao abrir o Claude Code (sem erro de path).
-4. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
+4. `/context` em nova sessão: MCP tools como **on-demand (0 tokens)**, baseline < 30k.
+5. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
    `ok`/`FALHOU`, e o que exigiu decisão manual (security flags, hooks WSL).
 """
 

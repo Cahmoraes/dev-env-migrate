@@ -19,3 +19,6 @@ RELATORIO_IMPORT.md
 # Backup legível gerado pelo caveman-compress (o CLAUDE.md comprimido é o canônico).
 *.original.md
 .serena
+
+# Banco de memória local do headroom (gerado em cada máquina)
+headroom_memory.db

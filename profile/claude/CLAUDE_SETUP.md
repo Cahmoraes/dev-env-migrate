@@ -34,8 +34,9 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `caveman` → `JuliusBrussee/caveman` (`claude plugin marketplace add JuliusBrussee/caveman`)
 - `context-mode` → `mksglu/context-mode` (`claude plugin marketplace add mksglu/context-mode`)
 - `claude-code-warp` → `warpdotdev/claude-code-warp` (`claude plugin marketplace add warpdotdev/claude-code-warp`)
+- `headroom-marketplace` → `chopratejas/headroom` (`claude plugin marketplace add chopratejas/headroom`)
 
-## Fase 2 — Plugins (12 habilitados)
+## Fase 2 — Plugins (13 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).
@@ -61,7 +62,7 @@ no PATH. Regras:
 | `vtsls` | typescript-lsp@claude-plugins-official | `vtsls` | pnpm, npm | sim |
 | `pyright` | pyright-lsp@claude-plugins-official | `pyright-langserver` | pnpm, npm, pip | sim |
 | `gopls` | gopls-lsp@claude-plugins-official | `gopls` | go | sim |
-| `rust-analyzer` | rust-analyzer-lsp@claude-plugins-official | `rust-analyzer` | rustup, cargo | sim |
+| `rust-analyzer` | rust-analyzer-lsp@claude-plugins-official | `rust-analyzer` | rustup, cargo | NÃO |
 
 A coluna "Gerenciadores" lista as chaves disponíveis em
 `manifest.language_servers[].install` — escolha a que existe nesta máquina.
@@ -86,7 +87,7 @@ Mescle `config/settings.json` no `~/.claude/settings.json`. Os paths usam
 
 ## Fase 5 — Hooks, statusline, keybindings, agents, skills
 Copie de `config/` para `~/.claude/`. **Atenção a trechos específicos de
-plataforma** encontrados: `/Users/`
+plataforma** encontrados: `wsl-screenshot-cli`, `~/bin/claude-notify`
 
 Hooks que chamam binários externos só funcionam se o binário existir no PATH —
 garanta que as dependências da Fase 3.5 foram instaladas antes de confiar nesses
@@ -103,10 +104,49 @@ pertence (regra simétrica — vale nos dois sentidos):
 - **Scripts locais** (`~/bin/claude-notify`) → se não existir nesta máquina,
   recrie-o ou remova o hook que o chama.
 
-## Fase 6 — Verificação
+## Fase 6 — Headroom (proxy de compressão de tokens)
+
+O `settings.json` já inclui `ENABLE_TOOL_SEARCH=true`. Essa flag é necessária para
+que o MCP Tool Search funcione mesmo com o proxy headroom ativo — sem ela, todos os
+MCP tools carregam eager e o baseline da sessão cresce ~16k tokens por sessão.
+
+### 6a — Instalar/atualizar headroom
+```bash
+pip install "headroom-ai[all]"   # ou: pip install --upgrade "headroom-ai[all]"
+```
+
+### 6b — Subir o proxy como serviço persistente
+```bash
+# Configura apenas claude e codex (sem copilot — requer BYOK não disponível)
+headroom install apply --providers manual --target claude --target codex
+headroom install start
+headroom install status   # confirme: Status: running, Healthy: yes
+```
+
+### 6c — Integrar com o Claude Code
+```bash
+headroom init claude   # escreve ANTHROPIC_BASE_URL em ~/.claude/settings.json + hooks
+```
+
+### 6d — Registrar MCPs (headroom + serena)
+O `headroom mcp` e a `serena` ficam em `~/.claude.json` (não viajam no profile).
+O headroom registra os dois ao rodar `headroom wrap claude` pela primeira vez,
+ou registre manualmente:
+```bash
+claude mcp add headroom -- headroom mcp serve
+claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \
+  serena start-mcp-server --project-from-cwd --context claude-code
+```
+
+> **Nota:** `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` é gerenciado pelo
+> `headroom init claude` e **não viaja no profile** — cada destino configura via
+> sua própria instalação do headroom. Não o adicione manualmente.
+
+## Fase 7 — Verificação final
 1. `claude plugin list` mostra os plugins esperados (habilitados/desabilitados).
 2. Cada language server da Fase 3 responde: `typescript-language-server --version`,
    `pyright-langserver --version`, `gopls version`, `rust-analyzer --version`.
 3. A statusline aparece ao abrir o Claude Code (sem erro de path).
-4. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
+4. `/context` em nova sessão: MCP tools como **on-demand (0 tokens)**, baseline < 30k.
+5. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
    `ok`/`FALHOU`, e o que exigiu decisão manual (security flags, hooks WSL).

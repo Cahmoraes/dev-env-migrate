@@ -23,6 +23,11 @@
       "name": "claude-code-warp",
       "source": "github",
       "repo": "warpdotdev/claude-code-warp"
+    },
+    {
+      "name": "headroom-marketplace",
+      "source": "github",
+      "repo": "chopratejas/headroom"
     }
   ],
   "plugins": [
@@ -36,7 +41,7 @@
       "name": "context-mode@context-mode",
       "enabled": true,
       "version": "1.0.162",
-      "gitCommitSha": "9bb94829cd9483c2dc6135e0b4eca21288388d5d"
+      "gitCommitSha": "be7387d9c4633b6e236a75bc4424119de0744965"
     },
     {
       "name": "frontend-design@claude-plugins-official",
@@ -99,6 +104,12 @@
       "enabled": true,
       "version": "unknown",
       "gitCommitSha": null
+    },
+    {
+      "name": "headroom@headroom-marketplace",
+      "enabled": true,
+      "version": "0.22.3",
+      "gitCommitSha": "9579567b7dae31b226a634b7f63a988253fc03b8"
     }
   ],
   "language_servers": [
@@ -110,7 +121,7 @@
       ],
       "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.local/share/pnpm/typescript-language-server",
+      "source_path": "/home/cahmoraes/.local/share/pnpm/typescript-language-server",
       "install": {
         "pnpm": "pnpm add -g typescript-language-server typescript",
         "npm": "npm install -g typescript-language-server typescript"
@@ -124,7 +135,7 @@
       ],
       "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.nvm/versions/node/v24.10.0/bin/vtsls",
+      "source_path": "/home/cahmoraes/.local/share/pnpm/vtsls",
       "install": {
         "pnpm": "pnpm add -g @vtsls/language-server",
         "npm": "npm install -g @vtsls/language-server"
@@ -138,7 +149,7 @@
       ],
       "describe": "LSP de Python (Pyright)",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.local/share/pnpm/pyright-langserver",
+      "source_path": "/home/cahmoraes/.pyenv/versions/3.13.4/bin/pyright-langserver",
       "install": {
         "pnpm": "pnpm add -g pyright",
         "npm": "npm install -g pyright",
@@ -153,7 +164,7 @@
       ],
       "describe": "LSP de Go (gopls)",
       "installed_on_source": true,
-      "source_path": "/Users/caique/go/bin/gopls",
+      "source_path": "/home/cahmoraes/go/bin/gopls",
       "install": {
         "go": "go install golang.org/x/tools/gopls@latest"
       }
@@ -165,8 +176,8 @@
         "rust-analyzer-lsp@claude-plugins-official"
       ],
       "describe": "LSP de Rust (rust-analyzer)",
-      "installed_on_source": true,
-      "source_path": "/opt/homebrew/bin/rust-analyzer",
+      "installed_on_source": false,
+      "source_path": null,
       "install": {
         "rustup": "rustup component add rust-analyzer",
         "cargo": "cargo install --git https://github.com/rust-lang/rust-analyzer rust-analyzer"
@@ -175,16 +186,27 @@
   ],
   "hook_dependencies": [],
   "global_node_packages": {
-    "pnpm": [],
-    "npm": [
-      "@github/copilot@1.0.12",
+    "pnpm": [
+      "@biomejs/biome@2.3.10",
+      "@github/copilot@0.0.406",
+      "@nestjs/cli@11.0.16",
+      "@openai/codex@0.130.0",
       "@playwright/cli@0.1.13",
       "@vtsls/language-server@0.3.0",
-      "corepack@0.34.0",
-      "ctx7@0.4.1",
-      "npm@11.10.0",
+      "ctx7@0.4.0",
       "ntl@5.1.0",
-      "taze@19.11.0"
+      "opencode-ai@1.15.3",
+      "pnpm@10.23.0",
+      "typescript-language-server@5.3.0",
+      "typescript@6.0.3"
+    ],
+    "npm": [
+      "@github/copilot@1.0.48",
+      "@mermaid-js/mermaid-cli@11.15.0",
+      "@playwright/cli@0.1.13",
+      "corepack@0.34.6",
+      "npm@11.10.0",
+      "taze@19.14.1"
     ]
   },
   "security_flags": {
@@ -193,9 +215,12 @@
     "skipAutoPermissionPrompt": true
   },
   "non_portable_markers_found": [
-    "/Users/"
+    "wsl-screenshot-cli",
+    "~/bin/claude-notify"
   ],
-  "secrets_removed_from_settings": [],
+  "secrets_removed_from_settings": [
+    "env.ANTHROPIC_BASE_URL"
+  ],
   "config_files_copied": [
     "settings.json",
     "keybindings.json",
@@ -203,8 +228,7 @@
     "CLAUDE.md",
     "hooks/",
     "agents/",
-    "skills/",
-    "commands/"
+    "skills/"
   ],
   "config_inventory": {
     "hooks": [
@@ -222,16 +246,31 @@
       "code-simplifier.md"
     ],
     "skills": [
+      "architectural-analyzer",
       "birchline-html",
       "commit-push-pr",
+      "context7",
       "dedupe",
       "deep-teach",
+      "exa-web-search-free",
+      "find-skills",
       "frontend-design",
+      "git-rebase",
       "handoff",
+      "improve-codebase-architecture",
+      "mermaid-diagrams",
+      "no-workarounds",
       "oncall-triage",
-      "spec"
-    ],
-    "commands": []
+      "playwright-cli",
+      "refactoring",
+      "security-review",
+      "skill-creator",
+      "spec",
+      "to-adr",
+      "xstate",
+      "zod",
+      "zustand"
+    ]
   },
   "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem e os hook_dependencies (binários) para os hooks do settings.json não falharem. Revise security_flags e non_portable_markers antes de aplicar."
 }
