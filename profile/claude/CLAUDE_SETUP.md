@@ -123,6 +123,35 @@ headroom install start
 headroom install status   # confirme: Status: running, Healthy: yes
 ```
 
+### 6b-bis — Habilitar o interceptor de tool_results (ast-grep outliner)
+A flag `--intercept-tool-results` faz o proxy substituir Reads grandes de código
+(`.ts/.py/.rs` > 500 chars) por um outline ast-grep (só assinaturas de nível
+superior); o corpo só vai ao modelo quando se pede um range específico. Reduz
+tokens de reads em ~60-80%.
+
+A flag existe em `headroom proxy`, mas **NÃO** em `headroom install apply` — então
+ela não é setada pelo passo 6b. Ela persiste apenas no `proxy_args` do manifest
+do deploy. Adicione-a ali e reinicie o serviço:
+```bash
+MANIFEST="$HOME/.headroom/deploy/init-user/manifest.json"   # ajuste o profile se != init-user
+python3 - "$MANIFEST" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+args = m.setdefault("proxy_args", [])
+if "--intercept-tool-results" not in args:
+    args.append("--intercept-tool-results")
+    json.dump(m, open(p, "w"), indent=2)
+    print("flag adicionada")
+else:
+    print("flag já presente")
+PY
+headroom install stop && headroom install start   # ou: headroom init claude (recria o processo)
+headroom install status   # confirme: running + healthy
+```
+Verifique o efeito: `headroom proxy --help | grep intercept` deve listar a flag, e
+o `proxy_args` no manifest deve conter `--intercept-tool-results`.
+
 ### 6c — Integrar com o Claude Code
 ```bash
 headroom init claude   # escreve ANTHROPIC_BASE_URL em ~/.claude/settings.json + hooks

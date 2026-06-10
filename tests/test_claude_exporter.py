@@ -223,7 +223,7 @@ class TestManifestAndSetup(unittest.TestCase):
     def test_setup_md_has_phases_and_warnings(self):
         md = ce.render_setup_md(self._manifest())
         for marker in ("## Fase 1 — Marketplaces", "## Fase 3 — Language servers",
-                       "## Fase 6 — Verificação", "bypassPermissions",
+                       "## Fase 7 — Verificação", "bypassPermissions",
                        "wsl-screenshot-cli", "claude plugin marketplace add"):
             self.assertIn(marker, md)
 
