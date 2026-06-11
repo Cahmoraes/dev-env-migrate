@@ -28,6 +28,11 @@
       "name": "headroom-marketplace",
       "source": "github",
       "repo": "chopratejas/headroom"
+    },
+    {
+      "name": "chrome-devtools-plugins",
+      "source": "github",
+      "repo": "ChromeDevTools/chrome-devtools-mcp"
     }
   ],
   "plugins": [
@@ -60,12 +65,6 @@
       "enabled": true,
       "version": "1.0.0",
       "gitCommitSha": null
-    },
-    {
-      "name": "warp@claude-code-warp",
-      "enabled": true,
-      "version": "2.1.0",
-      "gitCommitSha": "bb6c1cf2f5cd7eb609678a2b175e7f4504ca61c2"
     },
     {
       "name": "explanatory-output-style@claude-plugins-official",
@@ -110,6 +109,12 @@
       "enabled": true,
       "version": "0.22.3",
       "gitCommitSha": "9579567b7dae31b226a634b7f63a988253fc03b8"
+    },
+    {
+      "name": "chrome-devtools-mcp@chrome-devtools-plugins",
+      "enabled": true,
+      "version": "1.2.0",
+      "gitCommitSha": "4f8eb7ad6beecc58f56ec383f9ff43549a5604d4"
     }
   ],
   "language_servers": [
