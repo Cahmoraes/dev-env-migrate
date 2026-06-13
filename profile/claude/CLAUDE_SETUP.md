@@ -37,7 +37,7 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `headroom-marketplace` → `chopratejas/headroom` (`claude plugin marketplace add chopratejas/headroom`)
 - `chrome-devtools-plugins` → `ChromeDevTools/chrome-devtools-mcp` (`claude plugin marketplace add ChromeDevTools/chrome-devtools-mcp`)
 
-## Fase 2 — Plugins (13 habilitados)
+## Fase 2 — Plugins (14 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).
@@ -175,10 +175,12 @@ headroom init claude   # escreve ANTHROPIC_BASE_URL em ~/.claude/settings.local.
 
 ### 6d — Registrar MCPs (headroom + serena)
 O `headroom mcp` e a `serena` ficam em `~/.claude.json` (não viajam no profile).
-O headroom registra os dois ao rodar `headroom wrap claude` pela primeira vez,
-ou registre manualmente:
+Forma canônica (≥0.25): `headroom mcp install` registra o CCR no Claude Code **e**
+no Codex de uma vez, ativando as ferramentas `mcp__headroom__headroom_compress`,
+`headroom_retrieve` e `headroom_stats` (fluxo Compress-Cache-Retrieve):
 ```bash
-claude mcp add headroom -- headroom mcp serve
+headroom mcp install   # idempotente: já registrado → "already registered"
+# serena não é gerida pelo headroom — registre à parte:
 claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \
   serena start-mcp-server --project-from-cwd --context claude-code
 ```

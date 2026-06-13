@@ -115,6 +115,12 @@
       "enabled": true,
       "version": "1.2.0",
       "gitCommitSha": "4f8eb7ad6beecc58f56ec383f9ff43549a5604d4"
+    },
+    {
+      "name": "security-guidance@claude-plugins-official",
+      "enabled": true,
+      "version": "2.0.6",
+      "gitCommitSha": null
     }
   ],
   "language_servers": [

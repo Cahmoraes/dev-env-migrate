@@ -105,7 +105,8 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
     "headroom@headroom-marketplace": true,
-    "chrome-devtools-mcp@chrome-devtools-plugins": true
+    "chrome-devtools-mcp@chrome-devtools-plugins": true,
+    "security-guidance@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -140,13 +141,13 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
+  "editorMode": "normal",
   "autoCompactEnabled": true,
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true,
-  "model": "sonnet"
+  "skipAutoPermissionPrompt": true
 }

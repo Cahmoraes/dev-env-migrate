@@ -91,6 +91,7 @@ alias mkdir="mkdir -p"
 alias open-zsh="code ~/.zshrc"
 alias docker-restart="sudo service docker restart"
 alias copiloty="copilot --yolo"
+alias findn="find . -name"
 # Node
 alias nw="node --watch"
 # Git

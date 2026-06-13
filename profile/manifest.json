@@ -315,37 +315,37 @@
       "text": "alias fd=\"fdfind\""
     },
     {
-      "line": 143,
+      "line": 144,
       "pattern": "/mnt/c",
       "platform": "wsl_windows",
       "text": "VSCODE_BIN=\"/mnt/c/Users/ike_m/AppData/Local/Programs/Microsoft VS Code/bin\""
     },
     {
-      "line": 144,
+      "line": 145,
       "pattern": "VSCODE_BIN",
       "platform": "wsl_windows",
       "text": "[[ -d \"$VSCODE_BIN\" ]] && path=(\"$VSCODE_BIN\" $path)"
     },
     {
-      "line": 148,
+      "line": 149,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode='bash ~/nice-vscode.sh'"
     },
     {
-      "line": 149,
+      "line": 150,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode-restore='bash ~/nice-vscode.sh 0'"
     },
     {
-      "line": 150,
+      "line": 151,
       "pattern": "pastepng",
       "platform": "wsl_windows",
       "text": "alias pscreen='pastepng /tmp/screen.png && echo /tmp/screen.png'"
     },
     {
-      "line": 153,
+      "line": 154,
       "pattern": "/mnt/wslg",
       "platform": "wsl_windows",
       "text": "export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native"
