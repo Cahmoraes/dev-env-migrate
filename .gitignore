@@ -1,6 +1,7 @@
 # Histórico do zsh contém comandos potencialmente sensíveis — nunca exportar.
 *.zsh_history
 .zsh_history
+.headroom
 
 # Caches do Python
 __pycache__/
