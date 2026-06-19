@@ -79,7 +79,9 @@ Se já existir, pule. Ele deve vir ANTES de plugins e temas.
 ### Fase 2 — Ferramentas CLI (só as faltantes)
 Para cada item de `cli_tools` marcado como FALTANDO na Fase 0, instale com o
 comando do SO atual (`install.macos` no Mac, `install.debian` no Linux/apt,
-`install.fallback` se necessário). Respeite o `note` — em especial **bat** e
+`install.fallback` se necessário). Se o item tiver `install.all` (comando único
+igual em todo SO — ex.: ferramenta instalada via npm/cargo), use-o
+independentemente do destino. Respeite o `note` — em especial **bat** e
 **fd**, cujo nome de binário depende do destino:
 - **Destino Debian/Ubuntu/WSL:** os binários instalam como `batcat`/`fdfind`.
   Para usar `bat`/`fd`, **ADICIONE** ao `.zshrc`: `alias bat="batcat"` e
@@ -139,6 +141,7 @@ Esta fase é o critério de sucesso. Execute, não presuma.
 | `micro` | CLI | `micro --version` |
 | `kubectl` | CLI | `kubectl version --client` |
 | `rtk` | CLI | `rtk --version` |
+| `ast-grep` | CLI | `ast-grep --version || sg --version` |
 | `nvm` | version manager | `nvm --version  # rodar em shell interativa, após carregar o nvm` |
 | `pyenv` | version manager | `pyenv --version` |
 | `bun` | version manager | `bun --version` |

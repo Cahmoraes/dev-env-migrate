@@ -179,6 +179,20 @@
       "shell_init": null,
       "config_dirs": null,
       "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado."
+    },
+    {
+      "name": "ast-grep",
+      "source": "https://github.com/ast-grep/ast-grep",
+      "install": {
+        "all": "npm install -g @ast-grep/cli"
+      },
+      "verify": "ast-grep --version || sg --version",
+      "detect": "ast-grep",
+      "detect_alt": "sg",
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "Distribuído como binário pré-compilado via npm — NÃO requer Rust/cargo. Requer node/npm no PATH (já presente com o Claude Code). O pacote instala dois binários: `ast-grep` e o alias `sg`. Detecção usa `ast-grep` porque `sg` colide com o comando nativo do Linux (shadow-utils: run command as group)."
     }
   ],
   "version_managers": [

@@ -114,6 +114,17 @@
         "fallback": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/main/install.sh | bash"
       },
       "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado."
+    },
+    "ast-grep": {
+      "describe": "busca/refactor estrutural por AST (TS/JS e outras langs) — usado como `sg`",
+      "detect": "ast-grep",
+      "detect_alt": "sg",
+      "source": "https://github.com/ast-grep/ast-grep",
+      "verify": "ast-grep --version || sg --version",
+      "install": {
+        "all": "npm install -g @ast-grep/cli"
+      },
+      "note": "Distribuído como binário pré-compilado via npm — NÃO requer Rust/cargo. Requer node/npm no PATH (já presente com o Claude Code). O pacote instala dois binários: `ast-grep` e o alias `sg`. Detecção usa `ast-grep` porque `sg` colide com o comando nativo do Linux (shadow-utils: run command as group)."
     }
   },
 
