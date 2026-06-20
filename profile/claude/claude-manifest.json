@@ -205,6 +205,7 @@
     "RTK.md",
     "SERENA.md",
     "AST-GREP.md",
+    "TOKEN-EFFICIENT.md",
     "hooks/",
     "agents/",
     "skills/"
