@@ -1,0 +1,154 @@
+stateDiagram-v2
+    direction LR
+
+    [*] --> ChecandoPreferencias
+    ChecandoPreferencias --> Onboarding : preferencias ausentes
+    ChecandoPreferencias --> GateResync : preferencias carregadas AND session_memory_enabled
+    ChecandoPreferencias --> Triagem : preferencias carregadas AND NOT session_memory_enabled
+    Onboarding --> GateResync : preferencias salvas AND session_memory_enabled
+    Onboarding --> Triagem : preferencias salvas AND NOT session_memory_enabled
+
+    state Onboarding {
+        direction TB
+        [*] --> ColetandoPreferencias
+        ColetandoPreferencias --> ColetandoArtefatos : preferencias operacionais coletadas
+        ColetandoArtefatos --> SalvandoPreferencias : artefatos registrados (ou etapa pulada)
+        SalvandoPreferencias --> [*]
+    }
+    note right of Onboarding : ColetandoPreferencias inclui perguntas condicionais por plataforma\nCopilot CLI - copilot.rubber_duck (forca Rubber Duck) e copilot.review_final (review no final), default false\nClaude Code - claude_code.simplify e code_review_final (+ code_review_effort, default medium), default false\noutras plataformas pulam os steps que nao se aplicam (secao YAML ignorada)
+
+    state GateResync {
+        direction TB
+        [*] --> DetectandoMudancas
+        DetectandoMudancas --> [*] : nenhuma mudanca detectada (skip silencioso)
+        DetectandoMudancas --> PerguntandoResync : mudancas detectadas em docs/superpowers
+        PerguntandoResync --> SincronizandoMemoria : usuario aceita re-sync
+        PerguntandoResync --> [*] : usuario recusa re-sync
+        SincronizandoMemoria --> [*] : sync concluido
+    }
+    note right of GateResync : entry / dirty check via check-resync.cjs (artifact content fingerprint, NOT a git tree/commit hash — never reconstruct by hand)\nexit / session_resync_completed = true
+
+    GateResync --> Triagem : gate concluido
+
+    Triagem --> PerguntaDeAbertura : saudacao ou pedido ambiguo
+    PerguntaDeAbertura --> Triagem : opcao escolhida (numero 1-6 ou descricao livre)
+    Triagem --> Pesquisando : (1) research - pesquisa / investigacao / estado da arte
+    Triagem --> Explorando : (2) brainstorming - feature, design, migracao ou refactor
+    Triagem --> Depurando : (3) debugging - bug/erro reportado diretamente
+    Triagem --> Planejando : (4) planejamento - spec ou PRD ja aprovado
+    Triagem --> Executando : (5) execucao - task index ou task file existente (handoff oferece 3 opcoes de execucao, com recommended eleito dinamicamente via executionRecommendation do parse-waves.cjs)
+    note right of Triagem : opcoes numeradas na pergunta de abertura (usuario escolhe um numero 1-6 ou descreve livremente)\n(5) nunca invoca skill de execucao diretamente - apresenta os 3 modos e aguarda escolha do usuario (excecao - modo nomeado explicitamente no pedido)\n(6) review/QA encaminha para a skill de review ou verificacao correspondente (user-story-verification / GateQA)
+
+    Pesquisando --> Explorando : research concluida, handoff para brainstorming (com artefato)
+    note right of Pesquisando : entry / execucao paralela via harness nativo (deep-research) ou fan-out de subagents\nentry / persiste docs/superpowers/<feature>/research/\netapa opcional (usuario pode pular para brainstorming direto)
+
+    Explorando --> Formalizando : spec aprovada (default)
+    Explorando --> Planejando : PRD pulado
+    note right of Explorando : entry / memory recall [if session_memory_enabled] (super.persistent-memory search)\ndo / analise arquitetural via references sob demanda (caracteristicas arquiteturais priorizadas, componentes logicos, trade-offs, riscos)\ndo / clarifying questions ordenadas por arvore de dependencia [migracao/greenfield/brownfield] (raizes antes de folhas, decision-tree-interviewing) - flat para mudancas triviais/reversiveis\nexit / spec com secoes Caracteristicas Arquiteturais + Decisoes (ADR-lite) + Riscos\nexit / [se houve mockup aprovado] artefato visual curado em specs/mockups/<feature>-visual.md + secao Especificacao Visual no spec (super.brainstorming visual-companion)
+
+    Formalizando --> Planejando : PRD aprovado
+
+    Planejando --> Executando : plano criado (handoff oferece 3 opcoes de execucao, com recommended eleito dinamicamente via executionRecommendation do parse-waves.cjs)
+    note right of Planejando : exit / memory persist [if session_memory_enabled] (super.persistent-memory add)\nexit / Execution Waves derivadas do campo Depends on via parse-waves.cjs\nexit / [se mockups.found via find-feature-files.cjs] tasks de UI recebem subsecao Fidelidade Visual + gate validate-tasks.cjs --mockups (mockup orfao reprova)
+
+    state Executando {
+        direction TB
+        [*] --> EscolhendoModo
+        EscolhendoModo --> ModoSequencial : subagent-driven (1 workspace)
+        EscolhendoModo --> ModoParaleloInTree : parallel-subagent-in-tree (waves + tree compartilhado, sem worktrees)
+        EscolhendoModo --> ModoParalelo : parallel-subagent (waves + worktrees)
+
+        state ModoSequencial {
+            direction TB
+            [*] --> Implementando
+            Implementando --> EmRevisao : tarefa submetida
+            EmRevisao --> Implementando : issues, corrigir
+            EmRevisao --> [*] : todas as tarefas ok
+            Implementando --> DepurandoExec : bug encontrado
+            DepurandoExec --> Implementando : causa raiz identificada, fix aplicado
+            DepurandoExec --> [*] : 3+ tentativas falhas, questiona arquitetura com humano (super.systematic-debugging)
+        }
+
+        state ModoParaleloInTree {
+            direction TB
+            [*] --> ProximaWaveIT
+            ProximaWaveIT --> GateDisjuncao : wave com 2+ tasks independentes
+            ProximaWaveIT --> WaveSequencialIT : wave com 1 task
+            GateDisjuncao --> WaveParalelaIT : write-sets disjuntos (check-wave-disjoint.cjs safeForInTreeParallel)
+            GateDisjuncao --> WaveSequencialIT : overlap ou unverificavel → cai para sequencial nessa wave
+            WaveParalelaIT --> BarreiraIntegracao : implementers write-only/no-commit retornam
+            WaveSequencialIT --> BarreiraIntegracao : task revisada in-place
+            BarreiraIntegracao --> VerificandoMergeIT : lint-fix, tsc-check, test, build + commit (1x por wave)
+            VerificandoMergeIT --> ProximaWaveIT : VBC ok, proxima wave
+            VerificandoMergeIT --> WaveParalelaIT : falha de integracao, corrigir
+            WaveParalelaIT --> DepurandoExecIT : bug encontrado na task
+            WaveSequencialIT --> DepurandoExecIT : bug encontrado na task
+            DepurandoExecIT --> BarreiraIntegracao : causa raiz identificada, fix aplicado (super.systematic-debugging)
+            DepurandoExecIT --> [*] : 3+ tentativas falhas, questiona arquitetura com humano
+            ProximaWaveIT --> [*] : todas as waves integradas e verificadas
+        }
+
+        state ModoParalelo {
+            direction TB
+            [*] --> ProximaWave
+            ProximaWave --> WaveParalela : wave com 2+ tasks independentes
+            ProximaWave --> WaveSequencial : wave com 1 task
+            WaveParalela --> Integrando : worktrees revisados (1 worktree por task, super.using-git-worktrees)
+            WaveSequencial --> Integrando : task revisada in-place
+            Integrando --> VerificandoMerge : merge no branch base
+            VerificandoMerge --> ProximaWave : VBC ok no merge, proxima wave
+            VerificandoMerge --> WaveParalela : conflito/bug de integracao, corrigir
+            WaveParalela --> DepurandoExecP : bug encontrado na task
+            WaveSequencial --> DepurandoExecP : bug encontrado na task
+            DepurandoExecP --> Integrando : causa raiz identificada, fix aplicado (super.systematic-debugging)
+            DepurandoExecP --> [*] : 3+ tentativas falhas, questiona arquitetura com humano
+            ProximaWave --> [*] : todas as waves integradas e verificadas
+        }
+
+        ModoSequencial --> [*]
+        ModoParaleloInTree --> [*]
+        ModoParalelo --> [*]
+    }
+    note right of Executando : paralelismo e isolamento sao eixos ortogonais - in-tree (tree compartilhado, write-sets disjuntos verificados + implementers write-only + barreira de integracao serializada) ou worktree (1 worktree isolado por task)\ntasks dependentes serializadas pelas waves\nClaude Code (opcional, aditivo aos gates spec+quality que sempre rodam) - /simplify por task se claude_code.simplify\n/code-review no review final (effort claude_code.code_review_effort, default medium, ultra indisponivel) se claude_code.code_review_final como camada extra de bugs (reviewer final amplo sempre roda)\nCopilot CLI (opcional, sem niveis de esforco) - review no review final se copilot.review_final como camada extra de bugs (reviewer final amplo sempre roda)
+
+    state Depurando {
+        direction TB
+        [*] --> Investigando
+        Investigando --> Analisando : causa raiz encontrada
+        Analisando --> Corrigindo : hipótese confirmada (via TDD)
+        Corrigindo --> [*] : fix verificado (VBC) ✅
+        Corrigindo --> Investigando : fix falhou, retenta
+        Corrigindo --> QuestionandoArquitetura : 3+ tentativas falhas
+        QuestionandoArquitetura --> [*] : decisão tomada com humano
+    }
+
+    Executando --> GateQA : PRD existe + usuário confirma QA
+    Executando --> Finalizando : sem PRD, pula gate
+    Executando --> Finalizando : PRD existe mas usuário declina QA
+
+    Depurando --> Finalizando : bug como tarefa principal → resolvido
+
+    state GateQA {
+        direction TB
+        [*] --> Verificando
+        Verificando --> Aprovado : PASSED ou PARTIAL
+        Verificando --> Reprovado : FAILED
+    }
+
+    Aprovado --> Finalizando
+    Reprovado --> Executando : corrigir e re-executar
+
+    state Finalizando {
+        direction TB
+        [*] --> TestesVerificados
+        TestesVerificados --> ApresentandoOpcoes
+        ApresentandoOpcoes --> Merge
+        ApresentandoOpcoes --> PullRequest
+        ApresentandoOpcoes --> Manter
+        ApresentandoOpcoes --> Descartar
+    }
+
+    Merge --> [*]
+    PullRequest --> [*]
+    Manter --> [*]
+    Descartar --> [*]

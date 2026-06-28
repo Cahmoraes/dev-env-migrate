@@ -33,6 +33,11 @@
       "name": "chrome-devtools-plugins",
       "source": "github",
       "repo": "ChromeDevTools/chrome-devtools-mcp"
+    },
+    {
+      "name": "Madhan230205-claude-token-reducer",
+      "source": "github",
+      "repo": "Madhan230205/token-reducer"
     }
   ],
   "plugins": [
@@ -113,6 +118,24 @@
       "enabled": true,
       "version": "2.0.6",
       "gitCommitSha": null
+    },
+    {
+      "name": "serena@claude-plugins-official",
+      "enabled": true,
+      "version": "unknown",
+      "gitCommitSha": null
+    },
+    {
+      "name": "figma@claude-plugins-official",
+      "enabled": true,
+      "version": "2.2.68",
+      "gitCommitSha": null
+    },
+    {
+      "name": "claude-token-reducer@Madhan230205-claude-token-reducer",
+      "enabled": true,
+      "version": "1.4.0",
+      "gitCommitSha": "1a0a11dfc8fc8645e465abbd505d46addc025ccb"
     }
   ],
   "language_servers": [
@@ -251,6 +274,25 @@
       "security-review",
       "skill-creator",
       "spec",
+      "super.brainstorming",
+      "super.deep-research",
+      "super.dispatching-parallel-agents",
+      "super.finishing-a-development-branch",
+      "super.generating-prd",
+      "super.parallel-subagent-development",
+      "super.parallel-subagent-in-tree",
+      "super.persistent-memory",
+      "super.receiving-code-review",
+      "super.requesting-code-review",
+      "super.subagent-driven-development",
+      "super.systematic-debugging",
+      "super.test-driven-development",
+      "super.user-story-verification",
+      "super.using-git-worktrees",
+      "super.using-superpowers",
+      "super.verification-before-completion",
+      "super.writing-clearly-and-concisely",
+      "super.writing-plans",
       "to-adr",
       "xstate",
       "zod",

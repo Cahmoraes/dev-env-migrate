@@ -36,8 +36,9 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `claude-code-warp` → `warpdotdev/claude-code-warp` (`claude plugin marketplace add warpdotdev/claude-code-warp`)
 - `headroom-marketplace` → `chopratejas/headroom` (`claude plugin marketplace add chopratejas/headroom`)
 - `chrome-devtools-plugins` → `ChromeDevTools/chrome-devtools-mcp` (`claude plugin marketplace add ChromeDevTools/chrome-devtools-mcp`)
+- `Madhan230205-claude-token-reducer` → `Madhan230205/token-reducer` (`claude plugin marketplace add Madhan230205/token-reducer`)
 
-## Fase 2 — Plugins (11 habilitados)
+## Fase 2 — Plugins (14 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).

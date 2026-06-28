@@ -10,6 +10,7 @@
     "defaultMode": "bypassPermissions",
     "skipDangerousModePermissionPrompt": true
   },
+  "model": "sonnet",
   "hooks": {
     "PermissionRequest": [
       {
@@ -104,7 +105,8 @@
     "commit-commands@claude-plugins-official": true,
     "headroom@headroom-marketplace": true,
     "chrome-devtools-mcp@chrome-devtools-plugins": true,
-    "security-guidance@claude-plugins-official": true
+    "security-guidance@claude-plugins-official": true,
+    "serena@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -139,7 +141,7 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "editorMode": "normal",
