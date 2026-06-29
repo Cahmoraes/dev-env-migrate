@@ -33,11 +33,6 @@
       "name": "chrome-devtools-plugins",
       "source": "github",
       "repo": "ChromeDevTools/chrome-devtools-mcp"
-    },
-    {
-      "name": "Madhan230205-claude-token-reducer",
-      "source": "github",
-      "repo": "Madhan230205/token-reducer"
     }
   ],
   "plugins": [
@@ -130,12 +125,6 @@
       "enabled": true,
       "version": "2.2.68",
       "gitCommitSha": null
-    },
-    {
-      "name": "claude-token-reducer@Madhan230205-claude-token-reducer",
-      "enabled": true,
-      "version": "1.4.0",
-      "gitCommitSha": "1a0a11dfc8fc8645e465abbd505d46addc025ccb"
     }
   ],
   "language_servers": [

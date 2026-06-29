@@ -23,7 +23,19 @@ which rtk             # Verify correct binary
 
 ## Hook-Based Usage
 
-All other commands are automatically rewritten by the Claude Code hook.
+Most commands are automatically rewritten by the Claude Code hook.
 Example: `git status` → `rtk git status` (transparent, 0 tokens overhead)
+
+**pnpm — partial hook coverage (know what's caught vs not):**
+- Caught automatically: `pnpm list`, `pnpm install`, `pnpm run <cmd>`, `pnpm exec <bin>`, `pnpm dlx <bin>`
+- NOT caught — prefix manually: `pnpm add <pkg>` and `pnpm --filter <app> <cmd>` (most common monorepo usage)
+- Safe rule: always write `rtk pnpm ...` — RTK guards against double-rewrite, no harm prefixing already-caught commands
+
+**Other gaps — prefix manually:**
+- `npx playwright@<version> test` → version tag breaks hook pattern; use `npx playwright test` (sem versão) ou `pnpm exec playwright test` (ambos são capturados)
+
+RTK has no filter for `node`, `playwright-cli`, `pmem`, or `claude mcp` — prefixing them adds zero savings (pass-through confirmed). Do NOT prefix those.
+
+When RTK adds native `pnpm` support the manual prefix becomes redundant but harmless (RTK guards against double-rewrite).
 
 Refer to CLAUDE.md for full command reference.
