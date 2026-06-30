@@ -1,6 +1,6 @@
 # Model Selection — full policy
 
-> Canonical model-selection policy for all execution skills. `super.parallel-subagent-development`, `super.parallel-subagent-in-tree`, and `super.dispatching-parallel-agents` defer to this — they do not redefine it.
+> Canonical model-selection policy for all execution skills. `super.parallel-subagent-development`, `super.parallel-subagent-in-tree`, and `super.dispatching-parallel-agents` defer to this — they do not redefine it. For ad-hoc parallel dispatches, run `super.dispatching-parallel-agents/scripts/validate-dispatch.cjs` before any `Task(...)` call to mechanically enforce the `model:` invariant and write-set disjointness.
 
 **Set an explicit `model:` on every dispatch — never inherit yours by omission.** The Task/Agent tool inherits the controller's model when `model:` is omitted, so a controller on the most-capable model silently runs *every* implementer and reviewer on it too — the over-provisioning bug this policy prevents: a mechanical task burned on the most expensive model wastes tokens for no quality gain. Resolve each task's tier to a model and pass it as `model:`. Omitting it is a Red Flag.
 

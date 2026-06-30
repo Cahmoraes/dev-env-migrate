@@ -38,6 +38,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${HOME}/.claude/hooks/rtk-pnpm-enforce.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "${HOME}/.pyenv/versions/3.13.4/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
             "timeout": 15
           }

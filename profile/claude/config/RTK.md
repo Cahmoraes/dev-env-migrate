@@ -31,6 +31,9 @@ Example: `git status` → `rtk git status` (transparent, 0 tokens overhead)
 - NOT caught — prefix manually: `pnpm add <pkg>` and `pnpm --filter <app> <cmd>` (most common monorepo usage)
 - Safe rule: always write `rtk pnpm ...` — RTK guards against double-rewrite, no harm prefixing already-caught commands
 
+**pnpm --filter enforcement hook** (`~/.claude/hooks/rtk-pnpm-enforce.sh`):
+A `PreToolUse` hook actively **blocks** any bare `pnpm --filter` command that lacks the `rtk` prefix (exit code 2 = tool call rejected). This is not a warning — the Bash call is cancelled and you must retry with `rtk pnpm --filter ...`. The hook is safe: it only triggers on `pnpm --filter` specifically and passes through everything else.
+
 **Other gaps — prefix manually:**
 - `npx playwright@<version> test` → version tag breaks hook pattern; use `npx playwright test` (sem versão) ou `pnpm exec playwright test` (ambos são capturados)
 

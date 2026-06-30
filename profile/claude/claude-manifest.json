@@ -231,7 +231,8 @@
       "caveman-statusline.ps1",
       "caveman-statusline.sh",
       "context-mode-cache-heal.mjs",
-      "package.json"
+      "package.json",
+      "rtk-pnpm-enforce.sh"
     ],
     "agents": [
       "code-architect.md",
@@ -280,7 +281,6 @@
       "super.using-git-worktrees",
       "super.using-superpowers",
       "super.verification-before-completion",
-      "super.writing-clearly-and-concisely",
       "super.writing-plans",
       "to-adr",
       "xstate",
