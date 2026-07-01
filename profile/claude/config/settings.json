@@ -86,8 +86,9 @@
   "worktree": {
     "baseRef": "fresh"
   },
-  "workflowKeywordTriggerEnabled": false,
   "disableWorkflows": true,
+  "enableWorkflows": false,
+  "workflowKeywordTriggerEnabled": false,
   "statusLine": {
     "type": "command",
     "command": "bash ${HOME}/.claude/statusline-command.sh"
@@ -151,5 +152,5 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "enableWorkflows": false
+  "model": "sonnet"
 }
