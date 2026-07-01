@@ -44,19 +44,6 @@
 .agents/skills/super.persistent-memory/scripts/pmem stats
 ```
 
-## Re-embed After a Model Upgrade
-
-```bash
-# Detect model drift (JSON, no model load) — reembed_needed:true means act
-.agents/skills/super.persistent-memory/scripts/pmem embedding-status
-
-# Regenerate stale/missing vectors with the active model (idempotent)
-.agents/skills/super.persistent-memory/scripts/pmem reembed
-
-# Confirm convergence: reembed_needed must be false
-.agents/skills/super.persistent-memory/scripts/pmem embedding-status
-```
-
 ## Notes
 
 - `search` updates `hits` and `last_seen_at` for returned rows.

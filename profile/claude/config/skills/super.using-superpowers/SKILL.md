@@ -31,19 +31,18 @@ Preferences govern behavior throughout (auto-commit, language, destructive-actio
 
 ### Corporate Artifacts
 
-If `context.has_corporate_artifacts` is `true` (or the flag is off but `.superpowers/corporate-artifacts.yml` exists), read the file with `view` (never `glob`), keep the paths/URLs in context, and pass them in the handoff to `super.brainstorming` / `super.generating-prd` / `super.writing-plans`. Full rules (missing-file warning, flag/file mismatch — warn once and ask before proceeding) — `references/onboarding-preferences.md § Corporate Artifacts`.
+If `context.has_corporate_artifacts` is `true`, read `.superpowers/corporate-artifacts.yml` with `view` (not `glob`) and keep the paths/URLs in context. When routing to `super.brainstorming`, `super.generating-prd`, or `super.writing-plans`, pass them in the handoff: _"Corporate artifacts are available: [list of paths/URLs]."_ If the file is missing despite the flag, warn the user once and continue without artifacts. Conversely, if the flag is `false` but `.superpowers/corporate-artifacts.yml` exists and lists artifacts, do not silently skip the company's source of truth: warn the user once that the file is present while the flag is off (so the artifacts are being ignored) and ask whether to enable `has_corporate_artifacts`, then proceed per their answer.
 
 ## Session Summary
 
-**After the Memory Re-Sync Gate has been processed (or skipped) and right before the opening triage, print — exactly once — a brief bulleted summary of the session variables** (§ Session State). Print it nowhere else: this section is the **sole owner** of the print, and it must reflect post-re-sync state, so it belongs after the gate. List the cross-platform vars plus the **current** platform's native-skill vars; omit the other platform's (inert — always `false`). Also **omit the internal latches `session_caveman_prompted` and `session_caveman_in_effect`** — they are controller bookkeeping (whether the dynamic question was asked; whether caveman is loaded now), not configured behavior, so showing them only adds noise (they stay tracked in context; this hides them from the display only). Reuse the platform from § Platform Adaptation; add no detection logic. Read-only — never blocks the triage. **One variable per line** (use a bulleted list); keep a variable and its coupled qualifier inline on the same line (caveman + its level, code-review + its effort). Example (Claude Code):
+**After the Memory Re-Sync Gate has been processed (or skipped) and right before the opening triage, print — exactly once — a brief bulleted summary of the session variables** (§ Session State). Print it nowhere else: this section is the **sole owner** of the print, and it must reflect post-re-sync state, so it belongs after the gate. List the cross-platform vars plus the **current** platform's native-skill vars; omit the other platform's (inert — always `false`). Also **omit the internal latches `session_caveman_prompted` and `session_caveman_in_effect`** — they are controller bookkeeping (whether the dynamic question was asked; whether caveman is loaded now), not configured behavior, so showing them only adds noise (they stay tracked in context; this hides them from the display only). Reuse the platform from § Platform Adaptation; add no detection logic. Read-only — never blocks the triage. Example (Copilot CLI):
 
 > **Session variables (mantidos em contexto):**
 > - `session_caveman_active`: true (`caveman_level`: ultra)
 > - `session_memory_enabled`: true
 > - `session_resync_completed`: true
-> - `session_simplify_enabled`: true
-> - `session_code_review_final_enabled`: true (`effort`: medium)
-> - `session_model_tier_*`: harness escolhe (ou liste os modelos quando definidos)
+> - `session_model_tier_*`: harness picks (cheap/standard/capable unset) — or list the concrete models when set
+> - `session_copilot_review_final_enabled`: true
 
 ## Opening Triage
 
@@ -76,11 +75,19 @@ Map a bare numeric reply (`0`–`6`) via the **Option** column; free-form reques
 
 ### Update Preferences (option 0)
 
-Lets the user revise `.superpowers/preferences.yml` mid-session without hand-editing YAML (the multi-question counterpart to a single named key like "set auto_commit false"). **Do not hardcode a platform tool;** the wizard abstracts the structured-question tool per platform. Load current values with `read-preferences.cjs` (each as the pre-selected default), re-walk the wizard, save with `write-preferences.cjs`, re-derive § Session State, return to triage. Full steps — `references/onboarding-preferences.md § Update Preferences (option 0)`.
+Lets the user revise `.superpowers/preferences.yml` mid-session — as if redoing onboarding — without hand-editing YAML. It is the multi-question counterpart to a single explicitly-named key ("set auto_commit false", handled by `references/onboarding-preferences.md § Runtime Mutability`). **Do not hardcode a platform tool;** the wizard abstracts the structured-question tool per platform.
+
+Procedure: load current values with `read-preferences.cjs` (use each as the pre-selected default), re-walk the wizard questions (`references/onboarding-preferences.md § Wizard Flow`, one per turn, skipping steps that don't apply to the current platform), save with `write-preferences.cjs`, re-derive § Session State from the new values, then return to triage. Full steps: `references/onboarding-preferences.md § Update Preferences (option 0)`.
 
 ### Execution Mode Election (option 5)
 
-When triage routes to execution, **the user — not you — chooses the execution mode** (never default to `super.subagent-driven-development` because it "is the default" — that is the exact bug this section prevents). Exception: the user already named a mode → invoke that skill directly with the tasks index path. Otherwise: locate pending work (`superpowers-status.cjs --pending`), derive the recommendation from wave shape (`parse-waves.cjs`), present the three options (Subagent-Driven / Parallel in-tree / Parallel worktrees) with `(recommended)` elected by the rubric — **never hardcoded on option 1** — and wait for the choice. Full steps (script invocations, sibling-skill path resolution, handoff message) — `references/session-state-and-gates.md § Execution Mode Election (option 5)`.
+When triage routes to execution, **the user — not you — chooses the execution mode.** Jumping straight into `super.subagent-driven-development` (or any other execution skill) because it "is the default" is the exact bug this section prevents. (Exception: the user already named a mode → invoke that skill directly with the tasks index path.) This mirrors the Execution Handoff `super.writing-plans` offers right after creating the tasks index — same three options, same dynamically elected `(recommended)` tag.
+
+Steps:
+1. **Locate pending work:** `node <super.using-superpowers-base-dir>/scripts/superpowers-status.cjs --pending` returns the resumable features (`phase` `planned`/`executing`) with task progress (`tasks.done`/`tasks.total`) and a deterministic `nextAction`. More than one → list them and ask which; empty → tell the user and offer planning (option 4). (Drop `--pending` for the full pipeline view.)
+2. **Derive the recommendation:** `node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md` → read `executionRecommendation` and the wave summary (`waveCount`, `waveKinds`, `maxParallelWave`). (`parse-waves.cjs` lives in the sibling skill: swap the final `super.using-superpowers` segment of this skill's base dir for `super.parallel-subagent-development` — superpowers skills are siblings in one `skills/` directory.)
+3. **Present the three options:** render via `<super.writing-plans-base-dir>/references/execution-handoff-message.md` (Steps 1–3) — Subagent-Driven, Parallel in-tree, Parallel worktrees, with `(recommended)` elected by the rubric. Never hardcode the recommendation on option 1. Open with the triage variant: _"Found existing tasks index `tasks-<feature-name>.md` with N tasks (M pending)."_
+4. **Wait for the user's choice,** then invoke the chosen skill (`super.subagent-driven-development` / `super.parallel-subagent-in-tree` / `super.parallel-subagent-development`) with the tasks index path.
 
 ### Native plan mode is forbidden while superpowers is routing
 
@@ -107,33 +114,67 @@ After reading preferences, derive the session variables deterministically — do
 node <super.using-superpowers-base-dir>/scripts/derive-session-state.cjs \
   --platform claude-code --repo-root "$(git rev-parse --show-toplevel)"
 ```
-`derive-session-state.cjs` is the **single source of truth** for the `preferences.X.Y → session_*` mapping and for platform gating: the Claude Code variables resolve `false` off Claude Code, and `session_copilot_review_final_enabled` resolves `false` off Copilot CLI, so no skill carries per-platform rules. Pass `--platform` matching where you run (`claude-code`; `copilot`/`codex`/`gemini` elsewhere). Track the resulting session-only variables in context (never written back to `preferences.yml`): the caveman vars (`session_caveman_active`, `session_caveman_level`, `session_caveman_in_effect`, `session_caveman_prompted`), `session_memory_enabled`, `session_resync_completed`, the native-review vars (`session_simplify_enabled`, `session_code_review_final_enabled`, `session_code_review_effort`, `session_copilot_review_final_enabled`), and `session_model_tier_{cheap,standard,capable}`. Prefs-derived vars come from the script's `sessionState`; the latches start `false`. Full table (sources, meanings, latch semantics) — `references/session-state-and-gates.md § Session State variables`.
+`derive-session-state.cjs` is the **single source of truth** for the `preferences.X.Y → session_*` mapping and for platform gating: the Claude Code variables resolve `false` off Claude Code, and `session_copilot_review_final_enabled` resolves `false` off Copilot CLI, so no skill carries per-platform rules. Pass `--platform` matching where you run (`claude-code`; `copilot`/`codex`/`gemini` elsewhere). Track these session-only variables in context (never written back to `preferences.yml`); the prefs-derived ones come from the script's `sessionState`, the latches start `false`:
+
+| Variable | Source | Meaning |
+|---|---|---|
+| `session_caveman_active` | sessionState | **Intent** — caveman should be on this session (from preferences or the dynamic question). Not "already invoked". |
+| `session_caveman_level` | sessionState | Intensity level (default `full`). |
+| `session_caveman_in_effect` | latch | **Liveness** — whether `/caveman` is currently loaded. Set `true` right after invoking, `false` on deactivation or after a compaction (which wipes live skill state). Idempotency guard — see § Caveman Mode. |
+| `session_caveman_prompted` | latch | Whether the dynamic question was already asked this session. |
+| `session_memory_enabled` | sessionState | Whether persistent memory recall/persist is active. |
+| `session_resync_completed` | latch | Whether the re-sync gate was already processed this session. |
+| `session_simplify_enabled` | sessionState | Claude Code only — whether `/simplify` runs at the per-task checkpoint. |
+| `session_code_review_final_enabled` | sessionState | Claude Code only — whether `/code-review` runs once at the **final** review as an extra bug pass (the default final reviewer always runs). |
+| `session_code_review_effort` | sessionState | Effort for the final `/code-review` (`low`/`medium`/`high`/`max`; `ultra` clamped to `medium`). |
+| `session_copilot_review_final_enabled` | sessionState | Copilot CLI only — whether the native `review` runs once at the **final** review as an extra pass (the default final reviewer always runs). |
+| `session_model_tier_cheap`, `session_model_tier_standard`, `session_model_tier_capable` | sessionState | Platform-agnostic model ids for the cheap/standard/capable execution tiers (from `preferences.model_tiers`; `null` → let the platform auto-select). |
 
 ### Caveman Mode
 
-Caveman Mode cuts agent token use ~75% during execution phases by switching to ultra-compressed communication. Opt-in; never activated automatically. ON from the `Planejando → Executando` gate, through all of `Executando`, into `GateQA → Verificando`; OFF everywhere else. The execution skills own invocation (`/caveman <level>`); the `Planejando → Executando` gate's two exit actions (memory persistence if `session_memory_enabled = true`, then caveman activation if `session_caveman_active = true`) and the dynamic opt-in question live in the reference.
+Caveman Mode cuts agent token use ~75% during execution phases by switching to ultra-compressed communication. Opt-in; never activated automatically.
 
-> **Activation is idempotent — invoke `/caveman` at most once per active window.** Before invoking, check `session_caveman_in_effect`: if it is already `true` at `session_caveman_level`, caveman is already loaded — **skip the invocation; do not re-invoke** `/caveman`. Set it `true` after a successful invocation, `false` on deactivation or after a compaction. This one-shot latch (never written to `preferences.yml`) prevents the gate policy and an execution skill's Step 2 from double-firing.
+**Activation window:** ON from the `Planejando → Executando` gate, through all of `Executando`, and into `GateQA → Verificando`; OFF everywhere else (Explorando, Formalizando, Planejando, Finalizando, and the root `Depurando` state, which is investigative and needs clear prose). The `Planejando → Executando` gate has two mandatory exit actions:
+1. **Memory persistence** — if `session_memory_enabled = true`, `super.writing-plans` calls `pmem add` (3 entries) before handing off (see its § Memory Persistence). If memory is disabled, skip entirely.
+2. **Caveman activation** — if `session_caveman_active = true`, invoke `/caveman <level>`.
 
-Full detail (activation window, the two gate exit actions, memory-persistence coupling, the dynamic question wording) — `references/session-state-and-gates.md § Caveman Mode`.
+Execution skills must **verify memory was persisted** before starting tasks (only if `session_memory_enabled = true`; otherwise skip and proceed).
+
+**Invocation:** invoke the `caveman` skill passing the level (e.g. `/caveman full`); deactivate with "normal mode" / "stop caveman". The execution skills own the actual invocation — this section is the policy they follow.
+
+> **Activation is idempotent — invoke `/caveman` at most once per active window.** Before invoking, check `session_caveman_in_effect`: if it is already `true` at `session_caveman_level`, caveman is already loaded — **skip the invocation; do not re-invoke** `/caveman` (re-invoking only re-loads the skill and wastes tokens; behavior is unchanged). After a successful invocation set `session_caveman_in_effect = true`; on deactivation set it back to `false`. This single guard prevents the two known double-fires: (a) the gate policy and an execution skill's Step 2 both activating, and (b) a post-compaction re-activation followed by that skill's own Step 2 check. Like `session_caveman_prompted`, it is a one-shot latch, not a preference — never written to `preferences.yml`.
+
+**Dynamic question:** if `session_caveman_active = false` AND `session_caveman_prompted = false`, the execution skill **may** ask once before the `Executando` phase:
+> "Antes de iniciar a implementação, deseja ativar o **Caveman Mode**? Este modo reduz o consumo de tokens em ~75% durante a execução (implementação, revisão de código e verificações técnicas), usando comunicação ultra-compacta enquanto mantém precisão técnica."
+> - **Sim** — ativa para esta sessão (não altera preferências salvas)
+> - **Não** — continua com comunicação normal
+
+Yes → set `session_caveman_active = true`, `session_caveman_level = full` (or `preferences.optimization.caveman_level` if set), `session_caveman_prompted = true`. No → set `session_caveman_prompted = true`; do not ask again. The dynamic question is session-only and never alters `.superpowers/preferences.yml`.
 
 ### Native Review Skills
 
-Platform-native review passes are folded in **only when the user opts in during onboarding** (the other platform's section is ignored), all off by default and **additive: the spec-compliance and code-quality review gates always run regardless** — the default final reviewer always runs, so turning these off just leaves the pre-existing flow untouched. The session vars are `session_simplify_enabled` and `session_code_review_final_enabled` (+ `session_code_review_effort`, default `medium`) on Claude Code, and `session_copilot_review_final_enabled` on Copilot CLI; when a flag is `false` or the platform doesn't match, skip that pass. There is no per-task `/code-review` or `review` (it would overlap the gates). Full matrix (checkpoints, behaviors, Rubber Duck Agent) — `references/session-state-and-gates.md § Native Review Skills`.
+Each platform ships native review skills the flow folds in **only when the user opts in during onboarding** (the other platform's section is ignored). All are off by default and **additive: the spec-compliance and code-quality review gates always run regardless** — turning these off just leaves the pre-existing review flow untouched. The execution skills own the invocation; when a flag is `false` or the platform doesn't match, skip that pass.
+
+| Skill (platform) | Session variable | Checkpoint | Behavior |
+|---|---|---|---|
+| `/simplify` (Claude Code) | `session_simplify_enabled` | Per task, after implementation, before its review | Reuse/simplification/efficiency cleanups while the diff is small. Not a review — never overlaps the gates. |
+| `/code-review <effort>` (Claude Code, final) | `session_code_review_final_enabled` (+ `session_code_review_effort`, default `medium`) | Once, over the whole implementation | Correctness sweep on top of the default final reviewer (which always runs) — complementary, not duplicate. `ultra` clamped to `medium`. |
+| `review` (Copilot CLI, final) | `session_copilot_review_final_enabled` | Once, over the whole implementation | On top of the default final reviewer (which always runs) — complementary, not duplicate. No effort levels. |
+
+There is no per-task `/code-review` or `review` — it would overlap the code-quality gate and the final sweep, so only the final pass remains. Full checkpoint rules and per-mode placement: `references/claude-code-tools.md` (Claude Code), `references/copilot-tools.md` (Copilot CLI, including the Rubber Duck Agent).
 
 ### Memory Re-Sync Gate
 
-Keeps a shared repo's local `.memory/` current with committed `docs/superpowers/` artifacts. Runs **after preferences are loaded** (or after onboarding) and **before Triagem**, only when `session_memory_enabled = true` and `session_resync_completed = false`.
+When several developers share a repository, a local `.memory/` database goes stale as others commit artifacts to `docs/superpowers/`. This gate keeps it current with committed artifacts. It runs **after preferences are loaded** (or after onboarding) and **before Triagem**, only when `session_memory_enabled = true` and `session_resync_completed = false`.
 
-1. **Dirty detection (silent):** run `<super.using-superpowers-base-dir>/scripts/check-resync.cjs` — it ships in **this skill's** `scripts/` directory (resolve by base-dir path, like `read-preferences.cjs`; it is **not** in `super.persistent-memory`). Trust its `dirty` field — do **not** reconstruct a hash with `git rev-parse`/`git log`. If `dirty` is false, **skip steps 2–3 and continue to step 4** (step 4 runs regardless of `dirty`).
+1. **Dirty detection (silent):** run `<super.using-superpowers-base-dir>/scripts/check-resync.cjs` — it ships in **this skill's** `scripts/` directory (resolve it by base-dir path, like `read-preferences.cjs`; it is **not** in `super.persistent-memory`). It compares the **content** of the canonical artifacts (spec/prd/qa/adrs) on disk against the manifest. Trust its `dirty` field — do **not** reconstruct a hash with `git rev-parse`/`git log` (those measure unrelated things and produce false positives). If `dirty` is false, skip silently.
 2. **If dirty, ask the user** in the configured language (exact wording in `references/memory-resync.md`).
-3. **On accept:** run the sync algorithm and report a summary. **On decline:** skip.
-4. **Embedding-model drift (silent, independent of `dirty`):** run `pmem embedding-status` — orthogonal to artifact content, so `dirty` stays false while stored vectors go stale. If `stale_count > 0`, ask whether to re-embed; **on accept** run `pmem reembed` until `reembed_needed` is `false`, **on decline** skip (semantic recall stays degraded until re-embedded).
-5. **Set `session_resync_completed = true`** regardless of outcome, then proceed to Triagem.
+3. **On accept:** run the sync algorithm (scan artifacts, diff against manifest, prune stale entries, add new/changed) and report a summary. **On decline:** skip.
+4. **Set `session_resync_completed = true`** regardless of outcome, then proceed to Triagem.
 
-> **The script is the source of truth; the flag is only a within-session cache.** `check-resync.cjs` is cheap and idempotent — after a compaction, when in doubt, re-run it rather than trusting the flag.
+> **The script is the source of truth; the flag is only a within-session cache.** `check-resync.cjs` is cheap and idempotent — re-running never harms. After a compaction, when in doubt whether the gate already ran, re-run it rather than trusting the flag.
 
-Full algorithm (content-fingerprint dirty detection — NOT a git tree/commit hash — per-feature hashing, prune-before-add with `source="artifact-sync"`, deduplication, graceful degradation, drift re-embedding) and memory-flow integration (`pmem search` recall, `pmem add` namespaces) — `references/memory-resync.md`.
+The full algorithm (content-fingerprint dirty detection — content-based, NOT a git tree/commit hash — per-feature hashing, prune-before-add with `source="artifact-sync"`, deduplication, graceful degradation) and its integration with the existing memory flow (`pmem search` recall, `pmem add` namespaces) are in `references/memory-resync.md`.
 
 # Using Skills
 

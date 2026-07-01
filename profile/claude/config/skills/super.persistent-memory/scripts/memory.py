@@ -59,13 +59,7 @@ def _detect_workspace_root() -> Path:
 
 ROOT = _detect_workspace_root()
 DB_PATH = ROOT / ".memory" / "memory.db"
-# Embeddings are tagged with this model name in `memory_embeddings.model` and
-# searched via `WHERE model = ?`. INVARIANT: if a future swap changes the vector
-# DIMENSION, it MUST also change this string — same model string with a different
-# dim would let mixed-dim rows reach `vec_distance_cosine`/`np.dot` and break.
-# Changing the model leaves existing vectors "stale"; `reembed` refreshes them.
-# `all-mpnet-base-v2` is 768-d (prior `all-MiniLM-L6-v2` was 384-d).
-EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 WEIGHT_LEXICAL = 0.70
 WEIGHT_SEMANTIC = 0.30
@@ -180,10 +174,6 @@ def init_db(conn: sqlite3.Connection) -> bool:
         "CREATE INDEX IF NOT EXISTS memory_embeddings_updated_at_idx ON memory_embeddings(updated_at DESC)"
     )
 
-    # Whether the FTS index already existed BEFORE this call — decides if the
-    # one-time rebuild below is needed (see the rebuild guard).
-    fts_existed = _table_exists(conn, "notes_fts")
-
     fts_available = True
     try:
         conn.execute(
@@ -223,13 +213,7 @@ def init_db(conn: sqlite3.Connection) -> bool:
             END;
             """
         )
-        # Rebuild the FTS index ONLY when the virtual table was just created
-        # (first init, or migrating a DB that had notes before FTS existed). On
-        # every later call the notes_ai/ad/au triggers keep FTS in sync, so a
-        # rebuild would be a pointless full-index write — and a write lock — on
-        # every command, including read-only ones (search/stats/embedding-status)
-        # the re-sync gate runs each session.
-        if not fts_existed and _table_exists(conn, "notes_fts"):
+        if _table_exists(conn, "notes_fts"):
             conn.execute("INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')")
 
     conn.commit()
@@ -633,56 +617,6 @@ def _embedding_coverage(conn: sqlite3.Connection) -> tuple[int, int]:
     return embedded, total
 
 
-def _embedding_model_breakdown(
-    conn: sqlite3.Connection,
-) -> tuple[int, int, int, int, dict[str, int]]:
-    """Return (total_notes, current_count, stale_count, missing_count, stale_models).
-
-    ``current_count`` counts embeddings built with the active ``EMBED_MODEL``.
-    ``stale_count`` counts embeddings built with ANY other model (model drift —
-    semantic search filters these out via ``WHERE model = ?``). ``missing_count``
-    counts notes with no embedding row at all. ``stale_models`` maps each
-    outdated model name to how many notes still carry it. Pure SQL: no model load.
-    """
-    total_row = conn.execute("SELECT COUNT(*) AS c FROM notes").fetchone()
-    total = int(total_row["c"]) if total_row else 0
-    # Count embeddings that belong to a STILL-EXISTING note, grouped by model.
-    # The JOIN (rather than COUNT over the raw embeddings table) keeps orphan
-    # rows out of the counts: connect() does not enable PRAGMA foreign_keys, so
-    # the ON DELETE CASCADE is unenforced and an orphan embedding could otherwise
-    # inflate current/stale past total. With the JOIN, current_count <= total.
-    rows = conn.execute(
-        """
-        SELECT e.model AS model, COUNT(*) AS c
-        FROM memory_embeddings e
-        JOIN notes n ON n.id = e.note_id
-        GROUP BY e.model
-        """
-    ).fetchall()
-    current = 0
-    stale_models: dict[str, int] = {}
-    for row in rows:
-        model = str(row["model"])
-        count = int(row["c"])
-        if model == EMBED_MODEL:
-            current += count
-        else:
-            stale_models[model] = stale_models.get(model, 0) + count
-    stale = sum(stale_models.values())
-    # Compute missing with the SAME predicate cmd_reembed selects on, so
-    # embedding-status and reembed can never disagree about what is outstanding.
-    missing_row = conn.execute(
-        """
-        SELECT COUNT(*) AS c
-        FROM notes n
-        LEFT JOIN memory_embeddings e ON e.note_id = n.id
-        WHERE e.note_id IS NULL
-        """
-    ).fetchone()
-    missing = int(missing_row["c"]) if missing_row else 0
-    return total, current, stale, missing, stale_models
-
-
 def cmd_init(conn: sqlite3.Connection, _: argparse.Namespace) -> None:
     """Handle the init command."""
     fts_available = init_db(conn)
@@ -824,86 +758,6 @@ def cmd_backfill_embeddings(conn: sqlite3.Connection, args: argparse.Namespace) 
     print(f"embedded_notes: {count}")
 
 
-def cmd_reembed(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
-    """Regenerate embeddings for notes that are missing a vector OR carry a vector
-    built with a different model than the active ``EMBED_MODEL``.
-
-    When ``EMBED_MODEL`` is upgraded, existing notes keep embeddings tagged with
-    the OLD model name. Semantic search filters by ``WHERE model = ?``, so those
-    notes silently drop out of recall until re-embedded. ``backfill-embeddings``
-    only fills MISSING vectors (``WHERE e.note_id IS NULL``) and never refreshes
-    stale ones — this command is the model-migration path. ``_upsert_embedding``
-    overwrites model/dim/embedding in place, so it is idempotent.
-
-    Loads the model once for the whole batch (heavy torch import paid only here).
-    Emits a JSON summary so the re-sync gate can confirm convergence.
-    """
-    init_db(conn)
-    limit = max(1, int(args.batch))
-    rows = conn.execute(
-        """
-        SELECT n.id, n.content
-        FROM notes n
-        LEFT JOIN memory_embeddings e ON e.note_id = n.id
-        WHERE e.note_id IS NULL OR e.model != ?
-        ORDER BY n.id ASC
-        LIMIT ?
-        """,
-        (EMBED_MODEL, limit),
-    ).fetchall()
-    count = 0
-    for row in rows:
-        _upsert_embedding(conn, int(row["id"]), str(row["content"]))
-        count += 1
-        # Commit in chunks so the single SQLite writer lock is released
-        # periodically — mpnet is slower than the old MiniLM, and a 500-note
-        # batch held in one transaction would block concurrent background agents
-        # past their 30s busy-timeout.
-        if count % 50 == 0:
-            conn.commit()
-    conn.commit()
-    total, current, stale, missing, stale_models = _embedding_model_breakdown(conn)
-    print(
-        json.dumps(
-            {
-                "reembedded": count,
-                "model": EMBED_MODEL,
-                "total_notes": total,
-                "current_count": current,
-                "stale_count": stale,
-                "missing_count": missing,
-                "stale_models": stale_models,
-                "reembed_needed": (stale + missing) > 0,
-            }
-        )
-    )
-
-
-def cmd_embedding_status(conn: sqlite3.Connection, _: argparse.Namespace) -> None:
-    """Report embedding-model drift as JSON WITHOUT loading the model.
-
-    The re-sync gate calls this to decide whether to offer a re-embed. It only
-    reads the ``memory_embeddings.model`` column (pure SQL — no torch import), so
-    it is cheap enough to run on every session start. ``reembed_needed`` is true
-    when any note is missing a vector or still carries one from a previous model.
-    """
-    init_db(conn)
-    total, current, stale, missing, stale_models = _embedding_model_breakdown(conn)
-    print(
-        json.dumps(
-            {
-                "current_model": EMBED_MODEL,
-                "total_notes": total,
-                "current_count": current,
-                "stale_count": stale,
-                "missing_count": missing,
-                "stale_models": stale_models,
-                "reembed_needed": (stale + missing) > 0,
-            }
-        )
-    )
-
-
 def cmd_prune(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
     """Delete notes by source, optionally narrowed by tags and/or age.
 
@@ -1038,9 +892,6 @@ def cmd_stats(conn: sqlite3.Connection, _: argparse.Namespace) -> None:
     print(f"latest_last_seen_at: {latest_seen or 'never'}")
     print(f"embedded_notes: {embedded}")
     print(f"embedding_model: {EMBED_MODEL}")
-    breakdown = _embedding_model_breakdown(conn)
-    stale_embeddings = breakdown[2]
-    print(f"stale_embeddings: {stale_embeddings}")
     print(f"semantic_backend: {semantic_backend(conn)}")
     print(f"legacy_sync_rows: {legacy_sync_rows}")
     print(f"db: {DB_PATH}")
@@ -1101,19 +952,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_parser.add_argument("--batch", type=int, default=500, help="max notes per run")
     backfill_parser.set_defaults(handler=cmd_backfill_embeddings)
-
-    reembed_parser = subparsers.add_parser(
-        "reembed",
-        help="regenerate embeddings for notes missing a vector or built with another model",
-    )
-    reembed_parser.add_argument("--batch", type=int, default=500, help="max notes per run")
-    reembed_parser.set_defaults(handler=cmd_reembed)
-
-    embedding_status_parser = subparsers.add_parser(
-        "embedding-status",
-        help="report embedding-model drift as JSON (no model load)",
-    )
-    embedding_status_parser.set_defaults(handler=cmd_embedding_status)
 
     prune_parser = subparsers.add_parser(
         "prune",

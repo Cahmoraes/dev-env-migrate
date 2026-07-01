@@ -564,17 +564,21 @@ Verifique o efeito no manifest do profile `default`: `proxy_args` deve conter
 headroom init claude   # escreve ANTHROPIC_BASE_URL em ~/.claude/settings.local.json + hooks
 ```
 
-### 6d — Registrar MCPs (headroom + serena)
-O `headroom mcp` e a `serena` ficam em `~/.claude.json` (não viajam no profile).
+### 6d — Registrar MCP do headroom
+O `headroom mcp` fica em `~/.claude.json` (não viaja no profile).
 Forma canônica (≥0.25): `headroom mcp install` registra o CCR no Claude Code **e**
 no Codex de uma vez, ativando as ferramentas `mcp__headroom__headroom_compress`,
 `headroom_retrieve` e `headroom_stats` (fluxo Compress-Cache-Retrieve):
 ```bash
 headroom mcp install   # idempotente: já registrado → "already registered"
-# serena não é gerida pelo headroom — registre à parte:
-claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \\
-  serena start-mcp-server --project-from-cwd --context claude-code
 ```
+
+> **Serena não precisa de registro manual.** O plugin `serena@claude-plugins-official`
+> (instalado na Fase 2) já embute seu próprio `.mcp.json` e sobe o servidor sozinho.
+> Rodar `claude mcp add serena ...` por cima cria uma SEGUNDA conexão duplicada
+> (`serena` solto + `plugin:serena:serena`) — mesmo servidor, dobro de ferramentas
+> registradas, contexto inicial inflado. Se `claude mcp list` mostrar as duas,
+> remova a solta: `claude mcp remove serena -s user`.
 
 > **Nota:** `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` é gerenciado pelo
 > `headroom init claude` e **não viaja no profile** — cada destino configura via

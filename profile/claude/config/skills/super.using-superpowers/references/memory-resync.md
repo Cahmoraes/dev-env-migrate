@@ -11,18 +11,11 @@ The re-sync gate activates **after preferences are loaded** and **before Triagem
 ```
 ChecandoPreferencias
   → session_memory_enabled = false → Triagem (skip entirely)
-  → session_memory_enabled = true:
-    → [artifact sync] check dirty state
-        → no changes detected → skip silently
-        → changes detected → ask about re-sync
-            → accepts → SincronizandoMemoria
-            → declines → skip
-    → [embedding drift] check stale_count (ALWAYS, independent of dirty)
-        → stale_count = 0 → skip silently
-        → stale_count > 0 → ask about re-embed
-            → accepts → reembed
-            → declines → skip
-    → Triagem
+  → session_memory_enabled = true → check dirty state
+    → no changes detected → Triagem (skip silently)
+    → changes detected → ask user about re-sync
+      → user accepts → SincronizandoMemoria → Triagem
+      → user declines → Triagem
 ```
 
 ## Deterministic Scripts
@@ -96,44 +89,15 @@ The `last_synced_tree_hash` field stores the **artifact content fingerprint** (`
 
 Ask in the configured language (`preferences.communication.language`):
 
+**pt-BR:**
+> "Detectei alterações em `docs/superpowers/` desde a última sincronização da memória. Isso pode incluir artefatos produzidos por outros desenvolvedores. Deseja atualizar a memória persistida com base nesses artefatos?"
+> - **Sim** — sincroniza memória com artefatos atuais
+> - **Não** — pula e prossegue normalmente
+
 **en:**
 > "I detected changes in `docs/superpowers/` since the last memory sync. This may include artifacts produced by other developers. Would you like to update persistent memory based on these artifacts?"
 > - **Yes** — sync memory with current artifacts
 > - **No** — skip and proceed normally
-
----
-
-## Embedding Model Drift (independent of artifact sync)
-
-The artifact-sync flow (Steps 1–5) keeps memory current with **committed artifacts**. A second, orthogonal staleness exists: when the **embedding model** is upgraded (the `EMBED_MODEL` constant in `super.persistent-memory/scripts/memory.py`), every stored vector was built by the previous model. Semantic search filters by `WHERE model = ?`, so those notes silently fall out of semantic recall even though their content is unchanged and `dirty` is `false`. Lexical (FTS5) search is unaffected, so the regression is quiet — which is exactly why the gate checks for it explicitly.
-
-**Detect (silent, no model load):**
-
-```bash
-<super.persistent-memory-base-dir>/scripts/pmem embedding-status
-```
-
-JSON fields: `current_model`, `current_count`, `stale_count` (notes on an older model), `missing_count`, `stale_models` (old model → count), `reembed_needed`. Act only when `stale_count > 0` — a genuine model drift. (`missing_count > 0` with `stale_count == 0` is the normal new-note case, already covered by the artifact-sync add/backfill path — not here.)
-
-**The Re-Embed Question** — ask in the configured language (`preferences.communication.language`):
-
-**pt-BR:**
-> "O modelo de embeddings foi atualizado. <N> nota(s) ainda usam o modelo anterior e ficam fora da busca semântica até serem reprocessadas. Deseja reprocessar os embeddings agora?"
-> - **Sim** — reprocessa os vetores com o modelo atual (nada é perdido: só os vetores são regenerados, o conteúdo das notas é preservado)
-> - **Não** — pula (busca léxica continua; recall semântico fica degradado até reprocessar)
-
-**en:**
-> "The embedding model was upgraded. <N> note(s) still use the previous model and are excluded from semantic search until reprocessed. Re-embed them now?"
-> - **Yes** — regenerate vectors with the current model (nothing is lost: only the vectors are rebuilt, note content is preserved)
-> - **No** — skip (lexical search keeps working; semantic recall stays degraded until re-embedded)
-
-**On accept**, run until convergence (`reembed_needed: false`):
-
-```bash
-<super.persistent-memory-base-dir>/scripts/pmem reembed
-```
-
-`reembed` regenerates missing/stale vectors in place (idempotent, one model load). `backfill-embeddings` does NOT refresh stale vectors — it only fills missing ones — so `reembed` is the model-upgrade path. Re-run if the DB exceeds one `--batch` (default 500). This check is independent of `dirty`: it runs even when no artifacts changed, and re-embedding never deletes or rewrites note content (only the vectors), so nothing is lost.
 
 ---
 

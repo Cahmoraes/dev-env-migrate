@@ -28,13 +28,6 @@
  *
  * Output (stdout): JSON
  * Diagnostics (stderr): warnings only
- *
- * Token economy (IMPORTANT): by default the parsed manifest body is NOT emitted
- * (`manifest: null`) — it can be ~10 KB and no consumer reads it. The `dirty`
- * decision already incorporates the manifest, and the sync algorithm re-reads it
- * from `manifestPath` on disk (via compute-inventory.cjs / update-manifest.cjs).
- * Pass `--with-manifest` only when you genuinely need the manifest inline
- * (debugging); the gate never does.
  */
 
 'use strict';
@@ -59,9 +52,6 @@ Usage:
 
 Options:
   --repo-root <path>  Explicit path to the repository root (overrides git detection)
-  --with-manifest     Include the full parsed manifest in output (default: omitted
-                      to save ~10 KB / session — no consumer reads it; dirty already
-                      reflects it and the sync re-reads manifestPath from disk)
   --help              Show this help text and exit 0
 
 Output (JSON to stdout):
@@ -69,7 +59,7 @@ Output (JSON to stdout):
     "dirty": boolean,            // true when a re-sync is needed
     "docsExists": boolean,       // false → skip GateResync silently (nothing to sync)
     "memoryExists": boolean,     // false → run pmem init before syncing
-    "manifest": {...} | null,    // manifest content only with --with-manifest; else null
+    "manifest": {...} | null,    // current manifest content, or null if missing
     "currentArtifactHash": string|null,  // content fingerprint of artifacts on disk
     "hashMethod": "artifact-content"|"none",
     "manifestPath": string,
@@ -98,8 +88,6 @@ if (args.includes('--help') || args.includes('-h')) {
   process.stdout.write(HELP);
   process.exit(0);
 }
-
-const withManifest = args.includes('--with-manifest');
 
 let repoRoot = null;
 for (let i = 0; i < args.length; i++) {
@@ -195,7 +183,7 @@ const result = {
   dirty,
   docsExists: true,
   memoryExists: fs.existsSync(memoryDir),
-  manifest: withManifest ? manifest : null,
+  manifest,
   currentArtifactHash,
   hashMethod,
   manifestPath,

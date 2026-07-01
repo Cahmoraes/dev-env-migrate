@@ -17,9 +17,7 @@ Supported commands:
 - `init`
 - `sync` (database-only health check)
 - `cleanup-legacy`
-- `backfill-embeddings --batch 500` — embed only notes that have **no** vector yet (never refreshes existing ones).
-- `reembed --batch 500` — regenerate vectors for notes that are missing one **or** were embedded with a different model than the active one (model-upgrade path). Idempotent; loads the model once.
-- `embedding-status` — report embedding-model drift as JSON (`current_model`, `current_count`, `stale_count`, `missing_count`, `stale_models`, `reembed_needed`) **without** loading the model. Cheap enough for the re-sync gate.
+- `backfill-embeddings --batch 500`
 - `prune --source "<label>" [--older-than <days>]`
 - `search "<query>" --limit 8`
 - `add "<memory text>" --tags "<comma,tags>" --source "assistant" [--no-embed]`
@@ -33,7 +31,7 @@ Supported commands:
 
 Three Node helpers wrap `pmem` for the superpowers flow; all emit JSON + deterministic exit codes:
 
-- `scripts/check-pmem-deps.cjs [--python <bin>] [--requirements <path>]` — probe whether pmem can run (deps listed in the Availability Gate below) without importing the heavy modules. Reads tested version floors from `scripts/requirements.txt` (the SSOT for dependency versions). Emits `fullyAvailable`, `missing[]`, `outdated[]`, `versions`, `floors`, `installCommand`. Used by the gate.
+- `scripts/check-pmem-deps.cjs [--python <bin>]` — probe whether pmem can run (deps listed in the Availability Gate below) without importing the heavy modules. Emits `fullyAvailable`, `missing[]`, `installCommand`. Used by the gate.
 - `scripts/persist-feature-memory.cjs --input-file <entries.json>` — write a feature's planning entries atomically/idempotently (one `add-batch`, model loaded once; classifies added/skipped/failed; exit 2 on any failure; falls back to per-entry `add` on older pmem). Used at the `super.writing-plans` Planejando exit. See `super.writing-plans/references/memory-persistence.md`.
 - `scripts/verify-sync.cjs --repo-root <path>` — read-only audit that the re-sync manifest and DB agree (exit 2 on drift; degrades gracefully without `node:sqlite`). Used after the re-sync algorithm. See `super.using-superpowers/references/memory-resync.md`.
 
@@ -50,7 +48,7 @@ pmem is a local CLI (`python3` + `memory.py`), **not guaranteed on every machine
    node <super.persistent-memory-base-dir>/scripts/check-pmem-deps.cjs
    ```
 
-2. **If `fullyAvailable: true`:** set `session_pmem_available = true` and proceed. Do not re-probe this session. **But if `outdated` is non-empty** (deps installed but below the tested floors in `requirements.txt`), surface the probe's recommend `notes` once and offer the upgrade (`installCommand`) — **never run it without the user's consent**. On decline, continue normally; outdated deps still work.
+2. **If `fullyAvailable: true`:** set `session_pmem_available = true` and proceed. Do not re-probe this session.
 
 3. **If `fullyAvailable: false`:** ask the user **once per session**, in the configured language:
 
@@ -74,7 +72,6 @@ pmem is a local CLI (`python3` + `memory.py`), **not guaranteed on every machine
 
 - **`installCommand: null` with `missing: ["python3"]`** — Python 3 is missing; pip cannot fix that. Tell the user to install it via the system package manager (message in the probe's `notes`), do **not** install it yourself; treat the session as `session_pmem_available = false`.
 - **`notes` mentions sqlite-vec** — informational only; never ask. Semantic search uses the slower Python cosine fallback.
-- **`outdated` non-empty with `fullyAvailable: true`** — deps run but are below the tested floors (e.g. after an embedding-model upgrade shipped in a newer skill release). Recommend the `installCommand` once; do **not** upgrade automatically. This is a quality nudge, not a blocker — `session_pmem_available` stays `true`.
 
 **Graceful degradation (`session_pmem_available = false`):** every memory operation follows the calling skill's degradation path — re-sync gate skips silently (`super.using-superpowers/references/memory-resync.md`), recall continues without context (`super.brainstorming`), persistence is skipped (`super.writing-plans/references/memory-persistence.md`). Never block the user's task.
 
@@ -91,14 +88,6 @@ pmem is a local CLI (`python3` + `memory.py`), **not guaranteed on every machine
 
 - Remove legacy imported rows: `pmem cleanup-legacy`
 - Generate vectors for existing notes: `pmem backfill-embeddings`
-
-## Embedding Model Upgrade (re-embedding)
-
-Embeddings are tagged with the model that produced them (`memory_embeddings.model`), and semantic search only compares vectors built by the **active** model (`WHERE model = ?`). So when the embedding model is upgraded (the `EMBED_MODEL` constant in `memory.py`), every existing note keeps a vector from the **old** model and silently drops out of semantic recall — lexical (FTS5) search still works, so the failure is quiet, not loud.
-
-- **Detect:** `pmem embedding-status` reports `stale_count` (notes on an old model), `missing_count`, and `reembed_needed` as JSON — no model load. `pmem stats` shows `stale_embeddings` for a human glance.
-- **Fix:** `pmem reembed` regenerates the stale/missing vectors in place (idempotent; `backfill-embeddings` does **not** touch stale ones — it only fills missing). Re-run until `reembed_needed` is `false` if the DB is larger than one `--batch`.
-- The superpowers re-sync gate detects this automatically and offers it — see `super.using-superpowers/references/memory-resync.md` (**Embedding Model Drift**).
 
 ## Storage Rules
 

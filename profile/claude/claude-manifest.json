@@ -46,7 +46,7 @@
       "name": "context-mode@context-mode",
       "enabled": true,
       "version": "1.0.162",
-      "gitCommitSha": "be7387d9c4633b6e236a75bc4424119de0744965"
+      "gitCommitSha": "9bb94829cd9483c2dc6135e0b4eca21288388d5d"
     },
     {
       "name": "frontend-design@claude-plugins-official",
@@ -100,13 +100,13 @@
       "name": "headroom@headroom-marketplace",
       "enabled": true,
       "version": "0.22.3",
-      "gitCommitSha": "9579567b7dae31b226a634b7f63a988253fc03b8"
+      "gitCommitSha": "19eac8e00dc9e3911f3afe8e8e5dcc9e00346baa"
     },
     {
       "name": "chrome-devtools-mcp@chrome-devtools-plugins",
-      "enabled": false,
+      "enabled": true,
       "version": "1.2.0",
-      "gitCommitSha": "4f8eb7ad6beecc58f56ec383f9ff43549a5604d4"
+      "gitCommitSha": "228cf3936ad99d9e0c09b43d77fbbac8712f2357"
     },
     {
       "name": "security-guidance@claude-plugins-official",
@@ -122,9 +122,9 @@
     },
     {
       "name": "figma@claude-plugins-official",
-      "enabled": false,
+      "enabled": true,
       "version": "2.2.68",
-      "gitCommitSha": null
+      "gitCommitSha": "bea8bea5f676ab2bf76fa822b82f50b66653c098"
     }
   ],
   "language_servers": [
@@ -136,7 +136,7 @@
       ],
       "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
       "installed_on_source": true,
-      "source_path": "/home/cahmoraes/.local/share/pnpm/typescript-language-server",
+      "source_path": "/Users/caique/.nvm/versions/node/v24.10.0/bin/typescript-language-server",
       "install": {
         "pnpm": "pnpm add -g typescript-language-server typescript",
         "npm": "npm install -g typescript-language-server typescript"
@@ -150,7 +150,7 @@
       ],
       "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
       "installed_on_source": true,
-      "source_path": "/home/cahmoraes/.local/share/pnpm/vtsls",
+      "source_path": "/Users/caique/.nvm/versions/node/v24.10.0/bin/vtsls",
       "install": {
         "pnpm": "pnpm add -g @vtsls/language-server",
         "npm": "npm install -g @vtsls/language-server"
@@ -164,7 +164,7 @@
       ],
       "describe": "LSP de Python (Pyright)",
       "installed_on_source": true,
-      "source_path": "/home/cahmoraes/.pyenv/versions/3.13.4/bin/pyright-langserver",
+      "source_path": "/Users/caique/.local/share/pnpm/pyright-langserver",
       "install": {
         "pnpm": "pnpm add -g pyright",
         "npm": "npm install -g pyright",
@@ -175,26 +175,22 @@
   "hook_dependencies": [],
   "global_node_packages": {
     "pnpm": [
-      "@github/copilot@0.0.406",
-      "@nestjs/cli@11.0.16",
-      "@openai/codex@0.130.0",
-      "@playwright/cli@0.1.15",
-      "@vtsls/language-server@0.3.0",
-      "ctx7@0.4.0",
-      "ntl@5.1.0",
-      "opencode-ai@1.15.3",
-      "pnpm@10.23.0",
+      "pnpm@11.7.0",
       "typescript-language-server@5.3.0",
       "typescript@6.0.3"
     ],
     "npm": [
-      "@github/copilot@1.0.48",
-      "@mermaid-js/mermaid-cli@11.15.0",
+      "@ast-grep/cli@0.44.0",
+      "@github/copilot@1.0.12",
       "@playwright/cli@0.1.13",
-      "bats@1.13.0",
-      "corepack@0.34.6",
+      "@vtsls/language-server@0.3.0",
+      "corepack@0.34.0",
+      "ctx7@0.4.1",
       "npm@11.10.0",
-      "taze@19.14.1"
+      "ntl@5.1.0",
+      "taze@19.11.0",
+      "typescript-language-server@5.3.0",
+      "typescript@6.0.3"
     ]
   },
   "security_flags": {
@@ -202,13 +198,8 @@
     "skipDangerousModePermissionPrompt": true,
     "skipAutoPermissionPrompt": true
   },
-  "non_portable_markers_found": [
-    "wsl-screenshot-cli",
-    "~/bin/claude-notify"
-  ],
-  "secrets_removed_from_settings": [
-    "env.ANTHROPIC_BASE_URL"
-  ],
+  "non_portable_markers_found": [],
+  "secrets_removed_from_settings": [],
   "config_files_copied": [
     "settings.json",
     "keybindings.json",
@@ -219,7 +210,8 @@
     "TOKEN-EFFICIENT.md",
     "hooks/",
     "agents/",
-    "skills/"
+    "skills/",
+    "commands/"
   ],
   "config_inventory": {
     "hooks": [
@@ -284,7 +276,8 @@
       "xstate",
       "zod",
       "zustand"
-    ]
+    ],
+    "commands": []
   },
   "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem e os hook_dependencies (binários) para os hooks do settings.json não falharem. Revise security_flags e non_portable_markers antes de aplicar."
 }

@@ -10,18 +10,8 @@
     "defaultMode": "bypassPermissions",
     "skipDangerousModePermissionPrompt": true
   },
+  "model": "sonnet",
   "hooks": {
-    "PermissionRequest": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Needs your input!\" &'"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -37,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${HOME}/.pyenv/versions/3.13.4/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
+            "command": "${HOME}/.local/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
             "timeout": 15
           }
         ]
@@ -53,31 +43,12 @@
         ]
       },
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wsl-screenshot-cli start --daemon --quiet 2>/dev/null"
-          }
-        ]
-      },
-      {
         "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
-            "command": "${HOME}/.pyenv/versions/3.13.4/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
+            "command": "${HOME}/.local/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
             "timeout": 15
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Done!\" &'"
           }
         ]
       }
@@ -86,8 +57,6 @@
   "worktree": {
     "baseRef": "fresh"
   },
-  "disableWorkflows": true,
-  "enableWorkflows": false,
   "workflowKeywordTriggerEnabled": false,
   "statusLine": {
     "type": "command",
@@ -105,10 +74,10 @@
     "rust-analyzer-lsp@claude-plugins-official": false,
     "commit-commands@claude-plugins-official": true,
     "headroom@headroom-marketplace": true,
-    "chrome-devtools-mcp@chrome-devtools-plugins": false,
+    "chrome-devtools-mcp@chrome-devtools-plugins": true,
     "security-guidance@claude-plugins-official": true,
     "serena@claude-plugins-official": true,
-    "figma@claude-plugins-official": false
+    "figma@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -152,5 +121,5 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "model": "sonnet"
+  "enableWorkflows": false
 }
