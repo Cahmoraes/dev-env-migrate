@@ -304,3 +304,18 @@ Reached when triage option 0 fires — the user wants to revise `.superpowers/pr
 3. **Save deterministically.** Build the full preferences object with the changed keys and write it via `write-preferences.cjs --input-file <obj.json> --repo-root "$(git rev-parse --show-toplevel)"` (round-trip validated). Confirm what changed in the configured language.
 4. **Refresh session state.** Re-derive the § Session State variables from the new preferences (a changed `optimization.caveman`, `memory.persistent_memory`, etc. takes effect this session) — these are session-only; the save did not rewrite them.
 5. **Return to triage.** Re-ask the opening question, or route directly if the user already stated their next task. Updating preferences is a setup step, not a destination.
+
+## Corporate Artifacts
+
+Gated by `preferences.context.has_corporate_artifacts`. The router (`SKILL.md`) keeps a
+one-line pointer; the handling rules live here.
+
+If `context.has_corporate_artifacts` is `true`, read `.superpowers/corporate-artifacts.yml`
+with `view` (not `glob`) and keep the paths/URLs in context. When routing to
+`super.brainstorming`, `super.generating-prd`, or `super.writing-plans`, pass them in
+the handoff: _"Corporate artifacts are available: [list of paths/URLs]."_ If the file is
+missing despite the flag, warn the user once and continue without artifacts. Conversely,
+if the flag is `false` but `.superpowers/corporate-artifacts.yml` exists and lists
+artifacts, do not silently skip the company's source of truth: warn the user once that
+the file is present while the flag is off (so the artifacts are being ignored) and ask
+whether to enable `has_corporate_artifacts`, then proceed per their answer.

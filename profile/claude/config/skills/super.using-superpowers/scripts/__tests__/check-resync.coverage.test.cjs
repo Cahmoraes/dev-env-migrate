@@ -134,3 +134,50 @@ test('check-resync: unparseable manifest is treated as never-synced (dirty)', ()
     fs.rmSync(repo, { recursive: true, force: true })
   }
 })
+
+// ─── manifest body is omitted by default, included only with --with-manifest ──
+// Token economy: a present, parseable manifest is NOT echoed into stdout unless
+// the caller opts in. dirty is still computed from the manifest internally.
+
+test('check-resync: a present manifest is omitted from stdout by default', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'feat', '# Design\n')
+    fs.mkdirSync(path.join(repo, '.memory'), { recursive: true })
+    // valid JSON, but no synced_features → content differs from disk → dirty
+    fs.writeFileSync(
+      path.join(repo, '.memory', 'resync-manifest.json'),
+      JSON.stringify({ version: 1, synced_features: {} }),
+      'utf8',
+    )
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.equal(result.manifest, null) // omitted despite existing on disk
+    assert.equal(result.dirty, true) // still computed correctly from the manifest
+    assert.equal(result.hashMethod, 'artifact-content')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('check-resync: --with-manifest includes the parsed manifest inline', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'feat', '# Design\n')
+    fs.mkdirSync(path.join(repo, '.memory'), { recursive: true })
+    const manifest = { version: 1, synced_features: {} }
+    fs.writeFileSync(
+      path.join(repo, '.memory', 'resync-manifest.json'),
+      JSON.stringify(manifest),
+      'utf8',
+    )
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo, '--with-manifest'], {
+      encoding: 'utf8',
+    })
+    const result = JSON.parse(out)
+    assert.deepEqual(result.manifest, manifest)
+    assert.equal(result.dirty, true)
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})

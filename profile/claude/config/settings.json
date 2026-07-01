@@ -10,7 +10,6 @@
     "defaultMode": "bypassPermissions",
     "skipDangerousModePermissionPrompt": true
   },
-  "model": "sonnet",
   "hooks": {
     "PermissionRequest": [
       {
@@ -30,15 +29,6 @@
           {
             "type": "command",
             "command": "rtk hook claude"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${HOME}/.claude/hooks/rtk-pnpm-enforce.sh"
           }
         ]
       },
@@ -97,6 +87,7 @@
     "baseRef": "fresh"
   },
   "workflowKeywordTriggerEnabled": false,
+  "disableWorkflows": true,
   "statusLine": {
     "type": "command",
     "command": "bash ${HOME}/.claude/statusline-command.sh"
@@ -113,9 +104,10 @@
     "rust-analyzer-lsp@claude-plugins-official": false,
     "commit-commands@claude-plugins-official": true,
     "headroom@headroom-marketplace": true,
-    "chrome-devtools-mcp@chrome-devtools-plugins": true,
+    "chrome-devtools-mcp@chrome-devtools-plugins": false,
     "security-guidance@claude-plugins-official": true,
-    "serena@claude-plugins-official": true
+    "serena@claude-plugins-official": true,
+    "figma@claude-plugins-official": false
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -158,5 +150,6 @@
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "enableWorkflows": false
 }

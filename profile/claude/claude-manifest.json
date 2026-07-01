@@ -104,7 +104,7 @@
     },
     {
       "name": "chrome-devtools-mcp@chrome-devtools-plugins",
-      "enabled": true,
+      "enabled": false,
       "version": "1.2.0",
       "gitCommitSha": "4f8eb7ad6beecc58f56ec383f9ff43549a5604d4"
     },
@@ -122,7 +122,7 @@
     },
     {
       "name": "figma@claude-plugins-official",
-      "enabled": true,
+      "enabled": false,
       "version": "2.2.68",
       "gitCommitSha": null
     }
@@ -178,7 +178,7 @@
       "@github/copilot@0.0.406",
       "@nestjs/cli@11.0.16",
       "@openai/codex@0.130.0",
-      "@playwright/cli@0.1.13",
+      "@playwright/cli@0.1.15",
       "@vtsls/language-server@0.3.0",
       "ctx7@0.4.0",
       "ntl@5.1.0",
@@ -215,7 +215,6 @@
     "statusline-command.sh",
     "CLAUDE.md",
     "RTK.md",
-    "SERENA.md",
     "AST-GREP.md",
     "TOKEN-EFFICIENT.md",
     "hooks/",
@@ -231,8 +230,7 @@
       "caveman-statusline.ps1",
       "caveman-statusline.sh",
       "context-mode-cache-heal.mjs",
-      "package.json",
-      "rtk-pnpm-enforce.sh"
+      "package.json"
     ],
     "agents": [
       "code-architect.md",
