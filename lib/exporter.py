@@ -42,7 +42,6 @@ CONFIG_DIR_CANDIDATES = [
     "glow",
     "starship.toml",
     "caveman",       # defaultMode do caveman (ex.: "off" — não auto-ativa nas sessões)
-    "token-crunch",  # denylist da compressão de saídas (config + var TOKEN_CRUNCH_CONFIG no .zshrc)
 ]
 
 
@@ -164,6 +163,24 @@ def detect_tools(catalog: dict) -> dict:
     return detected
 
 
+def detect_copilot_integration(catalog: dict) -> dict:
+    """Detecta, nesta origem, o estado da integração rtk+context-mode com o Copilot CLI.
+
+    Só usado para RELATAR no manifest o que a origem já tem — a aplicação em si
+    acontece no destino, guiada pelos `steps` do catálogo (que viajam inteiros,
+    aplicados ou não aqui). Detecção por existência de arquivo/dir (`detect_artifact`),
+    nunca invocando `copilot` — a origem pode não estar logada/pronta.
+    """
+    section = catalog.get("copilot_cli_integration", {})
+    present = which(section.get("requires", {}).get("detect", "copilot")) is not None
+    steps = []
+    for step in section.get("steps", []):
+        artifact = step.get("detect_artifact")
+        applied = bool(artifact) and Path(os.path.expanduser(artifact)).exists()
+        steps.append({**step, "applied_here": applied})
+    return {"copilot_cli_present": present, "steps": steps}
+
+
 def _copy_rc_home_normalized(src: Path, dst: Path, home_str: str) -> None:
     """Copia um rc do shell trocando o home absoluto por `$HOME`.
 
@@ -219,7 +236,8 @@ def copy_dotfiles() -> list[str]:
     return copied
 
 
-def build_manifest(catalog, zsh_info, detected, platform_lines, copied, src_os) -> dict:
+def build_manifest(catalog, zsh_info, detected, platform_lines, copied, src_os,
+                    copilot_integration: dict | None = None) -> dict:
     """Monta o inventário estruturado cruzando detecção com o catálogo."""
     def entry(category, name):
         meta = catalog[category].get(name, {})
@@ -280,7 +298,8 @@ def build_manifest(catalog, zsh_info, detected, platform_lines, copied, src_os) 
         "frameworks": frameworks,
         "dotfiles_copied": copied,
         "platform_specific_lines": platform_lines,
-        "_note": "Gerado por export.sh. Cada item de 'platform_specific_lines' tem um campo 'platform' (macos/wsl_windows/debian_binary_rename). No destino, REMOVA as linhas cuja plataforma não corresponde ao SO de lá. Bidirecional.",
+        "copilot_cli_integration": copilot_integration or {"copilot_cli_present": False, "steps": []},
+        "_note": "Gerado por export.sh. Cada item de 'platform_specific_lines' tem um campo 'platform' (macos/wsl_windows/debian_binary_rename). No destino, REMOVA as linhas cuja plataforma não corresponde ao SO de lá. Bidirecional. 'copilot_cli_integration' é opcional/agnóstico de SO — só se aplica se o destino tiver o binário `copilot`.",
     }
 
 
@@ -313,6 +332,43 @@ def render_setup_md(manifest: dict) -> str:
         for p in [manifest["theme"]]
         if p and p.get("manual")
     )
+
+    # Integração Copilot CLI (rtk + context-mode): comandos globais, agnósticos de SO.
+    copilot = manifest.get("copilot_cli_integration", {})
+    copilot_steps = copilot.get("steps", [])
+    copilot_rows = []
+    for st in copilot_steps:
+        origin_state = "já aplicado nesta origem" if st.get("applied_here") else "não aplicado nesta origem"
+        copilot_rows.append(
+            f"| `{st['command']}` | `{st['verify']}` | {st['describe']} ({origin_state}) |"
+        )
+    copilot_table = "\n".join(copilot_rows) if copilot_rows else "| — | — | (nenhum passo cadastrado) |"
+    copilot_notes = "".join(
+        f"- **{st['id']}**: {st['note']}\n" for st in copilot_steps if st.get("note")
+    )
+    copilot_section = f"""### Fase 2.5 — Integração com GitHub Copilot CLI (opcional)
+Isto SÓ se aplica se o destino tiver o GitHub Copilot CLI instalado
+(`command -v copilot`). Se não tiver, **PULE esta fase inteira** — não é
+pré-requisito do ambiente shell básico, é uma integração extra e opcional.
+
+As ferramentas de economia de tokens **rtk** e **context-mode** (Fase 2, se
+faltarem) também integram com o Copilot CLI, mas essa integração é ATIVADA por
+comandos separados (cada um gera hooks/MCP config em `~/.copilot/` no próprio
+destino — não há arquivo para copiar, então nada disto vive em `dotfiles/`).
+PERGUNTE confirmação ao usuário antes de rodar (altera config global do
+Copilot CLI), depois rode na ordem:
+
+| Comando | Verificação | O que faz |
+|---|---|---|
+{copilot_table}
+
+Idempotência: rode o `verify` de cada passo ANTES de rodar o `command` — se já
+retornar sucesso/registro esperado, o passo já está aplicado, pule-o.
+
+{copilot_notes}
+Após aplicar qualquer passo, **avise o usuário para reiniciar a sessão do
+`copilot`** — {copilot.get('post_install', 'hooks e MCP server novos só carregam numa sessão nova')}.
+"""
 
     return f"""# SETUP — Preparar este ambiente shell
 
@@ -409,6 +465,7 @@ independentemente do destino. Respeite o `note` — em especial **bat** e
 Após cada instalação, rode imediatamente o `verify` daquele item; se falhar,
 pare e investigue antes de seguir.
 
+{copilot_section}
 ### Fase 3 — Plugins e tema do Oh My Zsh
 - Para cada plugin de `omz_plugins`: se a pasta em
   `${{ZSH_CUSTOM:-~/.oh-my-zsh/custom}}/plugins/<nome>` já existir, pule; senão
@@ -507,11 +564,17 @@ def main() -> int:
     platform_lines = scan_platform_lines(zshrc, catalog)
     print(f"→ Linhas específicas de WSL/Windows marcadas: {len(platform_lines)}")
 
+    copilot_integration = detect_copilot_integration(catalog)
+    applied = sum(1 for s in copilot_integration["steps"] if s["applied_here"])
+    print(f"→ Copilot CLI: {'presente' if copilot_integration['copilot_cli_present'] else 'ausente'} "
+          f"nesta origem | integração rtk/context-mode: {applied}/{len(copilot_integration['steps'])} passos aplicados")
+
     PROFILE.mkdir(parents=True, exist_ok=True)
     copied = copy_dotfiles()
     print(f"→ Dotfiles copiados: {', '.join(copied) or '(nenhum)'}")
 
-    manifest = build_manifest(catalog, zsh_info, detected, platform_lines, copied, src_os)
+    manifest = build_manifest(catalog, zsh_info, detected, platform_lines, copied, src_os,
+                               copilot_integration)
     (PROFILE / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )

@@ -1,7 +1,5 @@
-# Setup fzf
-# ---------
-if [[ ! "$PATH" == *$HOME/.fzf/bin* ]]; then
-  PATH="$HOME/.fzf/bin${PATH:+:${PATH}}"
-fi
-
-source <(~/.fzf/bin/fzf --zsh)
+# Setup fzf (macOS/Homebrew)
+# --------------------------
+# Adaptado do profile (origem WSL usava ~/.fzf/bin via instalação git).
+# No macOS o fzf vem do Homebrew e expõe a integração de shell nativamente.
+source <(fzf --zsh)

@@ -2,16 +2,16 @@
 
 > **Para o Claude Code:** este arquivo é um roteiro executável. Leia-o por
 > inteiro junto com `manifest.json` (no mesmo diretório) antes de agir.
-> NÃO copie o `.zshrc` de origem cru — ele foi gerado em **debian** e contém
+> NÃO copie o `.zshrc` de origem cru — ele foi gerado em **macos** e contém
 > linhas específicas dessa plataforma que quebram em outros SOs. O fluxo é
 > **bidirecional** (WSL↔macOS↔Linux): na Fase 4 você remove as linhas cuja
 > plataforma não corresponde a ESTE destino.
 
 ## Contexto da origem
-- SO de origem: **debian** (WSL: True)
+- SO de origem: **macos** (WSL: False)
 - Framework: **oh-my-zsh**
 - Tema ativo: **dracula-pro**
-- Linhas específicas de plataforma encontradas: wsl_windows: 10, debian_binary_rename: 2
+- Linhas específicas de plataforma encontradas: wsl_windows: 2, macos: 2
 
 ## Dois princípios que valem para TODAS as fases
 
@@ -93,6 +93,31 @@ independentemente do destino. Respeite o `note` — em especial **bat** e
 Após cada instalação, rode imediatamente o `verify` daquele item; se falhar,
 pare e investigue antes de seguir.
 
+### Fase 2.5 — Integração com GitHub Copilot CLI (opcional)
+Isto SÓ se aplica se o destino tiver o GitHub Copilot CLI instalado
+(`command -v copilot`). Se não tiver, **PULE esta fase inteira** — não é
+pré-requisito do ambiente shell básico, é uma integração extra e opcional.
+
+As ferramentas de economia de tokens **rtk** e **context-mode** (Fase 2, se
+faltarem) também integram com o Copilot CLI, mas essa integração é ATIVADA por
+comandos separados (cada um gera hooks/MCP config em `~/.copilot/` no próprio
+destino — não há arquivo para copiar, então nada disto vive em `dotfiles/`).
+PERGUNTE confirmação ao usuário antes de rodar (altera config global do
+Copilot CLI), depois rode na ordem:
+
+| Comando | Verificação | O que faz |
+|---|---|---|
+| `rtk init -g --copilot --auto-patch` | `rtk gain` | Registra hook PreToolUse do rtk no Copilot CLI (reescreve automaticamente comandos shell, ex.: git status -> rtk git status) + injeta instruções no system prompt do Copilot (já aplicado nesta origem) |
+| `copilot plugin install mksglu/context-mode:configs/copilot-cli` | `copilot mcp list` | Registra o context-mode como plugin do Copilot CLI (MCP server + hooks + skill de roteamento ctx-search/ctx-index/etc.) (já aplicado nesta origem) |
+
+Idempotência: rode o `verify` de cada passo ANTES de rodar o `command` — se já
+retornar sucesso/registro esperado, o passo já está aplicado, pule-o.
+
+- **context-mode-copilot-plugin**: `context-mode doctor` pode acusar WARN/FAIL num caminho legado manual (~/.copilot/hooks/context-mode.json e mcpServers no mcp-config.json raiz) — essas checagens não reconhecem o registro via PLUGIN (este método, o recomendado). Fonte de verdade real: `copilot plugin list` e `copilot mcp list`, não o doctor.
+
+Após aplicar qualquer passo, **avise o usuário para reiniciar a sessão do
+`copilot`** — hooks e MCP server novos só carregam numa sessão nova.
+
 ### Fase 3 — Plugins e tema do Oh My Zsh
 - Para cada plugin de `omz_plugins`: se a pasta em
   `${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/<nome>` já existir, pule; senão
@@ -102,8 +127,8 @@ pare e investigue antes de seguir.
   gratuita `dracula`. Veja o `note` do tema no manifest.
 
 ### Fase 4 — Montar o .zshrc adaptado (BIDIRECIONAL)
-Use `dotfiles/.zshrc` como BASE. As 12 linhas específicas de plataforma
-(wsl_windows: 10, debian_binary_rename: 2) estão em `manifest.json → platform_specific_lines`, cada uma
+Use `dotfiles/.zshrc` como BASE. As 4 linhas específicas de plataforma
+(wsl_windows: 2, macos: 2) estão em `manifest.json → platform_specific_lines`, cada uma
 com um campo `platform`. **Detecte o SO deste destino e remova as linhas cuja
 `platform` NÃO corresponde a ele:**
 - `platform: macos` (`/opt/homebrew`, `brew shellenv`, `pbcopy`, `pbpaste`,
@@ -139,8 +164,10 @@ Esta fase é o critério de sucesso. Execute, não presuma.
 | `eza` | CLI | `eza --version` |
 | `glow` | CLI | `glow --version` |
 | `micro` | CLI | `micro --version` |
+| `starship` | CLI | `starship --version` |
 | `kubectl` | CLI | `kubectl version --client` |
 | `rtk` | CLI | `rtk --version` |
+| `context-mode` | CLI | `context-mode doctor` |
 | `ast-grep` | CLI | `ast-grep --version || sg --version` |
 | `nvm` | version manager | `nvm --version  # rodar em shell interativa, após carregar o nvm` |
 | `pyenv` | version manager | `pyenv --version` |

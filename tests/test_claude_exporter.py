@@ -42,28 +42,36 @@ class TestCatalog(unittest.TestCase):
 
 
 class TestHookDependencies(unittest.TestCase):
-    def test_catalog_has_token_crunch(self):
+    """Usa um catálogo SINTÉTICO (não o real) — o mecanismo hook_dependencies é
+    genérico e não deve depender de qual ferramenta específica está cadastrada
+    hoje (hoje: nenhuma — token-crunch foi removido/substituído pelo headroom)."""
+
+    def _fake_catalog(self):
+        return {"hook_dependencies": {
+            "example-tool": {
+                "binary": "example-tool",
+                "detect_in_hooks": "example-tool",
+                "install": {"go": "go install example-tool@latest"},
+            }
+        }}
+
+    def test_real_catalog_has_hook_dependencies_section(self):
         cat = ce.load_catalog()
         self.assertIn("hook_dependencies", cat)
-        tc = cat["hook_dependencies"]["token-crunch"]
-        for k in ("binary", "detect_in_hooks", "install"):
-            self.assertIn(k, tc, f"token-crunch sem {k}")
 
     def test_included_only_when_command_in_hooks(self):
-        cat = ce.load_catalog()
-        # token-crunch presente nos hooks → entra; binário existe na origem.
+        cat = self._fake_catalog()
         settings = {"hooks": {"PostToolUse": [{"hooks": [
-            {"type": "command", "command": "token-crunch post"}]}]}}
-        with mock.patch.object(ce, "which", return_value="/x/token-crunch"):
+            {"type": "command", "command": "example-tool post"}]}]}}
+        with mock.patch.object(ce, "which", return_value="/x/example-tool"):
             deps = ce.detect_hook_dependencies(cat, settings)
         names = {d["name"] for d in deps}
-        self.assertIn("token-crunch", names)
-        tc = next(d for d in deps if d["name"] == "token-crunch")
-        self.assertTrue(tc["installed_on_source"])
+        self.assertIn("example-tool", names)
+        dep = next(d for d in deps if d["name"] == "example-tool")
+        self.assertTrue(dep["installed_on_source"])
 
     def test_excluded_when_command_absent(self):
-        cat = ce.load_catalog()
-        # Nenhum hook chama token-crunch → não exporta a dependência.
+        cat = self._fake_catalog()
         settings = {"hooks": {"Stop": [{"hooks": [
             {"type": "command", "command": "echo done"}]}]}}
         with mock.patch.object(ce, "which", return_value=None):
@@ -71,13 +79,13 @@ class TestHookDependencies(unittest.TestCase):
         self.assertEqual(deps, [])
 
     def test_missing_binary_flagged(self):
-        cat = ce.load_catalog()
+        cat = self._fake_catalog()
         settings = {"hooks": {"PreToolUse": [{"hooks": [
-            {"type": "command", "command": "token-crunch pre"}]}]}}
+            {"type": "command", "command": "example-tool pre"}]}]}}
         with mock.patch.object(ce, "which", return_value=None):
             deps = ce.detect_hook_dependencies(cat, settings)
-        tc = next(d for d in deps if d["name"] == "token-crunch")
-        self.assertFalse(tc["installed_on_source"])
+        dep = next(d for d in deps if d["name"] == "example-tool")
+        self.assertFalse(dep["installed_on_source"])
 
 
 class TestSanitize(unittest.TestCase):
@@ -182,11 +190,11 @@ class TestManifestAndSetup(unittest.TestCase):
                 "describe": "TS", "installed_on_source": True,
                 "source_path": "/x", "install": {"pnpm": "pnpm add -g x"}}]
         node = {"pnpm": ["typescript@6.0.3"], "npm": []}
-        hook_deps = [{"name": "token-crunch", "binary": "token-crunch",
-                      "describe": "compressão de tokens", "source": "https://x",
-                      "verify": "token-crunch version", "installed_on_source": True,
-                      "source_path": "/x/token-crunch",
-                      "install": {"go": "go install token-crunch@latest"},
+        hook_deps = [{"name": "example-hook-tool", "binary": "example-hook-tool",
+                      "describe": "ferramenta de exemplo chamada por um hook", "source": "https://x",
+                      "verify": "example-hook-tool version", "installed_on_source": True,
+                      "source_path": "/x/example-hook-tool",
+                      "install": {"go": "go install example-hook-tool@latest"},
                       "install_note": "sem go: prebuilt", "post_install": "hooks já vêm no settings"}]
         return ce.build_manifest(settings, plugins_data, marketplaces, lsp, node,
                                  ["wsl-screenshot-cli"],
@@ -203,8 +211,8 @@ class TestManifestAndSetup(unittest.TestCase):
     def test_setup_md_renders_hook_dependencies(self):
         md = ce.render_setup_md(self._manifest())
         self.assertIn("## Fase 3.5 — Dependências de binário dos hooks", md)
-        self.assertIn("token-crunch", md)
-        self.assertIn("go install token-crunch@latest", md)
+        self.assertIn("example-hook-tool", md)
+        self.assertIn("go install example-hook-tool@latest", md)
         self.assertIn("command -v", md)   # idempotência reforçada na fase
 
     def test_setup_md_no_hook_phase_when_empty(self):

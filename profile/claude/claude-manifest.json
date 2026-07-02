@@ -184,6 +184,7 @@
       "@github/copilot@1.0.12",
       "@playwright/cli@0.1.13",
       "@vtsls/language-server@0.3.0",
+      "context-mode@1.0.169",
       "corepack@0.34.0",
       "ctx7@0.4.1",
       "npm@11.10.0",

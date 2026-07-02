@@ -155,6 +155,63 @@ class TestDetectTools(unittest.TestCase):
         self.assertIn("nvm", detected["version_managers"])
 
 
+class TestCopilotCliIntegration(unittest.TestCase):
+    def test_catalog_has_steps_with_command_and_verify(self):
+        cat = exporter.load_catalog()
+        section = cat["copilot_cli_integration"]
+        self.assertTrue(section["steps"])
+        for step in section["steps"]:
+            for key in ("id", "command", "verify", "detect_artifact"):
+                self.assertIn(key, step, f"passo {step.get('id')} sem '{key}'")
+
+    def test_detects_absent_when_nothing_on_disk(self):
+        # Isola de ~/.copilot real desta máquina (onde a integração já foi
+        # aplicada por outro agente) redirecionando expanduser para um tmp vazio.
+        cat = exporter.load_catalog()
+        tmp = Path(tempfile.mkdtemp())
+        with mock.patch.object(exporter, "which", return_value=None), \
+             mock.patch.object(exporter.os.path, "expanduser",
+                               side_effect=lambda p: p.replace("~", str(tmp))):
+            result = exporter.detect_copilot_integration(cat)
+        self.assertFalse(result["copilot_cli_present"])
+        self.assertTrue(all(not s["applied_here"] for s in result["steps"]))
+
+    def test_detects_applied_step_by_artifact_presence(self):
+        cat = exporter.load_catalog()
+        tmp = Path(tempfile.mkdtemp())
+        artifact = tmp / ".copilot" / "hooks" / "rtk-rewrite.json"
+        write(artifact, "{}")
+        with mock.patch.object(exporter, "which", return_value="/opt/homebrew/bin/copilot"), \
+             mock.patch.object(exporter.os.path, "expanduser",
+                               side_effect=lambda p: str(artifact) if "rtk-rewrite" in p else p):
+            result = exporter.detect_copilot_integration(cat)
+        rtk_step = next(s for s in result["steps"] if s["id"] == "rtk-copilot-hook")
+        self.assertTrue(rtk_step["applied_here"])
+        self.assertTrue(result["copilot_cli_present"])
+
+    def test_setup_md_mentions_optional_phase_and_steps(self):
+        cat = exporter.load_catalog()
+        integration = exporter.detect_copilot_integration(cat)
+        zsh_info = {"framework": "oh-my-zsh", "theme": None, "plugins": []}
+        detected = {"cli_tools": {}, "version_managers": {}, "frameworks": {}}
+        manifest = exporter.build_manifest(cat, zsh_info, detected, [], [], "macos", integration)
+        md = exporter.render_setup_md(manifest)
+        self.assertIn("Fase 2.5", md)
+        self.assertIn("GitHub Copilot CLI", md)
+        self.assertIn("rtk init -g --copilot --auto-patch", md)
+        self.assertIn("copilot plugin install mksglu/context-mode:configs/copilot-cli", md)
+
+    def test_build_manifest_defaults_when_integration_omitted(self):
+        # Compatibilidade: chamadas antigas (sem o 7º argumento) não devem quebrar.
+        cat = exporter.load_catalog()
+        zsh_info = {"framework": "oh-my-zsh", "theme": None, "plugins": []}
+        detected = {"cli_tools": {}, "version_managers": {}, "frameworks": {}}
+        manifest = exporter.build_manifest(cat, zsh_info, detected, [], [], "macos")
+        self.assertEqual(manifest["copilot_cli_integration"], {"copilot_cli_present": False, "steps": []})
+        # render_setup_md não pode quebrar com a seção vazia.
+        exporter.render_setup_md(manifest)
+
+
 class TestBuildManifest(unittest.TestCase):
     def _manifest(self):
         catalog = exporter.load_catalog()

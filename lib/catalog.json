@@ -113,7 +113,17 @@
       "install": {
         "fallback": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/main/install.sh | bash"
       },
-      "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado."
+      "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado. Integração com o Claude Code é via hook do settings.json (viaja em config_to_export do Claude). Integração com o GitHub Copilot CLI é um passo À PARTE — ver `copilot_cli_integration` abaixo."
+    },
+    "context-mode": {
+      "describe": "CLI/binário global do context-mode — motor de indexação e busca (FTS5/SQLite) usado como MCP server para reduzir consumo de contexto",
+      "detect": "context-mode",
+      "source": "https://github.com/mksglu/context-mode",
+      "verify": "context-mode doctor",
+      "install": {
+        "all": "npm install -g context-mode"
+      },
+      "note": "No Claude Code o plugin já viaja via marketplace (ver claude-manifest.json → plugins, marketplace 'context-mode'). Este binário global só é necessário à parte para o GitHub Copilot CLI — ver `copilot_cli_integration` abaixo."
     },
     "ast-grep": {
       "describe": "busca/refactor estrutural por AST (TS/JS e outras langs) — usado como `sg`",
@@ -255,6 +265,36 @@
       "patterns": ["alias bat=\"batcat\"", "alias fd=\"fdfind\"", "batcat", "fdfind"]
     }
   },
+  "copilot_cli_integration": {
+    "_comment": "Integração das ferramentas de economia de tokens (rtk, context-mode) com o GitHub Copilot CLI (`~/.copilot/`). Comandos GLOBAIS e agnósticos de SO (rodam igual em macOS/Linux/WSL) — só dependem do binário `copilot` estar presente no destino. Não há arquivo de config para COPIAR: cada comando gera o próprio hook/plugin no destino. Origem: handoff de outro agente nesta mesma máquina macOS (2026-07-02), documentado fora deste repo em .../src.src-framework-brasil-archetype-modular-front/tools-config.md — captura aqui é a versão portável dessa investigação. 'requires.detect' = binário que precisa existir no destino para esta seção fazer sentido; se ausente, o roteiro PULA (Copilot CLI é opcional, não faz parte do ambiente shell básico). 'detect_artifact' = arquivo/dir cuja existência indica que o passo já foi aplicado NESTA origem (checagem só por presença de arquivo, sem invocar `copilot`, que pode não estar logado ao rodar o export).",
+    "requires": {"detect": "copilot", "describe": "GitHub Copilot CLI"},
+    "steps": [
+      {
+        "id": "rtk-copilot-hook",
+        "tool": "rtk",
+        "requires_binary": "rtk",
+        "describe": "Registra hook PreToolUse do rtk no Copilot CLI (reescreve automaticamente comandos shell, ex.: git status -> rtk git status) + injeta instruções no system prompt do Copilot",
+        "command": "rtk init -g --copilot --auto-patch",
+        "verify": "rtk gain",
+        "detect_artifact": "~/.copilot/hooks/rtk-rewrite.json",
+        "generates": ["~/.copilot/hooks/rtk-rewrite.json", "~/.copilot/copilot-instructions.md"]
+      },
+      {
+        "id": "context-mode-copilot-plugin",
+        "tool": "context-mode",
+        "requires_binary": "context-mode",
+        "describe": "Registra o context-mode como plugin do Copilot CLI (MCP server + hooks + skill de roteamento ctx-search/ctx-index/etc.)",
+        "command": "copilot plugin install mksglu/context-mode:configs/copilot-cli",
+        "verify": "copilot mcp list",
+        "verify_expect": "linha 'context-mode (local)' na seção Plugin servers",
+        "detect_artifact": "~/.copilot/installed-plugins/_direct/mksglu--context-mode--configs-copilot-cli",
+        "note": "`context-mode doctor` pode acusar WARN/FAIL num caminho legado manual (~/.copilot/hooks/context-mode.json e mcpServers no mcp-config.json raiz) — essas checagens não reconhecem o registro via PLUGIN (este método, o recomendado). Fonte de verdade real: `copilot plugin list` e `copilot mcp list`, não o doctor."
+      }
+    ],
+    "post_install": "Reiniciar a sessão do Copilot CLI (`copilot`) — hooks e MCP server novos só carregam numa sessão nova; a sessão em que os comandos acima rodaram não os pega automaticamente.",
+    "note": "Nenhum arquivo do repositório do projeto é alterado — toda a config é global/por usuário, escopada em ~/.copilot/. Por isso NÃO entra em dotfiles/ nem em profile/claude/config/: é tratada como passo de comando (como install de cli_tools), não como arquivo a copiar."
+  },
+
   "removal_policy": {
     "_comment": "RECONCILIAÇÃO DE REMOÇÃO (deleção propagada origem→destino). O destino compara o recibo do último import (prev) com o manifest atual (curr): item no recibo e ausente agora = órfão. 'action': prompt_remove = o roteiro REMOVE com confirmação+backup (item tool-owned); report_only = só AVISA, não desinstala (binário de sistema compartilhado — desinstalar quebraria a máquina). Adicionar dimensão = entrada aqui (dado, não código). 'kind': como extrair os ids — ver lib/reconcile.py.",
     "dimensions": [
@@ -263,7 +303,8 @@
       {"path": "frameworks",       "kind": "list_dict",   "id": "name", "action": "report_only",   "label": "framework"},
       {"path": "omz_plugins",      "kind": "list_dict",   "id": "name", "action": "prompt_remove", "label": "plugin OMZ"},
       {"path": "theme",            "kind": "single_dict", "id": "name", "action": "report_only",   "label": "tema"},
-      {"path": "dotfiles_copied",  "kind": "list_scalar",               "action": "report_only",   "label": "dotfile"}
+      {"path": "dotfiles_copied",  "kind": "list_scalar",               "action": "report_only",   "label": "dotfile"},
+      {"path": "copilot_cli_integration.steps", "kind": "list_dict", "id": "id", "action": "report_only", "label": "integração Copilot CLI"}
     ]
   }
 }

@@ -43,7 +43,7 @@ classifica cada item     →   manifest + dotfiles  →  detecta o SO daqui e ad
 
 | Arquivo | Papel |
 |---|---|
-| `lib/catalog.json` | Ferramentas shell + `platform_specific_patterns` por SO. |
+| `lib/catalog.json` | Ferramentas shell + `platform_specific_patterns` por SO + `copilot_cli_integration` (rtk/context-mode no GitHub Copilot CLI). |
 | `lib/exporter.py` | Motor export shell. `scan_platform_lines` rotula por plataforma; `render_setup_md` gera roteiro. |
 | `lib/claude_catalog.json` | Language servers por plugin LSP + `sensitive_never_export` + `non_portable_markers`. |
 | `lib/claude_exporter.py` | Motor export Claude. **Sanitiza segredos**. `inventory_config_dirs` lista skills/agents/commands/hooks (`config_inventory` no manifest). |
@@ -62,6 +62,7 @@ classifica cada item     →   manifest + dotfiles  →  detecta o SO daqui e ad
 - **Home → `$HOME` só nos rc do shell, NÃO nos `.config/`.** `_copy_rc_home_normalized` (em `copy_dotfiles`) troca `/home/<user>` por `$HOME` só nos arquivos sourçados (`.zshrc`/`.zshenv`/`.p10k.zsh`/`.fzf.zsh`) — zsh expande em runtime. Apps em `.config/` (starship, micro) NÃO expandem `$HOME`; normalizar lá quebraria. Diferente do `claude_exporter` (usa `${HOME}` + import expande). Ressalva: replace literal — home em aspas simples não expandiria (hoje não há).
 - **Remoção: recibo é fonte de verdade, não disco.** Reconciliação: `recibo (último import) − manifest atual`. Não espelhe disco do destino — apagaria o que usuário instalou. Recibo (`scripts/receipt.py`, em `~/.dev-env-migrate/`, fora do repo) só contém o que o tool aplicou. **Primeiro import = sem recibo = nada remover** (correto). Skill `import-env` grava recibo **só no fim, sem erro bloqueante**. **`prompt_remove` nunca desinstala binário de sistema** — desinstalar `git`/`node` quebraria máquina; `report_only` para CLI/language server. Adicionar categoria reconciliável = nova entrada em `removal_policy.dimensions`, não código em `reconcile.py`.
 - **`config_inventory` precisa de re-export.** Remoção de skill/agent/command só detectável porque `claude-manifest.json` lista por nome. Mudou skills → **re-exporte** (`./export-claude.sh`).
+- **Integração Copilot CLI (`rtk` + `context-mode`) é dado, não arquivo.** `lib/catalog.json → copilot_cli_integration` cataloga os passos que ativam `rtk` e `context-mode` no GitHub Copilot CLI (`~/.copilot/`) — comandos globais (`rtk init -g --copilot --auto-patch`, `copilot plugin install mksglu/context-mode:configs/copilot-cli`), agnósticos de SO, então NÃO viajam via `dotfiles/`: `exporter.py → detect_copilot_integration` só registra se os artefatos (`detect_artifact`) já existem nesta origem; quem executa os comandos é sempre o roteiro no DESTINO (`SETUP.md → Fase 2.5`, opcional — só roda se o destino tiver `copilot` no PATH). Adicionar um novo passo de integração = editar `steps` no JSON, não o Python. Origem da investigação: handoff de outro agente, feito fora deste repo (`.../src.src-framework-brasil-archetype-modular-front/tools-config.md`), 2026-07-02.
 
 ## Convenções
 
