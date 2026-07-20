@@ -91,6 +91,29 @@ git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/d
 
 **If NOT ignored:** add to .gitignore, commit the change, then proceed. Global directories (`~/.config/superpowers/worktrees/`) need no verification.
 
+#### Base branch cleanliness for isolated worktrees
+
+A worktree created from a branch inherits **all untracked files** from the source working tree at the moment of creation — git worktree copies the current checkout, including untracked artifacts. If the base branch has leftover build outputs, previous feature directories, or benchmark artifacts, the new worktree is contaminated from the start, which pollutes subagent context and can cause false test/typecheck failures.
+
+Before creating the worktree, verify the base is clean:
+
+```bash
+# 1. Staged or unstaged changes are not acceptable for a clean baseline
+git diff --quiet HEAD && git diff --cached --quiet HEAD
+# 2. Untracked files that are not git-ignored must be resolved before proceeding
+[ -z "$(git status --porcelain --untracked-files=all | grep -v '^?? ' || true)" ]
+# 3. Untracked directories that are ignored are fine; untracked non-ignored directories are not
+UNTRACKED_NON_IGNORED=$(git ls-files --others --exclude-standard --directory | sed 's|/$||' | sort -u)
+```
+
+- If step 1 fails: the base branch has uncommitted changes. Commit, stash, or reset them before creating the worktree.
+- If step 3 lists untracked non-ignored directories (e.g. leftover `notification-broadcast-fanout/`, `dist/`, `coverage/`): remove them or add them to `.gitignore` and commit the ignore change. Do not create a worktree on top of stray artifacts.
+- For **benchmark / regression worktrees** where absolute cleanliness matters, prefer creating from a detached commit rather than a dirty branch:
+  ```bash
+  git worktree add "$path" "$(git rev-parse HEAD)"
+  ```
+  This still inherits tracked files, but untracked contamination is avoided if the base working tree was clean.
+
 #### Create the Worktree
 
 ```bash

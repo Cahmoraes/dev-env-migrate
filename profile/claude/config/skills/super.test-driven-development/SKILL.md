@@ -116,7 +116,11 @@ Confirm:
 
 ### GREEN - Minimal Code
 
-Write the simplest code that passes. Descend the YAGNI ladder, stopping at the first rung that covers the test:
+Write the simplest code that passes.
+
+#### The YAGNI ladder
+
+Descend the ladder, stopping at the first rung that covers the test:
 
 1. Does it need to exist? No → don't write it (YAGNI).
 2. Stdlib does it? → use it.

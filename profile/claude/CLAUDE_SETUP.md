@@ -37,7 +37,7 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `headroom-marketplace` → `chopratejas/headroom` (`claude plugin marketplace add chopratejas/headroom`)
 - `chrome-devtools-plugins` → `ChromeDevTools/chrome-devtools-mcp` (`claude plugin marketplace add ChromeDevTools/chrome-devtools-mcp`)
 
-## Fase 2 — Plugins (13 habilitados)
+## Fase 2 — Plugins (8 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).
@@ -86,7 +86,7 @@ Mescle `config/settings.json` no `~/.claude/settings.json`. Os paths usam
 
 ## Fase 5 — Hooks, statusline, keybindings, agents, skills
 Copie de `config/` para `~/.claude/`. **Atenção a trechos específicos de
-plataforma** encontrados: (nenhum)
+plataforma** encontrados: `wsl-screenshot-cli`, `~/bin/claude-notify`
 
 Hooks que chamam binários externos só funcionam se o binário existir no PATH —
 garanta que as dependências da Fase 3.5 foram instaladas antes de confiar nesses

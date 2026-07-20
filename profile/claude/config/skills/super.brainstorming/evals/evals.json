@@ -1,0 +1,81 @@
+{
+  "skill_name": "super.brainstorming",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Run a brainstorming session. The user you interview is SIMULATED from the attached brief (evals/files/brief-feature-existente.md): use its Surface intent as the opening request and answer follow-ups AS that persona, revealing a Ground-truth decision only when your question actually probes its reveal trigger — never volunteer an un-probed decision. Produce the final design spec.",
+      "expected_output": "A design spec whose interview extracted the hard decisions in the brief; each ground-truth decision is resolved — structural with a trade-off, reversible leaf with a safe default plus a revisit trigger, external blocker as a risk naming the unblocking task. No open-questions bucket.",
+      "files": ["evals/files/brief-feature-existente.md"],
+      "expectations": [
+        "The spec resolves or parks the client-identity fork D1 (per-IP vs per-user, split for pre-auth vs authed routes)",
+        "The spec resolves or parks the shared-state-across-instances fork D2 (in-memory per-instance would let a client exceed the limit)",
+        "The spec resolves or parks the on-breach behavior D3 (429 with Retry-After)",
+        "The spec resolves or parks the window/granularity fork D4",
+        "The spec resolves or parks the limiter-store failure mode D5 (fail-open vs fail-closed)",
+        "Hidden forks D2 and D5 were surfaced by the interview, not left silently absent",
+        "No hard decision is left vague or silently dropped; every one is resolved — structural with a trade-off, reversible leaf with a safe default plus a revisit trigger, or external blocker as a risk naming the unblocking task"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Run a brainstorming session. The user you interview is SIMULATED from the attached brief (evals/files/brief-greenfield.md): use its Surface intent as the opening request and answer follow-ups AS that persona, revealing a Ground-truth decision only when your question actually probes its reveal trigger — never volunteer an un-probed decision. Produce the final design spec.",
+      "expected_output": "A design spec whose interview extracted the greenfield roots; short-code/collision resolved in dependency order, and the hidden read/write-asymmetry and async-analytics forks surfaced.",
+      "files": ["evals/files/brief-greenfield.md"],
+      "expectations": [
+        "The spec resolves or parks short-code generation D1 and its child collision strategy D2 in dependency order (resolving D1 as counter/base62 should delete D2's retry branch)",
+        "The spec resolves or parks the read/write asymmetry D3 (redirects vastly outnumber writes; read-optimized path)",
+        "The spec resolves or parks custom-alias coexistence D4",
+        "The spec resolves or parks the async analytics write path D5 (counting a click must not add redirect latency)",
+        "The interview used architecture characteristics to make the persona confirm or retract the scalability claim D6",
+        "Hidden forks D2, D3 and D5 were surfaced by the interview, not left silently absent",
+        "No hard decision is left vague or silently dropped; every one is resolved — structural with a trade-off, reversible leaf with a safe default plus a revisit trigger, or external blocker as a risk naming the unblocking task"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Run a brainstorming session. The user you interview is SIMULATED from the attached brief (evals/files/brief-migracao.md): use its Surface intent as the opening request and answer follow-ups AS that persona, revealing a Ground-truth decision only when your question actually probes its reveal trigger — never volunteer an un-probed decision. Produce the final design spec.",
+      "expected_output": "A design spec whose interview resolved the migration roots in dependency order; strangler deletes the big-bang subtree, coexistence state and routing forks surfaced, and the state-lib leaf resolved with a reversible default plus a revisit trigger rather than hard-committed early.",
+      "files": ["evals/files/brief-migracao.md"],
+      "expectations": [
+        "The spec resolves migration strategy D1 as strangler-fig and does NOT ask big-bang freeze-window questions (D1 deletes that subtree)",
+        "The spec resolves or parks the compatibility boundary D2 (route-level ownership)",
+        "The spec resolves or parks shared-state-across-the-boundary D3 (bridge vs duplicate)",
+        "The spec resolves or parks routing ownership during coexistence D4 (shell delegates)",
+        "The spec resolves or parks build integration D5 (Module Federation host/remotes)",
+        "The state-lib choice D6 is resolved with a reversible default plus a revisit trigger, not hard-committed prematurely (a premature irreversible commitment is a leaf-first failure)",
+        "Hidden forks D3 and D4 were surfaced by the interview, not left silently absent"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Run a brainstorming session. The user you interview is SIMULATED from the attached brief (evals/files/brief-armadilha.md): use its Surface intent as the opening request and answer follow-ups AS that persona, revealing a Ground-truth decision only when your question actually probes its reveal trigger — never volunteer an un-probed decision. The persona believes this is a one-line change and raises no concern on its own. Produce the final design spec.",
+      "expected_output": "A design spec that refused to take the deceptively-simple request at face value and surfaced the hidden forks (dataset size, streaming, encoding/locale, PII scoping) rather than shipping a naive export button.",
+      "files": ["evals/files/brief-armadilha.md"],
+      "expectations": [
+        "The spec resolves or parks dataset-size / sync-vs-async D1 (full filtered result could be large; a sync request would time out)",
+        "The spec resolves or parks streaming-vs-buffering D2 (buffering a large result OOMs the server)",
+        "The spec resolves or parks encoding & locale D3 (UTF-8 BOM for Excel, pt-BR decimal separator)",
+        "The spec resolves or parks PII / permission scoping D4 (export must apply the same row-level permissions as the on-screen view)",
+        "The spec resolves or parks timezone in timestamps D5",
+        "The interview surfaced the hidden forks D1-D4 despite the persona presenting the task as trivial and raising no concern",
+        "No hard decision is left vague or silently dropped; every one is resolved — structural with a trade-off, reversible leaf with a safe default plus a revisit trigger, or external blocker as a risk naming the unblocking task"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Run a brainstorming session. The user you interview is SIMULATED from the attached brief (evals/files/brief-broker-fanout.md): use its Surface intent as the opening request and answer follow-ups AS that persona, revealing a Ground-truth decision only when your question actually probes its reveal trigger — never volunteer an un-probed decision. The persona frames this as a plumbing swap and raises no messaging concern on its own. Produce the final design spec.",
+      "expected_output": "A design spec whose interview surfaced the messaging forks from the domain itself (the persona never raised them) and CLOSED each one — including by explicit rule-out. Duplicate delivery is closed by toleration (client dedupes by event ID / Postgres reconciliation), NOT by a new dedup store; dead-lettering is closed by ruling out a DLQ (best-effort broadcast recovers via Last-Event-ID catch-up), NOT by adding one. No open-questions bucket, no silence on duplicates/dead-lettering, and no over-built mechanism.",
+      "files": ["evals/files/brief-broker-fanout.md"],
+      "expectations": [
+        "The spec resolves the exchange/queue topology D1 (fanout exchange, exclusive auto-delete queue per instance)",
+        "The spec resolves the queue re-establishment fork D2 (redeclare + rebind the exclusive queue on every AMQP reconnect)",
+        "The named-but-dropped duplicate-delivery fork D3 is CLOSED, not left silent: the spec explicitly states duplicates are tolerated because the client dedupes by event ID / reconciles against Postgres",
+        "D3 is closed WITHOUT over-building: the spec does NOT add a consumer-side dedup store/table for a case the event-ID + source-of-truth design already handles (over-closing is a YAGNI defect, scored as a failure)",
+        "The dead-lettering fork D4 is CLOSED by explicit rule-out: the spec states there is no DLQ because the best-effort broadcast recovers via Last-Event-ID catch-up — it is neither silent on dead-lettering nor does it bolt on a DLQ the design does not need",
+        "The spec resolves or parks the shared-adapter regression fork D5 (generalize RabbitMQAdapter without changing existing direct-exchange behavior; verify existing bindings)",
+        "Hidden forks D2, D3 and D4 were surfaced by the interview from domain knowledge, not left silently absent, even though the persona presented the task as a plumbing swap and raised no concern",
+        "Every hard decision is closed — structural with a trade-off, or explicitly ruled out with its reason (a one-line rule-out IS closure) — none left vague, dropped, silent, or over-built"
+      ]
+    }
+  ]
+}

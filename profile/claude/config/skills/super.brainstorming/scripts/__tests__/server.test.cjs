@@ -34,7 +34,7 @@ function maskedClientFrame(opcode, payload, mask) {
 }
 
 test('computeAcceptKey matches the RFC 6455 example vector', () => {
-  // From RFC 6455 §1.3.
+  // From RFC 6455 section 1.3.
   assert.equal(
     computeAcceptKey('dGhlIHNhbXBsZSBub25jZQ=='),
     's3pPLMBiTxaQ9kYGzzhZRbK+xOo=',

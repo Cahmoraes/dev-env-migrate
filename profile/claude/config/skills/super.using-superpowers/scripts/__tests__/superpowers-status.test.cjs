@@ -108,6 +108,18 @@ test('all tasks done WITH prd routes to QA gate', () => {
   assert.equal(f.nextAction, 'super.user-story-verification');
 });
 
+test('all tasks done WITH prd but qa_gate off routes to finishing (QA never surfaced)', () => {
+  const repo = mkRepo();
+  fs.mkdirSync(path.join(repo, '.superpowers'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.superpowers', 'preferences.yml'), 'workflow:\n  qa_gate: false\n');
+  writeArtifact(repo, 'feat', 'prd');
+  writeArtifact(repo, 'feat', 'plan', tasksIndex([true, true]));
+  const f = runJson(repo, ['--feature-name', 'feat']).features[0];
+  assert.equal(f.phase, 'execution-complete');
+  assert.equal(f.nextAction, 'super.finishing-a-development-branch',
+    'with qa_gate off the resume router must skip QA and point at finishing');
+});
+
 test('all tasks done WITHOUT prd skips QA and routes to finishing', () => {
   const repo = mkRepo();
   writeArtifact(repo, 'feat', 'plan', tasksIndex([true, true]));

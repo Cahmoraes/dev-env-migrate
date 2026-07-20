@@ -2,11 +2,11 @@
 
 Use this template when dispatching an implementer subagent.
 
-```
+```yaml
 Task tool (general-purpose):
   description: "Implement Task N: [task name]"
   model: [REQUIRED. Resolve from this task's **Tier:** field per
-          super.subagent-driven-development § Model Selection. Most implementer
+          super.subagent-driven-development, "Model Selection" section. Most implementer
           tasks are mechanical → cheap. NEVER omit: omitting inherits the
           controller's model and over-provisions. Escalate the tier only on a
           real reasoning/integration need; if no tier is available, infer it
@@ -18,6 +18,10 @@ Task tool (general-purpose):
 
     [FULL TEXT of task from plan - paste it here, don't make subagent read file]
 
+    ## Context
+
+    [Scene-setting: where this fits, dependencies, architectural context]
+
     ## Feature Context (MUST READ)
 
     ### PRD — Functional Requirements
@@ -28,9 +32,16 @@ Task tool (general-purpose):
     [FULL TEXT of the design spec file referenced in the task header.
     This provides architecture, components, data flow, and design decisions.]
 
-    ## Context
+    ## Review Findings to Address (fix re-dispatch only)
 
-    [Scene-setting: where this fits, dependencies, architectural context]
+    [Present ONLY when this dispatch is a fix round after a gate (spec review,
+    code-quality review, or final review) returned ❌. Paste the reviewer's verdict
+    verbatim — every Critical/Important finding with its `file:line` and the one-line
+    fix — so you know exactly what to correct. Fix every Critical/Important finding and
+    nothing else: do not broaden scope, do not re-architect. Re-read only the code the
+    findings cite. If a finding is wrong or unclear, push back with reasoning
+    instead of complying blindly. Omit this whole section
+    on the first implementation dispatch of a task.]
 
     ## Before You Begin
 
@@ -76,6 +87,18 @@ Task tool (general-purpose):
     safety is not YAGNI, it's a bug. This applies to the design decision (what to
     build), not to prose.
 
+    ## Code Search Priority
+
+    Before editing, locate the exact symbol and its existing call sites instead of
+    skimming files by eye. Prefer, in order: LSP/semantic (Serena `find_symbol` /
+    `find_referencing_symbols`) > ast-grep (`sg -p '<pattern>' --lang <lang> <dir>`,
+    structural search by code shape) > ripgrep (`rg -n`) > grep, degrading to whatever
+    the platform exposes (`command -v sg`, `command -v rg`). Use this ladder to find the
+    edit point, enumerate every call site before a rename, locate the module's existing
+    tests before adding new ones, and check whether a similar implementation already
+    exists before writing new code (YAGNI/DRY). Full guidance and examples:
+    `references/code-analysis.md`.
+
     ## Your Job
 
     Once you're clear on requirements:
@@ -93,7 +116,11 @@ Task tool (general-purpose):
 
     ## Code Organization
 
-    You reason best about code you can hold in context at once, and your edits are more
+    The test for whether code is good is whether it's easy to change (ETC — Easier To
+    Change): SOLID, low coupling, and high cohesion are means to that end, not goals in
+    themselves. A module is easy to change when its boundary is well-defined enough to
+    be reversible — you can swap or extend it without rippling changes elsewhere. You
+    also reason best about code you can hold in context at once, and your edits are more
     reliable when files are focused. Keep this in mind:
     - Follow the file structure defined in the plan
     - Each file should have one clear responsibility with a well-defined interface

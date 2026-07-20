@@ -1,4 +1,8 @@
-# Task N: [Task Title] [FR-XXX, FR-YYY]
+# Task N: [Task Title] [FR-XXX]
+
+<!-- Prefer one FR-XXX per task: one acceptance criterion, one task, one test.
+     Multiple FR tags on a single task should be rare, reserved for FRs so tightly
+     coupled that splitting them would leave an intermediate state with no test. -->
 
 **Status:** PENDING
 **PRD:** `../prd/prd-<feature-name>.md`
@@ -49,8 +53,8 @@
   most common defect.
 
   1. DISCOVER the skills actually available in THIS repo (do NOT list from memory — the set
-     of skills drifts over time). Inspect the skill locations configured in the consuming
-     repo's `chat.agentSkillsLocations` (and surfaced in your platform context), then read
+     of skills drifts over time). Inspect the skills available in the consuming
+     repo (surfaced in your platform context), then read
      each skill's `description` to judge fit — match on the description, not the name.
   2. FILTER OUT every `super.*`-prefixed skill. Those are pipeline machinery the execution
      flow already runs automatically as per-task gates (super.verification-before-completion,
@@ -72,7 +76,7 @@
 
 <!--
 OPTIONAL — include only for UI/design tasks when a curated mockup or external design
-exists (see super.writing-plans § Visual & Design-Source Integration). Delete this
+exists (see super.writing-plans, "Visual & Design-Source Integration" section). Delete this
 subsection entirely for non-visual tasks.
 
 The mockup is a *norte* (directional), NOT the pixel-final screen. Build the real

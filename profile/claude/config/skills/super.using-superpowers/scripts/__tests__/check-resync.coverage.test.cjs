@@ -16,9 +16,51 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 
 const SCRIPT = path.resolve(__dirname, '..', 'check-resync.cjs')
+
+let DatabaseSync = null
+try {
+  ({ DatabaseSync } = require('node:sqlite'))
+} catch { /* older runtime — presence-drift tests skipped */ }
+
+function sha256(content) {
+  return 'sha256:' + crypto.createHash('sha256').update(content, 'utf8').digest('hex')
+}
+
+// Write a manifest that records <slug>'s spec at its CURRENT on-disk hash, so content
+// dirty is false and only presence drift can flip it.
+function writeManifestForSpec(root, slug, content) {
+  const dir = path.join(root, '.memory')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'resync-manifest.json'), JSON.stringify({
+    last_synced_at: 'x',
+    last_synced_tree_hash: 'x',
+    last_synced_hash_method: 'artifact-content',
+    synced_features: {
+      [slug]: { spec_hash: sha256(content), prd_hash: null, qa_hash: null, adr_hash: null },
+    },
+  }), 'utf8')
+}
+
+function seedDb(root, rows) {
+  const dbPath = path.join(root, '.memory', 'memory.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT ''
+  );`)
+  const stmt = db.prepare('INSERT INTO notes (source, tags, content_hash) VALUES (?, ?, ?)')
+  let i = 0
+  for (const r of rows) stmt.run(r.source, r.tags, `h${i++}`)
+  db.close()
+}
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'check-resync-cov-'))
@@ -130,6 +172,119 @@ test('check-resync: unparseable manifest is treated as never-synced (dirty)', ()
     assert.equal(result.manifest, null)
     assert.equal(result.docsExists, true)
     assert.equal(result.hashMethod, 'artifact-content')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+// ─── manifest body is omitted by default, included only with --with-manifest ──
+// Token economy: a present, parseable manifest is NOT echoed into stdout unless
+// the caller opts in. dirty is still computed from the manifest internally.
+
+test('check-resync: a present manifest is omitted from stdout by default', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'feat', '# Design\n')
+    fs.mkdirSync(path.join(repo, '.memory'), { recursive: true })
+    // valid JSON, but no synced_features → content differs from disk → dirty
+    fs.writeFileSync(
+      path.join(repo, '.memory', 'resync-manifest.json'),
+      JSON.stringify({ version: 1, synced_features: {} }),
+      'utf8',
+    )
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.equal(result.manifest, null) // omitted despite existing on disk
+    assert.equal(result.dirty, true) // still computed correctly from the manifest
+    assert.equal(result.hashMethod, 'artifact-content')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('check-resync: --with-manifest includes the parsed manifest inline', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'feat', '# Design\n')
+    fs.mkdirSync(path.join(repo, '.memory'), { recursive: true })
+    const manifest = { version: 1, synced_features: {} }
+    fs.writeFileSync(
+      path.join(repo, '.memory', 'resync-manifest.json'),
+      JSON.stringify(manifest),
+      'utf8',
+    )
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo, '--with-manifest'], {
+      encoding: 'utf8',
+    })
+    const result = JSON.parse(out)
+    assert.deepEqual(result.manifest, manifest)
+    assert.equal(result.dirty, true)
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+// ─── presence drift: manifest slug absent from memory.db (third axis) ─────────
+
+test('check-resync: content unchanged but slug absent from DB → dirty via driftedSlugs', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# spec\nunchanged content\n'
+    writeSpec(repo, 'phantom-feat', content)
+    writeManifestForSpec(repo, 'phantom-feat', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'artifact-sync,other-feat,spec' }])
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.deepEqual(result.driftedSlugs, ['phantom-feat'])
+    assert.equal(result.dirty, true, 'presence drift must flip dirty even when content matches')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('check-resync: slug present in DB → no drift, stays not dirty', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# spec\nunchanged content\n'
+    writeSpec(repo, 'backed-feat', content)
+    writeManifestForSpec(repo, 'backed-feat', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'artifact-sync,backed-feat,spec' }])
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.deepEqual(result.driftedSlugs, [])
+    assert.equal(result.dirty, false)
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('check-resync: legacy-tagged note counts as present (no false drift)', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# spec\nunchanged content\n'
+    writeSpec(repo, 'legacy-feat', content)
+    writeManifestForSpec(repo, 'legacy-feat', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'feature:legacy-feat,type:spec' }])
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.deepEqual(result.driftedSlugs, [])
+    assert.equal(result.dirty, false)
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('check-resync: no DB → driftedSlugs null, content-only dirty preserved', () => {
+  const repo = mkTmp()
+  try {
+    const content = '# spec\nunchanged content\n'
+    writeSpec(repo, 'nodb-feat', content)
+    writeManifestForSpec(repo, 'nodb-feat', content)
+    // no seedDb → memory.db absent
+    const out = execFileSync('node', [SCRIPT, '--repo-root', repo], { encoding: 'utf8' })
+    const result = JSON.parse(out)
+    assert.equal(result.driftedSlugs, null)
+    assert.equal(result.dirty, false, 'without a DB the presence axis is skipped')
   } finally {
     fs.rmSync(repo, { recursive: true, force: true })
   }

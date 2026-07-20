@@ -50,11 +50,11 @@ test('onboarding wizard instructs using the structured-question tool with a fall
   assert.match(body, /One question per call/i, 'onboarding must keep one-question-at-a-time branching');
 });
 
-test('opening triage uses the prose list for token economy (cheaper than a 6-option tool call)', () => {
+test('opening triage uses the prose list for token economy (cheaper than a multi-option tool call)', () => {
   const body = read('super.using-superpowers/SKILL.md');
-  // The 6-option triage runs every session; a tool call carrying six label+description
-  // objects plus the echoed answer costs ~2x the plain prose list. Prose is the
-  // economical default here — and it also dodges Claude Code's 4-option cap.
+  // The eight-option triage (0-7) runs every session; a tool call carrying eight
+  // label+description objects plus the echoed answer costs ~2x the plain prose list.
+  // Prose is the economical default here — and it also dodges Claude Code's 4-option cap.
   assert.match(body, /triage as the numbered prose list/i,
     'the triage must be the numbered prose list, not the structured-question tool');
   assert.match(body, /token economy/i,
@@ -97,7 +97,7 @@ test('SKILL.md prints a platform-filtered session-variable summary before the tr
   // The re-sync gate's exit step must NOT print the summary itself — it only
   // proceeds to Triagem and defers the print to the sole-owner section. This is
   // the fix for the double-print.
-  assert.doesNotMatch(body, /Print the § Session Summary/,
+  assert.doesNotMatch(body, /Print the "Session Summary" section/,
     'the re-sync gate must not print the summary itself (avoids double-print)');
   // Internal latches are bookkeeping, not configured behavior — the summary must
   // explicitly omit them (they stay tracked in context, just not displayed).
@@ -146,21 +146,27 @@ test('router gates onboarding on `found`, not on a populated preferences object'
     'the router must map derive-session-state preferencesFound:false to the same onboarding trigger');
 });
 
-test('onboarding asks model tiers as an optional step, default = harness picks', () => {
-  // The wizard now offers a model-tiers step (Step 7a). It is OPTIONAL and defaults
-  // to leaving model_tiers empty (harness auto-picks), so it adds no friction and no
-  // regression for users who skip it. This canary locks the step in and ensures the
-  // field-ref no longer claims tiers are "not asked".
+test('onboarding asks model tiers as a REQUIRED step with suggestions + cost warnings', () => {
+  // The wizard makes model tiers a required Step 7a: it educates that `standard`
+  // reviews `cheap` (one family up), suggests mappings, and warns when the mapping
+  // would make an expensive model review mechanical code. Auto stays an explicit choice.
   const body = read('super.using-superpowers/references/onboarding-preferences.md');
-  assert.match(body, /Model Tiers \(Optional\)/i,
-    'onboarding must offer an optional model-tiers step');
-  assert.match(body, /Deseja configurar os modelos por tier/i,
-    'the tier step must ask whether to configure tiers');
-  assert.match(body, /leave `model_tiers` empty/i,
-    'the No path must leave model_tiers empty (harness picks)');
+  assert.match(body, /Model Tiers \(required\)/i,
+    'onboarding must ask model tiers as a required step');
+  assert.match(body, /Economical \(suggested\)/i,
+    'the tier step must offer a suggested economic mapping');
+  assert.match(body, /reviews your `cheap` tasks/i,
+    'the tier step must teach that standard reviews cheap tasks (one family up)');
+  assert.match(body, /one family above/i,
+    'the tier step must state the standard-a-family-above-cheap rule');
+  assert.match(body, /overkill/i,
+    'the tier step must warn when an expensive model would review mechanical (cheap) code');
+  assert.match(body, /\bAuto\b/,
+    'auto (harness picks) must remain an explicit option');
   assert.match(body, /harness-specific/i,
     'tier model names must be documented as harness-specific (free text, not fixed options)');
-  // The field reference must no longer say tiers are unaskable in the wizard.
+  assert.doesNotMatch(body, /Model Tiers \(Optional\)/i,
+    'the tier step must no longer be labelled Optional');
   assert.doesNotMatch(body, /Not asked in the wizard/i,
     'the field reference must no longer claim model tiers are not asked');
 });

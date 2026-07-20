@@ -70,19 +70,38 @@ your call), or tell me how you'd like to handle it.
 
   Resolve this (commit the work, or get an explicit user override) before proceeding to Step 3.
 
+**Independent verification gate (precondition):** This precondition applies to a **feature-delivery branch** — one where a `docs/superpowers/<feature>/` tree with a spec (and usually plans/tasks) exists. A standalone debugging session (triage option 3) or an ad-hoc fix that produced no such feature tree has no feature to independently verify — the gate runs *once per feature* and none exists — so skip this precondition and let the tests-pass gate in Step 2 govern it. **When a feature tree exists**, before presenting any integration option (merge/PR/handoff), confirm the always-on `super.independent-verification` gate passed for it. A fresh Verifier (author != verifier) runs it once per feature, after final code review and before the QA gate, writing `docs/superpowers/<feature>/qa/validation-<feature>.md` with a PASS/FAIL verdict.
+
+Run the deterministic structural check instead of eyeballing or grepping the file — a bare substring match for "PASS" cannot tell a genuine Verifier report from a thin, self-authored one written only to satisfy this precondition (it also never matches the real template, since `## Verdict` and `**PASS ✅**` sit on separate lines):
+
+```bash
+node <super.independent-verification-base-dir>/scripts/check-verification-report.cjs \
+  --report docs/superpowers/<feature>/qa/validation-<feature>.md \
+  --spec docs/superpowers/<feature>/specs/<feature>-design.md
+```
+
+- **`valid:true` (exit 0)** → proceed to Step 3.
+- **`valid:true` is false, or the script exits non-zero** → STOP. Do not merge/PR/handoff. The JSON `errors` array names exactly what's missing (file absent, no Diff range, empty AC or Discrimination Sensor table, unfilled template placeholders, FAIL verdict, or a self-contradictory PASS header). Instruct the user to run (or re-run) the `super.independent-verification` gate with a genuine, fresh Verifier dispatch — not a self-review — and land a real PASS before finishing.
+
 ### Step 3: Detect Environment
 
 **Determine workspace state before presenting options:**
 
 ```bash
+# Capture these in the ORIGINAL invocation directory — BEFORE any option cd's to
+# MAIN_ROOT. Step 7 reuses them; it must NOT recompute from the CWD, because Option 1/4
+# have by then cd'd into MAIN_ROOT, where `git rev-parse --show-toplevel` returns the
+# main repo and GIT_DIR==GIT_COMMON — misreading a real feature worktree as "nothing to
+# clean up" (which then orphans the worktree and makes `git branch -d` fail).
 GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
 GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+WORKTREE_PATH=$(git rev-parse --show-toplevel)   # the tree finishing was invoked from
 BRANCH=$(git rev-parse --abbrev-ref HEAD)   # current branch ("HEAD" if detached)
 DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
 DEFAULT=${DEFAULT:-$(git branch --list main master | tr -d ' *+' | head -1)}
 ```
 
-This determines which menu to show and how cleanup works. **`BRANCH` is the base/default branch** (it equals `DEFAULT`, or is `main`/`master`) when the work was committed straight onto the base with no separate feature branch — a real case when execution started on `main` (the upstream § Branch Guard normally prevents it, but a run can still land here). There is then nothing to merge or delete, so the standard merge menu does not apply.
+This determines which menu to show and how cleanup works. **`BRANCH` is the base/default branch** (it equals `DEFAULT`, or is `main`/`master`) when the work was committed straight onto the base with no separate feature branch — a real case when execution started on `main` (the upstream "Branch Guard" section normally prevents it, but a run can still land here). There is then nothing to merge or delete, so the standard merge menu does not apply.
 
 | State | Menu | Cleanup |
 |-------|------|---------|
@@ -150,7 +169,18 @@ Which option?
 MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
 cd "$MAIN_ROOT"
 
-git checkout <base-branch>
+# Switch to the base branch — GUARD the checkout. In a worktree flow this runs in
+# MAIN_ROOT, whose cleanliness Step 2 did NOT verify (that check ran in the feature
+# worktree, a different tree). If checkout fails — MAIN_ROOT has uncommitted changes,
+# or the base branch is already checked out in another worktree — an unguarded merge
+# below would land on whatever branch MAIN_ROOT is still on and pollute it. STOP.
+if ! git checkout <base-branch>; then
+  # STOP and report. Do NOT proceed to the merge — you are still on the WRONG branch,
+  # and BASE_BEFORE/merge would corrupt it. The feature branch is intact. Resolve
+  # MAIN_ROOT first (commit or stash its changes, or free <base-branch> from the other
+  # worktree holding it), then re-run finishing.
+  exit 1
+fi
 # Refresh base from remote ONLY if it tracks one — a purely-local project
 # must not fail finishing on a `git pull`.
 if git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
@@ -272,17 +302,34 @@ git push -u origin <feature-name> && gh pr create --title "<title>" --body "<sum
 - Base never pushed → `git reset --hard <pre-feature sha>` (confirm the SHA against `git log --oneline` first).
 - Base already pushed → `git revert <pre-feature sha>..HEAD` (rewriting pushed history is off-limits without an explicit request).
 
+#### Detached-HEAD options (externally managed workspace — no branch, no merge)
+
+The commits sit on a detached `HEAD` with **no branch pointing at them**, so the standard push (`git push -u origin <feature-branch>`) has no branch name to push and would fail. Name the work on a branch first. There is no worktree this skill owns, so Step 7 does not run.
+
+**Option 1 — Push as new branch and open a PR:** create a branch at the current commit **before** anything else — it is the only named handle on the work; a detached `HEAD` left behind is garbage-collected.
+
+```bash
+DETACHED_TIP=$(git rev-parse HEAD)
+git branch <feature-name> "$DETACHED_TIP"          # name the work FIRST (detached commits are GC-able)
+if ! git push -u origin <feature-name>; then
+  # No origin / auth / non-fast-forward. The branch <feature-name> now exists locally
+  # and holds the work — STOP and report; do not discard it. Fall back to Option 2.
+  exit 1
+fi
+gh pr create --title "<title>" --body "<summary + test plan>" || echo "Branch pushed; create the PR manually (gh missing/unauthenticated or a PR already exists). Work is safe on origin/<feature-name>."
+```
+
+**Option 2 — Keep as-is:** capture the commits on a branch so they survive — a bare detached `HEAD` is lost the moment `HEAD` moves. `git branch <feature-name> HEAD`, then report "Work is on branch `<feature-name>` locally."
+
+**Option 3 — Discard:** typed-`discard` gate (as in the standard Option 4). Then just move off the commit — `git checkout <base-branch>` (or any branch). The detached commits become unreachable and are GC'd; nothing else to delete. **Do not `reset --hard`/`branch -D` any existing branch** — the discard covers only the detached work.
+
 ### Step 7: Cleanup Workspace
 
 **Only runs for Options 1 and 4.** Options 2 and 3 always preserve the worktree.
 
-```bash
-GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
-GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-WORKTREE_PATH=$(git rev-parse --show-toplevel)
-```
+**Reuse `GIT_DIR`, `GIT_COMMON`, and `WORKTREE_PATH` captured in Step 3 — do NOT recompute them here.** Option 1 and Option 4 already `cd`'d into `MAIN_ROOT`, so recomputing from the current directory would resolve `WORKTREE_PATH` to the main repo and make `GIT_DIR == GIT_COMMON` — falsely reporting "no worktree to clean up" for a real feature worktree, orphaning it and then failing `git branch -d` (the branch is still checked out in the un-removed worktree). The Step 3 values describe the tree finishing was invoked from, which is the one to clean up.
 
-**If `GIT_DIR == GIT_COMMON`:** Normal repo, no worktree to clean up. Done.
+**If `GIT_DIR == GIT_COMMON`:** Normal repo (finishing was invoked from the main working tree), no worktree to clean up. Done.
 
 **If worktree path is under `.worktrees/`, `worktrees/`, or `~/.config/superpowers/worktrees/`:** Superpowers created this worktree — we own cleanup.
 
@@ -310,6 +357,7 @@ Option recap table + Problem/Fix breakdown of common mistakes: `references/commo
 ## Red Flags
 
 **Never:**
+- Merge/PR/handoff **for a feature-delivery branch** without a PASS verdict in `docs/superpowers/<feature>/qa/validation-<feature>.md` from the `super.independent-verification` gate (a standalone debug/ad-hoc branch with no `docs/superpowers/<feature>/` tree is exempt — the tests-pass gate governs it)
 - Proceed with failing tests, or merge without verifying tests on the result
 - Discard work without typed confirmation
 - Force-push without explicit request

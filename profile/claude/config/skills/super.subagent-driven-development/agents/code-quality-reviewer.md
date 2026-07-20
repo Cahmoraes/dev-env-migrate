@@ -10,9 +10,10 @@ Use this template when dispatching a code quality reviewer subagent.
 
 ```
 Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
-  model: [REQUIRED — per § Model Selection, run reviewers at the task's tier
-          floored at standard (never review with a cheap model; a capable task
-          gets a capable reviewer). Never omit / inherit the controller's model.]
+  model: [REQUIRED — per the "Model Selection" section, a validation gate runs at the task's
+          tier floored at standard — a cheap task is reviewed one family up, by the
+          standard tier, not the most-expensive capable. Never omit / inherit the
+          controller's model.]
   Use template at super.requesting-code-review/agents/code-reviewer.md
 
   DESCRIPTION: [task summary, from implementer's report]
@@ -30,6 +31,11 @@ Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
 - Are units decomposed so they can be understood and tested independently?
 - Is the implementation following the file structure from the plan?
 - Did this implementation create new files that are already large, or significantly grow existing files? (Don't flag pre-existing file sizes — focus on what this change contributed.)
+- Does the change duplicate logic that already exists elsewhere in the codebase, or apply a
+  changed pattern inconsistently? Locate code by shape rather than skimming: prefer LSP/semantic
+  (Serena `find_symbol` / `find_referencing_symbols`) > ast-grep (`sg -p '<pattern>' --lang <lang>
+  <dir>`) > ripgrep (`rg -n`) > grep, degrading to whatever the platform exposes. Full guidance:
+  `references/code-analysis.md`.
 
 **Code reviewer returns:** Strengths, Issues (Critical/Important/Minor), Assessment
 

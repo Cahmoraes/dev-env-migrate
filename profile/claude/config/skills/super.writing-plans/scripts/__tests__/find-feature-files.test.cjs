@@ -230,3 +230,66 @@ test('visualSection is false when the spec is absent', () => {
   assert.equal(result.spec.found, false);
   assert.equal(result.spec.visualSection, false);
 });
+
+// --- Embedded-PRD coverage (spec carries US-NN/FR-NNN inline, no physical prd/prd-<feature>.md) ---
+// The Large known-domain fast path merges the PRD into the spec, so the FR-coverage gate would be
+// silently skipped if the orchestrator omitted --prd for lack of a physical PRD file. The script
+// surfaces the spec as the PRD source (prd.embeddedIn) plus a structured warning.
+
+test('flags a spec with embedded US-NN/FR-NNN but no physical PRD file', () => {
+  const repo = mkRepo();
+  const specPath = write(
+    repo,
+    'docs/superpowers/feat/specs/feat-design.md',
+    '# Design\n\n## Requisitos\n\n- US-01: como usuário...\n- FR-001, FR-002, FR-003\n',
+  );
+  const result = runJson(repo, 'feat');
+  assert.equal(result.prd.found, false);
+  assert.equal(result.spec.embeddedPrd, true);
+  assert.equal(result.prd.embeddedIn, specPath);
+  assert.ok(
+    result.warnings.some((w) => w.code === 'prd-embedded-in-spec'),
+    'must warn so the orchestrator passes --prd <spec>',
+  );
+});
+
+test('physical PRD present takes precedence — embedded signal stays inert (backward-compat)', () => {
+  const repo = mkRepo();
+  write(
+    repo,
+    'docs/superpowers/feat/specs/feat-design.md',
+    '# Design\n\n## Requisitos\n\n- US-01\n- FR-001\n',
+  );
+  const prdPath = write(repo, 'docs/superpowers/feat/prd/prd-feat.md', '# PRD\n\nFR-001\n');
+  const result = runJson(repo, 'feat');
+  assert.equal(result.prd.found, true);
+  assert.equal(result.prd.path, prdPath);
+  assert.equal(result.prd.embeddedIn, undefined);
+  assert.ok(!result.warnings.some((w) => w.code === 'prd-embedded-in-spec'));
+});
+
+test('no embedded-PRD warning for a spec-only plan with no US/FR tokens', () => {
+  const repo = mkRepo();
+  write(repo, 'docs/superpowers/feat/specs/feat-design.md', '# Design\n\n## Arquitetura\nsem requisitos formais\n');
+  const result = runJson(repo, 'feat');
+  assert.equal(result.spec.embeddedPrd, false);
+  assert.equal(result.prd.embeddedIn, undefined);
+  assert.ok(!result.warnings.some((w) => w.code === 'prd-embedded-in-spec'));
+});
+
+test('embedded PRD fires on US-NN alone and on legacy RF-NNN', () => {
+  for (const body of ['# Design\n\nUS-07: história\n', '# Design\n\nRF-042 requisito legado\n']) {
+    const repo = mkRepo();
+    write(repo, 'docs/superpowers/feat/specs/feat-design.md', body);
+    const result = runJson(repo, 'feat');
+    assert.equal(result.spec.embeddedPrd, true, `not detected: ${body}`);
+  }
+});
+
+test('embeddedPrd is false when the spec is absent', () => {
+  const repo = mkRepo();
+  const result = runJson(repo, 'feat');
+  assert.equal(result.spec.found, false);
+  assert.equal(result.spec.embeddedPrd, false);
+  assert.equal(result.prd.embeddedIn, undefined);
+});

@@ -20,7 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { detectRepoRoot } = require('./lib/repo-root.cjs');
 const {
   hashFile,
   hashAdrs,
@@ -30,6 +30,7 @@ const {
   computeDiskMap,
   fingerprintOfMap,
 } = require('./lib/artifact-hash.cjs');
+const { queryPresentSlugs } = require('./lib/db-presence.cjs');
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
@@ -57,13 +58,16 @@ Output (JSON to stdout):
     "docsPath": string,
     "repoRoot": string,
     "features": Feature[],
-    "errors": Error[]
+    "errors": Error[],
+    "driftedSlugs": string[]  // features whose content is unchanged but which had no
+                              // note in memory.db, so they were reclassified "changed"
   }
 
   Feature:
   {
     "slug": string,
     "status": "new" | "changed" | "unchanged" | "deleted",
+    "dbPresent": boolean | null,  // has >=1 note in memory.db; null if DB unverifiable
     "artifacts": {
       "spec":  ArtifactResult,
       "prd":   ArtifactResult,
@@ -100,8 +104,11 @@ Output (JSON to stdout):
 
 Status semantics:
   "new"       — slug not in manifest's synced_features
-  "changed"   — slug in manifest but at least one hash differs (including new adr_hash)
-  "unchanged" — slug in manifest and all hashes match
+  "changed"   — slug in manifest but at least one hash differs (including new adr_hash),
+                OR content is unchanged but the slug has no note in memory.db (presence
+                drift — reclassified so the sync loop re-adds it; see driftedSlugs)
+  "unchanged" — slug in manifest, all hashes match, AND a note exists in memory.db
+                (or the DB could not be consulted)
   "deleted"   — slug in manifest but directory no longer exists in docs/superpowers/
 
 Exit codes:
@@ -129,16 +136,9 @@ for (let i = 0; i < args.length; i++) {
 
 // ─── Git root detection ───────────────────────────────────────────────────────
 
+// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
 function detectGitRoot() {
-  try {
-    const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch {
-    return null;
-  }
+  return detectRepoRoot();
 }
 
 // ─── Feature classification ───────────────────────────────────────────────────
@@ -196,6 +196,16 @@ if (fs.existsSync(manifestPath)) {
 
 const synced = (manifest && manifest.synced_features) ? manifest.synced_features : {};
 
+// Presence in the memory DB, queried once. A feature whose content is UNCHANGED but
+// which has no note in the DB is a phantom sync — the manifest claims it, the DB
+// lacks it. We must re-sync it, so it is reclassified `changed` below (that is the
+// status the sync loop already prunes-and-re-adds). Degrades gracefully: when the DB
+// can't be consulted, `dbPresent` is null and classification stays hash-only.
+const presence = queryPresentSlugs({
+  dbPath: path.join(repoRoot, '.memory', 'memory.db'),
+  source: 'artifact-sync',
+});
+
 // Content fingerprint of the canonical artifact set — identical computation to
 // check-resync.cjs (shared lib), so a value written here matches what dirty
 // detection reads next session.
@@ -208,6 +218,7 @@ const slugDirs = listFeatureSlugs(docsPath);
 
 const features = [];
 const errors = [];
+const driftedSlugs = []; // unchanged-by-hash but absent from the DB → reclassified changed
 const seenSlugs = new Set();
 
 for (const slug of slugDirs) {
@@ -245,9 +256,20 @@ for (const slug of slugDirs) {
     adrs: { path: adrsDir, ...adrsResult },
   };
 
-  const status = classifyFeature(slug, artifacts, synced[slug]);
+  let status = classifyFeature(slug, artifacts, synced[slug]);
 
-  features.push({ slug, status, artifacts });
+  // Presence override: an unchanged feature absent from the DB is drift → re-sync it.
+  // Only applies when the slug is actually in the manifest (an `unchanged` classification
+  // already implies that) and the DB was consulted.
+  const dbPresent = presence.available
+    ? presence.presentSlugs.has(slug.toLowerCase())
+    : null;
+  if (status === 'unchanged' && dbPresent === false) {
+    status = 'changed';
+    driftedSlugs.push(slug);
+  }
+
+  features.push({ slug, status, dbPresent, artifacts });
 }
 
 // Detect deleted features (in manifest but no longer on filesystem)
@@ -256,6 +278,7 @@ for (const slug of Object.keys(synced)) {
     features.push({
       slug,
       status: 'deleted',
+      dbPresent: presence.available ? presence.presentSlugs.has(slug.toLowerCase()) : null,
       artifacts: {
         spec: { path: path.join(docsPath, slug, 'specs', `${slug}-design.md`), hash: null, exists: false, readable: false, error: null },
         prd: { path: path.join(docsPath, slug, 'prd', `prd-${slug}.md`), hash: null, exists: false, readable: false, error: null },
@@ -273,6 +296,7 @@ const result = {
   repoRoot,
   features,
   errors,
+  driftedSlugs, // features reclassified unchanged→changed because the DB lacked a note
 };
 
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');

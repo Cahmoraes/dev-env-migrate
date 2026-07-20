@@ -48,7 +48,7 @@ For a UI task that has a `### Fidelidade Visual` subsection, the `## Passos` mus
 
 - **Step 0: Confirm design source & fidelity tools**
 
-  Read the design source and fidelity tools already recorded in `### Fidelidade Visual` (the plan author discovered them once, at plan time). Confirm the original design source with the user — only this needs the user and so belongs at execution — and fill any gap the plan left open (re-run tool discovery only if the field was left blank, inspecting `chat.agentSkillsLocations` + connected MCP tools; match by capability, never hardcode a tool). If a source URL or a fidelity tool exists, use it; otherwise build to the curated mockup at `../specs/mockups/<file>` manually. The mockup is the *norte* — reuse its decided layout, spacing, and tokens; do not re-derive them.
+  Read the design source and fidelity tools already recorded in `### Fidelidade Visual` (the plan author discovered them once, at plan time). Confirm the original design source with the user — only this needs the user and so belongs at execution — and fill any gap the plan left open (re-run tool discovery only if the field was left blank, inspecting the available skills + connected MCP tools; match by capability, never hardcode a tool). If a source URL or a fidelity tool exists, use it; otherwise build to the curated mockup at `../specs/mockups/<file>` manually. The mockup is the *norte* — reuse its decided layout, spacing, and tokens; do not re-derive them.
 
 This step never blocks: "no source / no tooling available" is a valid answer that routes to manual implementation against the mockup.
 

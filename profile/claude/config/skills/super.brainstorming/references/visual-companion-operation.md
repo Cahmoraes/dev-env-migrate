@@ -1,6 +1,6 @@
 # Visual Companion — Operation
 
-Read this once the user has accepted the companion (see SKILL.md § Visual Companion for the signals checklist and the offer).
+Read this once the user has accepted the companion (see SKILL.md, "Visual Companion" section, for the signals checklist and the offer).
 
 ## Per-question decision: browser vs terminal
 
@@ -10,6 +10,8 @@ Even after the user accepts, decide FOR EACH QUESTION whether to use the browser
 - **Use the terminal** for content that is text — requirements questions, conceptual choices, tradeoff lists, A/B/C/D text options, scope decisions.
 
 A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is conceptual — use the terminal. "Which wizard layout works better?" is visual — use the browser.
+
+**Per-question routing is not a licence to render nothing.** The user accepted the companion because you named a concrete artifact worth showing (a mockup, or a current-vs-proposed flow diagram). You owe them that artifact: render it **at least once**. If you work through the whole interview and never open the browser, the acceptance was a misfire — do not just let it lapse. Either render the justifying artifact now, or state plainly to the user that the companion ended up unused and why (e.g. "the flow was clearer in prose than a diagram would have been"). Silently accepting and never showing anything is the one outcome to avoid. The upstream lesson for next time: a non-UI feature whose only signal was "a diagram would help", accepted but never rendered, should not have been offered — offer only when you are ready to deliver.
 
 ## Operating the companion
 

@@ -140,10 +140,8 @@ Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
     ## Critical Rules
 
     **DO:**
-    - Categorize by actual severity
     - Be specific (file:line, not vague)
     - Explain WHY each issue matters
-    - Acknowledge strengths
     - Give a clear verdict
 
     **DON'T:**

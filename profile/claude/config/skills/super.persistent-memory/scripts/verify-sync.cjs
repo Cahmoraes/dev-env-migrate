@@ -12,6 +12,10 @@
  * unavailable (older Node) or the DB is missing, it degrades gracefully —
  * verifiable:false, exit 0 — so it never blocks a flow it cannot audit.
  *
+ * Tag conventions: sync notes are tagged `<source>,<slug>,<type>` today, but legacy
+ * notes used `feature:<slug>,type:<type>`. Both are recognized (see slugsFromTags),
+ * so an old-format note is never mis-reported as a missing sync.
+ *
  * Usage:
  *   node scripts/verify-sync.cjs [--repo-root <path>] [--manifest <path>]
  *        [--db <path>] [--source <label>]
@@ -41,7 +45,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const HELP = `
 verify-sync.cjs — Audit that the re-sync manifest and memory DB agree.
@@ -80,18 +83,41 @@ function parseArgs(argv) {
   return options;
 }
 
+// Git working-tree root, resolved in-process (no `git` spawn): walk up looking for
+// a `.git` entry (a dir in a clone, a FILE in a linked worktree — both match). Same
+// discovery `git rev-parse --show-toplevel` does; null when not in a repo.
 function detectGitRoot() {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
+  let dir = process.cwd();
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
-function tagSet(tags) {
-  return new Set(String(tags || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean));
+// Artifact-type tokens are never feature slugs.
+const ARTIFACT_TYPE_TAGS = new Set(['spec', 'prd', 'qa', 'adr', 'adrs']);
+
+// Extract the feature slugs a note's tag string refers to, tolerant of both the
+// current convention (`<source>,<slug>,<type>`) and the legacy one
+// (`feature:<slug>,type:<type>`). Kept deliberately in sync with slugsFromTags in
+// super.using-superpowers/scripts/lib/db-presence.cjs — the two skills are
+// distributed independently, so the small parser is duplicated rather than shared.
+// Without this, legacy-tagged notes are read as `feature:<slug>` / `type:<t>`, none
+// of which equals the manifest slug, so a real note is wrongly reported as missing.
+function slugsFromTags(tags, source) {
+  const src = String(source || '').trim().toLowerCase();
+  const out = [];
+  for (const raw of String(tags || '').split(',')) {
+    const tag = raw.trim().toLowerCase();
+    if (!tag || tag === src) continue;
+    if (tag.startsWith('type:')) continue;
+    if (ARTIFACT_TYPE_TAGS.has(tag)) continue;
+    if (tag.startsWith('feature:')) { const s = tag.slice('feature:'.length); if (s) out.push(s); continue; }
+    out.push(tag);
+  }
+  return out;
 }
 
 function emit(result, code) {
@@ -147,9 +173,9 @@ function main() {
   const entriesPerSlug = new Map();
   const slugsInDb = new Set();
   for (const row of rows) {
-    for (const tag of tagSet(row.tags)) {
-      slugsInDb.add(tag);
-      entriesPerSlug.set(tag, (entriesPerSlug.get(tag) || 0) + 1);
+    for (const slug of slugsFromTags(row.tags, opts.source)) {
+      slugsInDb.add(slug);
+      entriesPerSlug.set(slug, (entriesPerSlug.get(slug) || 0) + 1);
     }
   }
 
@@ -159,14 +185,10 @@ function main() {
   });
   const missing = features.filter((f) => !f.ok).map((f) => f.slug);
   const manifestSlugSetLower = new Set(manifestSlugs.map((s) => s.toLowerCase()));
-  // Every sync entry is tagged `<source>,<feature-slug>,<artifact-type>`. The
-  // source label and the artifact-type tags are NOT feature slugs, so they must
-  // not be reported as manifest drift — only genuine feature slugs absent from
-  // the manifest are "extra".
-  const NON_SLUG_TAGS = new Set(['spec', 'prd', 'qa', 'adr', 'adrs']);
-  const extraSlugs = [...slugsInDb].filter(
-    (s) => s !== opts.source.toLowerCase() && !manifestSlugSetLower.has(s) && !NON_SLUG_TAGS.has(s),
-  );
+  // slugsInDb already holds only genuine feature slugs (slugsFromTags strips the
+  // source label and artifact-type tokens), so "extra" is simply any DB slug the
+  // manifest does not list.
+  const extraSlugs = [...slugsInDb].filter((s) => !manifestSlugSetLower.has(s));
 
   const allPresent = missing.length === 0;
   emit({

@@ -26,7 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { detectRepoRoot } = require('./lib/repo-root.cjs');
 
 const HELP = `
 read-preferences.js — Read .superpowers/preferences.yml from the repository root.
@@ -41,6 +41,7 @@ Options:
 Output (JSON to stdout): { found, repo_not_found, malformed, preferencesPath, preferences }
 where preferences merges file values over defaults:
   workflow.auto_commit (true), workflow.confirm_destructive_actions (true),
+    workflow.qa_gate (true; when false the end-of-implementation QA gate is skipped silently),
   communication.language ("pt-BR"), copilot.rubber_duck (false),
   copilot.review_final (false; native review skill as an extra bug pass at the final review),
   claude_code.simplify (false),
@@ -62,6 +63,7 @@ const DEFAULTS = {
   workflow: {
     auto_commit: true,
     confirm_destructive_actions: true,
+    qa_gate: true,
   },
   communication: {
     language: 'pt-BR',
@@ -94,7 +96,7 @@ const DEFAULTS = {
     persistent_memory: false,
   },
   // Maps the abstract model tiers used by execution skills (see
-  // super.subagent-driven-development § Model Selection) to concrete model names
+  // super.subagent-driven-development, "Model Selection" section) to concrete model names
   // for THIS harness. null means "let the harness pick its cheap/standard/capable".
   model_tiers: {
     cheap: null,
@@ -239,19 +241,82 @@ function parseYaml(content) {
 
 // ─── Git root detection ───────────────────────────────────────────────────────
 
+// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
 function detectGitRoot() {
-  try {
-    const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch {
-    return null;
-  }
+  return detectRepoRoot();
 }
 
 // ─── Main (CLI) ─────────────────────────────────────────────────────────────────
+
+/**
+ * loadPreferences — the SINGLE in-process read path (no subprocess).
+ *
+ * The CLI main() below prints what this returns; sibling scripts
+ * (derive-session-state.cjs, super.reviewing-specs/scripts/lite-reentry.cjs) `require`
+ * this directly instead of spawning `node read-preferences.cjs`, so there is exactly
+ * one parse/merge/normalize path — identical output, one fewer process per call.
+ *
+ * Returns { result, warnings, root }:
+ *   - result   — the exact object the CLI emits on stdout
+ *                ({ found, repo_not_found, malformed, preferencesPath, preferences }).
+ *   - warnings — human-readable notes the CLI writes to stderr (malformed / clamped
+ *                values). Callers that don't surface stderr just ignore the array,
+ *                matching the previous `stdio: 'ignore'` behavior of the spawning callers.
+ *   - root     — the resolved repo root (or null when there is no repo), so callers that
+ *                need it don't re-derive it from preferencesPath. Not part of `result`,
+ *                so the CLI's stdout contract is unchanged.
+ * Throws ONLY when an existing file cannot be read — main() maps that to exit 1, exactly
+ * as before. Absent repo / absent file are normal (found:false), never throws.
+ */
+function loadPreferences(repoRoot) {
+  const warnings = [];
+  const root = repoRoot ? path.resolve(repoRoot) : detectGitRoot();
+  // wrap keeps the three exits DRY and exposes the already-resolved `root` alongside
+  // `result`, so callers never re-derive it from preferencesPath. `root` is a wrapper
+  // field, NOT part of `result` — `result` stays the exact frozen JSON the CLI prints.
+  const wrap = (result) => ({ result, warnings, root });
+
+  if (!root) {
+    return wrap({
+      found: false,
+      repo_not_found: true,
+      malformed: false,
+      preferencesPath: null,
+      preferences: deepMerge(DEFAULTS, {}),
+    });
+  }
+
+  const prefsPath = path.join(root, '.superpowers', 'preferences.yml');
+
+  // File does not exist — not an error.
+  if (!fs.existsSync(prefsPath)) {
+    return wrap({
+      found: false,
+      repo_not_found: false,
+      malformed: false,
+      preferencesPath: prefsPath,
+      preferences: deepMerge(DEFAULTS, {}),
+    });
+  }
+
+  const rawContent = fs.readFileSync(prefsPath, 'utf8'); // throws → main() turns into exit 1
+
+  const { parsed, malformed } = parseYaml(rawContent);
+  if (malformed) {
+    warnings.push('preferences.yml appears malformed — using defaults for missing values');
+  }
+
+  const merged = deepMerge(DEFAULTS, parsed);
+  warnings.push(...normalizeCodeReviewEffort(merged), ...normalizeCavemanLevel(merged));
+
+  return wrap({
+    found: true,
+    repo_not_found: false,
+    malformed,
+    preferencesPath: prefsPath,
+    preferences: merged,
+  });
+}
 
 function main(argv) {
   const args = argv.slice(2);
@@ -264,74 +329,27 @@ function main(argv) {
   let repoRoot = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--repo-root' && args[i + 1]) {
-      repoRoot = path.resolve(args[++i]);
+      repoRoot = args[++i];
     }
   }
 
-  // Resolve repo root
-  if (!repoRoot) {
-    repoRoot = detectGitRoot();
-    if (!repoRoot) {
-      const result = {
-        found: false,
-        repo_not_found: true,
-        malformed: false,
-        preferencesPath: null,
-        preferences: deepMerge(DEFAULTS, {}),
-      };
-      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-      process.exit(0);
-    }
-  }
-
-  const prefsPath = path.join(repoRoot, '.superpowers', 'preferences.yml');
-
-  // File does not exist — not an error
-  if (!fs.existsSync(prefsPath)) {
-    const result = {
-      found: false,
-      repo_not_found: false,
-      malformed: false,
-      preferencesPath: prefsPath,
-      preferences: deepMerge(DEFAULTS, {}),
-    };
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    process.exit(0);
-  }
-
-  // Read and parse the file
-  let rawContent;
+  let loaded;
   try {
-    rawContent = fs.readFileSync(prefsPath, 'utf8');
+    loaded = loadPreferences(repoRoot);
   } catch (err) {
     process.stderr.write(`Error reading preferences file: ${err.message}\n`);
     process.exit(1);
   }
 
-  const { parsed, malformed } = parseYaml(rawContent);
-
-  if (malformed) {
-    process.stderr.write(`Warning: preferences.yml appears malformed — using defaults for missing values\n`);
-  }
-
-  const merged = deepMerge(DEFAULTS, parsed);
-  for (const note of [...normalizeCodeReviewEffort(merged), ...normalizeCavemanLevel(merged)]) {
+  for (const note of loaded.warnings) {
     process.stderr.write(`Warning: ${note}\n`);
   }
 
-  const result = {
-    found: true,
-    repo_not_found: false,
-    malformed,
-    preferencesPath: prefsPath,
-    preferences: merged,
-  };
-
-  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  process.stdout.write(JSON.stringify(loaded.result, null, 2) + '\n');
   process.exit(0);
 }
 
-module.exports = { DEFAULTS, deepMerge, parseYaml, detectGitRoot, normalizeCodeReviewEffort, normalizeCavemanLevel };
+module.exports = { DEFAULTS, deepMerge, parseYaml, detectGitRoot, normalizeCodeReviewEffort, normalizeCavemanLevel, loadPreferences };
 
 if (require.main === module) {
   main(process.argv);

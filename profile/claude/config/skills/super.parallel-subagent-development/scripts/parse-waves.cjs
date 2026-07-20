@@ -29,7 +29,8 @@
  *                                  //   mode, optionNumber, confidence,
  *                                  //   decisionRequired, signals[], alternatives[] }
  *     "tasks": Task[],            // { number, file, dependsOn, fanIn, specPresent,
- *                                 //   fileCount, explicitTier, suggestedTier, tierSignals }
+ *                                 //   fileCount, explicitTier, suggestedTier, tierSignals,
+ *                                 //   reviewShape ("two-stage"|"combined"|"none"), reviewSignals }
  *     "errors": Issue[],          // cycles, dangling refs, ordering violations
  *     "warnings": Issue[],
  *     "indexPath": string
@@ -46,11 +47,11 @@ const HELP = `
 parse-waves.cjs — Derive and validate parallel-execution waves for a tasks index.
 
 Usage:
-  node scripts/parse-waves.cjs --tasks-index <path>
+  node scripts/parse-waves.cjs --tasks-index <path> [options]
 
 Options:
-  --tasks-index <path>  Path to the tasks index file (tasks-<feature>.md)
-  --help                Show this help text and exit 0
+  --tasks-index <path>    Path to the tasks index file (tasks-<feature>.md)
+  --help                  Show this help text and exit 0
 `.trimStart();
 
 function usage(msg) {
@@ -75,7 +76,7 @@ function parseArgs(argv) {
     usage(`Unknown argument: ${args[i]}`);
   }
   if (!indexPath) usage("--tasks-index <path> is required");
-  return path.resolve(indexPath);
+  return { indexPath: path.resolve(indexPath) };
 }
 
 // ─── Parsing ──────────────────────────────────────────────────────────────
@@ -94,6 +95,17 @@ const VALID_TIERS = ["cheap", "standard", "capable"];
 const FILES_SECTION = /^##\s+(?:Arquivos|Files)\s*$/imu;
 // Title keywords that signal design/architecture judgment → most-capable model.
 const CAPABLE_KEYWORDS = /\b(architect\w*|arquitet\w*|design|redesign|refactor\w*|refator\w*|migrat\w*|migra\w*|schema|data\s*model|modelo\s*de\s*dados|security|seguran\w*|infra\w*)\b/iu;
+
+// Title keywords for a critical/security surface, checked independently of the
+// task's (possibly explicit, possibly under-tiered) **Tier:** field — a planner
+// marking a security-sensitive task "standard" must not silently drop it to a
+// lighter review shape. Superset of CAPABLE_KEYWORDS' security terms plus
+// auth/session/credential surfaces that don't always read as "design".
+// Note: bare "token" is intentionally excluded — too common in non-security
+// contexts (e.g. "token bucket" rate-limiting algorithm); use qualified forms.
+// rate-limit/throttle/api-key added as high-precision terms (keep byte-identical
+// with assess-complexity.cjs's copy).
+const CRITICAL_SURFACE_KEYWORDS = /\b(security|seguran\w*|auth\w*|autentic\w*|autoriza\w*|(?:access|bearer|api|refresh)[\s-]*token|senha|password|credential\w*|credencial\w*|permission\w*|permiss\w*|middleware|cors|csrf|jwt|session\w*|sess[aã]o\w*|rate[\s-]?limit\w*|throttl\w*|(?:api|access|client)[\s-]*(?:key|secret)\w*)\b/iu;
 
 /** Extract task numbers + titles + files from the `## Tarefas` list. */
 function parseIndexTasks(content) {
@@ -207,8 +219,8 @@ function countFiles(content) {
 /**
  * Suggest the least-powerful model that can handle a task, from deterministic
  * syntactic signals. This is advisory — the orchestrator may override it, since
- * file count is an imperfect proxy for algorithmic difficulty (see SKILL § Model
- * Selection). Precedence: capable > cheap > standard.
+ * file count is an imperfect proxy for algorithmic difficulty (see the SKILL "Model
+ * Selection" section). Precedence: capable > cheap > standard.
  *
  *   capable  — design/architecture keyword in the title, OR no spec reference,
  *              OR high fan-in (many tasks depend on it: a structural node)
@@ -254,6 +266,63 @@ function deriveTier(task) {
   if (task.fileCount === 0) reasons.push("file count unknown");
   if (task.fileCount > 2) reasons.push(`${task.fileCount} files`);
   return { suggestedTier: "standard", tierSignals: reasons.length ? reasons : ["integration task"] };
+}
+
+/**
+ * Derive the per-task review shape deterministically, replacing the "you may
+ * reduce review overhead" judgment call in the SKILL with a computed default.
+ * Three shapes, from the V11 benchmark finding that a fixed implementer+2-reviewers
+ * fan-out on every task is what made a 5-task Large feature cost 46min/27 subagents:
+ *
+ *   two-stage — the default, maximum-rigor shape (spec reviewer + code-quality
+ *               reviewer, both fresh/blind). Required whenever the task is
+ *               `capable`-tier (design/architecture/security keyword, no spec,
+ *               or high fan-in — see deriveTier) OR is depended on by another
+ *               task (fanIn > 0: an error here propagates, so it is never
+ *               reviewed any lighter than default).
+ *   combined  — one fresh/blind reviewer fusing both lenses (spec compliance +
+ *               a code-quality checklist) in a single dispatch — template
+ *               super.subagent-driven-development/agents/combined-reviewer.md.
+ *               Applies to cheap/standard tasks that are not structural nodes
+ *               (fanIn === 0) but still touch more than one file or have a
+ *               dependency of their own — i.e. not fully self-contained.
+ *   none      — no dedicated reviewer dispatch. Only for a *leaf* mechanical task:
+ *               cheap/standard tier, exactly one file, zero dependencies (`dependsOn`
+ *               and `fanIn` both 0), and an explicit spec present. Safety net is not
+ *               dropped — the implementer's own tests, the once-per-wave full-suite
+ *               checkpoint, and the mandatory final code review + IV gate at the end
+ *               still cover it. This shape does not exist for `capable` tier at all.
+ *
+ * `suggestedTier`/`explicitTier` must already be assigned on `task` (call after
+ * deriveTier + fanIn are set). Precedence: two-stage > combined > none.
+ */
+function deriveReviewShape(task) {
+  const tier = task.explicitTier || task.suggestedTier;
+  const signals = [];
+
+  // Checked BEFORE the tier read: an explicit **Tier:** can under-classify a
+  // security-sensitive task (planner error), but it must never buy that task
+  // a lighter review — title/spec keyword match overrides tier here.
+  if (CRITICAL_SURFACE_KEYWORDS.test(task.title || "")) {
+    return { reviewShape: "two-stage", reviewSignals: [`critical-surface keyword in title (auth/security/middleware/etc.) — never reviewed lighter than default regardless of tier (${tier})`] };
+  }
+  if (tier === "capable") {
+    return { reviewShape: "two-stage", reviewSignals: ["capable tier — architecture/security/no-spec/high fan-in never reviewed lighter than default"] };
+  }
+  if ((task.fanIn || 0) > 0) {
+    return { reviewShape: "two-stage", reviewSignals: [`fan-in ${task.fanIn} — a structural node other tasks depend on, errors propagate`] };
+  }
+
+  const isLeaf = task.specPresent && task.dependsOn.length === 0 && task.fileCount === 1;
+  if (isLeaf) {
+    signals.push("spec present", "no dependencies", "1 file", "no fan-in");
+    return { reviewShape: "none", reviewSignals: signals };
+  }
+
+  if (task.dependsOn.length > 0) signals.push(`${task.dependsOn.length} dependenc(y/ies)`);
+  if (task.fileCount !== 1) signals.push(`${task.fileCount || "unknown"} file(s)`);
+  if (!task.specPresent) signals.push("no spec reference");
+  return { reviewShape: "combined", reviewSignals: signals.length ? signals : ["mechanical but not a single-file leaf"] };
 }
 
 /**
@@ -455,7 +524,7 @@ function notFound(indexPath) {
 }
 
 function main() {
-  const indexPath = parseArgs(process.argv);
+  const { indexPath } = parseArgs(process.argv);
   if (!fs.existsSync(indexPath)) {
     process.stdout.write(`${JSON.stringify(notFound(indexPath), null, 2)}\n`);
     process.exit(0);
@@ -512,6 +581,7 @@ function main() {
   for (const t of tasks) {
     t.fanIn = fanInOf.get(t.number) || 0;
     Object.assign(t, deriveTier(t));
+    Object.assign(t, deriveReviewShape(t));
   }
 
   const sectionWaves = parseWavesSection(indexContent);

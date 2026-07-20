@@ -56,6 +56,7 @@ const CAVEMAN_SURFACES = [
   'super.subagent-driven-development/agents/implementer.md',
   'super.subagent-driven-development/agents/spec-reviewer.md',
   'super.subagent-driven-development/agents/code-quality-reviewer.md',
+  'super.subagent-driven-development/agents/combined-reviewer.md',
   'super.subagent-driven-development/SKILL.md',
   'super.parallel-subagent-in-tree/SKILL.md',
   'super.parallel-subagent-development/SKILL.md',
@@ -67,6 +68,16 @@ const EXECUTION_SKILLS = [
   'super.parallel-subagent-in-tree/SKILL.md',
   'super.parallel-subagent-development/SKILL.md',
 ];
+
+// parallel-subagent-in-tree's Step 2 delegates its caveman/memory-gate policy
+// wholesale to parallel-subagent-development's Step 2 ("Apply the policy...
+// verbatim") instead of duplicating it — include the delegated body so the
+// guard sees the real content.
+const PARALLEL_DEV = 'super.parallel-subagent-development/SKILL.md';
+function readSkillBody(rel) {
+  const body = readFile(rel);
+  return rel === 'super.parallel-subagent-in-tree/SKILL.md' ? body + '\n' + readFile(PARALLEL_DEV) : body;
+}
 
 // Signatures of the old hand-fill placeholder. None may survive — re-introducing
 // any of these is the regression that re-opens the caveman bug.
@@ -107,7 +118,7 @@ test('caveman level passes through verbatim (renderer is not the level authority
 
 for (const rel of CAVEMAN_SURFACES) {
   test(`${rel}: renders the caveman block via the script, not by hand`, () => {
-    const body = readFile(rel);
+    const body = readSkillBody(rel);
     assert.ok(
       body.includes('render-caveman-block.cjs'),
       `${rel} must delegate the caveman block to render-caveman-block.cjs`,
@@ -115,7 +126,7 @@ for (const rel of CAVEMAN_SURFACES) {
   });
 
   test(`${rel}: contains no hand-fill placeholder (caveman bug regression guard)`, () => {
-    const body = readFile(rel);
+    const body = readSkillBody(rel);
     for (const sig of HANDFILL_SIGNATURES) {
       assert.ok(
         !body.includes(sig),
@@ -141,7 +152,7 @@ test('persistent_memory data: off by default, honored when set true', () => {
 
 for (const rel of EXECUTION_SKILLS) {
   test(`${rel}: the memory gate is conditioned on session_memory_enabled`, () => {
-    const body = readFile(rel);
+    const body = readSkillBody(rel);
     assert.ok(
       body.includes('session_memory_enabled'),
       `${rel} must gate memory steps on session_memory_enabled (skip them when off)`,
@@ -171,6 +182,41 @@ test('implementer prompt conditions the commit step on workflow.auto_commit', ()
     /auto_commit.*false.*do NOT commit/is,
     'the implementer must explicitly skip the commit when auto_commit is false',
   );
+});
+
+// ─── qa_gate — QA gate runs on, silently skipped off (incl. the PRD step) ─────
+
+test('qa_gate data: on by default, honored when set false', () => {
+  const root = mkRepo();
+  try {
+    writeYaml(root, 'communication:\n  language: pt-BR\n');
+    assert.equal(readPrefs(root).workflow.qa_gate, true, 'default must be on');
+    writeYaml(root, 'workflow:\n  qa_gate: false\n');
+    assert.equal(readPrefs(root).workflow.qa_gate, false, 'false must be honored');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('finish-tail gates the QA gate on session_qa_gate_enabled and silences QA when off', () => {
+  const body = readFile('super.subagent-driven-development/references/finish-tail.md');
+  assert.ok(body.includes('session_qa_gate_enabled'),
+    'finish-tail must gate the QA gate on session_qa_gate_enabled');
+  assert.match(body, /skip this entire gate silently/i,
+    'finish-tail must skip the whole QA gate silently when the preference is off');
+  assert.match(body, /do \*\*not\*\* mention QA anywhere/i,
+    'finish-tail must suppress every QA mention (including the PRD step) when off');
+});
+
+test('subagent-driven-development gates its QA gate on session_qa_gate_enabled and silences QA when off', () => {
+  const body = readFile('super.subagent-driven-development/SKILL.md');
+  const hits = body.match(/session_qa_gate_enabled/g) || [];
+  assert.ok(hits.length >= 2,
+    'SKILL must gate BOTH the finish-tail step and the full QA Gate section on session_qa_gate_enabled');
+  assert.match(body, /skip this entire QA Gate \*\*silently\*\*/i,
+    'the full QA Gate section must skip silently when the preference is off');
+  assert.match(body, /do \*\*not\*\* mention QA anywhere/i,
+    'SKILL must suppress every QA mention when off');
 });
 
 // ─── No coupling — one preference off does not disable another ────────────────

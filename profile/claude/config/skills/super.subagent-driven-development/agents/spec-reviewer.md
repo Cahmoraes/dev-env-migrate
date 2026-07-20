@@ -9,9 +9,10 @@ Use this template when dispatching a spec compliance reviewer subagent.
 ```
 Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
   description: "Review spec compliance for Task N"
-  model: [REQUIRED — per § Model Selection, run reviewers at the task's tier
-          floored at standard (never review with a cheap model; a capable task
-          gets a capable reviewer). Never omit / inherit the controller's model.]
+  model: [REQUIRED — per the "Model Selection" section, a validation gate runs at the task's
+          tier floored at standard — a cheap task is reviewed one family up, by the
+          standard tier, not the most-expensive capable. Never omit / inherit the
+          controller's model.]
   prompt: |
     You are reviewing whether an implementation matches its specification.
 
@@ -86,6 +87,17 @@ Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
       and the `file:line` that breaks it. (If the Design Spec is "N/A", skip this group.)
 
     **Verify by reading code, not by trusting report.**
+
+    ## Code Search Priority
+
+    When verifying claims, locate code precisely instead of skimming. Prefer, in order:
+    LSP/semantic (Serena `find_symbol` / `find_referencing_symbols`) > ast-grep
+    (`sg -p '<pattern>' --lang <lang> <dir>`, structural search by code shape) > ripgrep
+    (`rg -n`) > grep, degrading to whatever the platform exposes. Use it to find every
+    call site of a changed symbol (confirms a required side effect is actually wired),
+    to check whether a "new" piece of logic duplicates something that already exists
+    (overbuilding), and to search the whole tree for a requirement instead of only the
+    files the implementer mentioned. Full guidance: `references/code-analysis.md`.
 
     **Do not invoke native review skills** (`/code-review`, `/simplify`, Copilot
     `review`, Rubber Duck) — verify by reading the code yourself. Those passes are

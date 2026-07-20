@@ -48,3 +48,11 @@ When `claude_code.code_review_final: true`, run `/code-review` at `code_review_e
 ## During onboarding
 
 When running the `references/onboarding-preferences.md` wizard **in Claude Code**, include the Claude Code native-skill steps documented in the "Claude Code: Native Skills Additional Steps" section of that file (Step 4a `/simplify`, Step 4b final `/code-review`). Agents on other platforms **must skip those steps**.
+
+## Symbol lookup (LSP / Serena) — grep is the default
+
+Discovery/review skills (`super.brainstorming` research, `super.writing-plans` research, `super.reviewing-specs` lenses) use `grep` as the default way to locate or verify a **named code symbol** (class, method, function, endpoint, type, hook, store selector, route) — anchored to a class/file name, not just the bare symbol, to avoid false positives (a same-named symbol in another module, a match inside a comment, string, or test decoy).
+
+A structural symbol-lookup tool (the built-in `LSP` tool, or Serena MCP's `find_symbol` / `get_symbols_overview` / `find_referencing_symbols` when available) resolves a symbol by name in one call with no false positives — but it only pays off when it is already loaded and correctly scoped to the exact project being searched. A live A/B measurement across 3 real research tasks found `grep` cheaper and faster in every one: on the two grep-native tasks (whole-file read, broad textual scan) the two paths tied; on the one named-symbol task, `find_symbol` failed on every attempt (the active project scope didn't match the target repo, and there is no `activate_project` tool to redirect it), and the retries before falling back to `grep` cost +67% tool calls and +68% wall time versus `grep` alone.
+
+**So: use `grep` first.** If a symbol-lookup tool is already loaded, one opportunistic attempt for a named symbol is fine — but abandon it immediately after that single try (no `ToolSearch` round-trip to load it, no retries, no re-scoping) and fall back to `grep`. Never let chasing a possibly-unavailable symbol tool cost more than just grepping would have. This lives in the discovery/review prose; the execution-side implementer/reviewer agents are intentionally unchanged.

@@ -4,13 +4,17 @@ Use this prompt template for each read-only research subagent dispatched from th
 super.writing-plans **Research Phase**. One subagent per independent domain or file
 cluster; demand a report complete enough that you never reopen a file it covered.
 
-**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob`, `Bash` only
-(no `Edit`/`Write`/`Task`). It only reads the codebase (files, symbols, test config) and
-returns a report; `Bash` is for read-only inspection (`rg`/`find`/`git log`), never
-mutation. Withholding write/dispatch tools keeps those schemas out of its context window.
+**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob`, `Bash` (no
+`Edit`/`Write`/`Task`). It only reads the codebase (files, symbols, test config) and returns a
+report. `Bash` (`rg`/`find`/`git log`) and `Grep` are the default way to locate a definition, read
+whole-file context, scan many files for a pattern, and check literal strings and non-code files;
+never mutation. If the platform's symbol-lookup tool (`LSP`, or Serena's `find_symbol` /
+`get_symbols_overview`) is already loaded, one opportunistic attempt for a named symbol is fine —
+but don't chase it with retries or extra tool-loading calls; fall back to `grep` immediately if it
+doesn't resolve. Withholding write/dispatch tools keeps those schemas out of its context window.
 Set an explicit `model:` too — research is read-and-report, so floor it at `cheap`/`standard`;
-never inherit the controller's model by omission (see super.subagent-driven-development
-§ Model Selection). If the platform can't scope tools per dispatch, fall back to the default
+never inherit the controller's model by omission (see super.subagent-driven-development,
+"Model Selection" section). If the platform can't scope tools per dispatch, fall back to the default
 subagent — behavior unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
 
 ```

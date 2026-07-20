@@ -26,8 +26,20 @@ const EXECUTION_SKILLS = [
   'super.parallel-subagent-development/SKILL.md',
 ];
 
+// parallel-subagent-in-tree and parallel-subagent-development delegate their
+// fix-loop prose to finish-tail.md (the single canonical source) instead of
+// duplicating it — include it here too so the guards see the real content.
+// finish-tail.md hard-wraps its prose at ~100 cols, so a sentence checked by a
+// literal-space regex can straddle a line break; collapse whitespace runs to a
+// single space so wrapping never masks content that is actually present.
+const FINISH_TAIL = read('super.subagent-driven-development/references/finish-tail.md').replace(/\s+/g, ' ');
+const DELEGATES_FINISH_TAIL = new Set([
+  'super.parallel-subagent-in-tree/SKILL.md',
+  'super.parallel-subagent-development/SKILL.md',
+]);
+
 for (const rel of EXECUTION_SKILLS) {
-  const body = read(rel);
+  const body = read(rel) + (DELEGATES_FINISH_TAIL.has(rel) ? '\n' + FINISH_TAIL : '');
 
   test(`${rel}: final review states findings are fixed, not just reported`, () => {
     assert.match(
@@ -39,7 +51,11 @@ for (const rel of EXECUTION_SKILLS) {
 
   test(`${rel}: final review fix loop dispatches an implementer and re-reviews`, () => {
     // The fix loop must name the implementer (who fixes) and a re-run/loop (re-review).
-    assert.match(body, /dispatch a fresh implementer subagent.{0,40}to fix/is, `${rel} must dispatch an implementer to fix final findings`);
+    // Allow up to 80 chars between "subagent" and "to fix": finish-tail.md is a shared
+    // reference cited from multiple skills, so it names the fully-qualified agent path
+    // (`super.subagent-driven-development/agents/implementer.md`) rather than the short
+    // `./agents/implementer.md` form the single-skill inline version uses.
+    assert.match(body, /dispatch a fresh implementer subagent.{0,80}to fix/is, `${rel} must dispatch an implementer to fix final findings`);
     assert.match(body, /(re-run the review|Loop until)/i, `${rel} must re-review and loop until clean`);
   });
 

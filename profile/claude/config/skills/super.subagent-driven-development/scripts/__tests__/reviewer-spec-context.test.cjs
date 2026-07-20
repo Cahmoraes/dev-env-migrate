@@ -24,9 +24,24 @@ const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 
 const IMPLEMENTER = 'super.subagent-driven-development/agents/implementer.md';
 const SPEC_REVIEWER = 'super.subagent-driven-development/agents/spec-reviewer.md';
+const COMBINED_REVIEWER = 'super.subagent-driven-development/agents/combined-reviewer.md';
 
 // Heading shape tolerant to em-dash vs hyphen.
 const DESIGN_SPEC_SECTION = /Design Spec\s*[—-]\s*Architecture & Decisions/;
+
+test('combined-reviewer prompt inlines design spec context (parity with spec-reviewer)', () => {
+  const body = read(COMBINED_REVIEWER);
+  assert.match(body, DESIGN_SPEC_SECTION,
+    'combined-reviewer must receive the design spec (architecture & decisions) inline');
+  assert.match(body, /FULL TEXT/,
+    'combined-reviewer must inline the FULL TEXT, not hand over a path');
+  assert.match(body, /do not hand\s+the reviewer\s+a path/i,
+    'combined-reviewer must state the inline-not-path rule');
+  assert.match(body, /Architectural conformance/i,
+    'combined-reviewer must keep the architectural-conformance check group');
+  assert.match(body, /right feature.{0,5}wrong way/i,
+    'the architectural-conformance check must cover the "right feature, wrong way" case');
+});
 
 test('implementer prompt inlines the design spec architecture & decisions', () => {
   assert.match(read(IMPLEMENTER), DESIGN_SPEC_SECTION,

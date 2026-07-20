@@ -305,3 +305,15 @@ test('memory-resync.md disambiguates check-resync.cjs from super.persistent-memo
   assert.match(body, /not\b[\s\S]{0,40}super\.persistent-memory/i,
     'memory-resync.md must state the resync scripts are NOT part of super.persistent-memory')
 })
+
+test('memory-resync.md tells the orchestrator to await sync-worker receipts, not poll', () => {
+  // Real session (estudo-clean-arch-solid-ddd): after dispatching the parallel sync
+  // workers the orchestrator busy-polled with a ScheduleWakeup and emitted a malformed
+  // call (`prompt` required when `stop` is not true), erroring mid-sync. The reference
+  // must explicitly forbid polling background workers you just launched.
+  const body = fs.readFileSync(path.join(SKILL_DIR, 'references', 'memory-resync.md'), 'utf8')
+  assert.match(body, /never poll for them/i,
+    'memory-resync.md must instruct the orchestrator to await receipts, not poll for them')
+  assert.match(body, /do \*\*not\*\* schedule a wakeup\/timer/i,
+    'the reference must forbid scheduling a wakeup/timer to check on background workers')
+})

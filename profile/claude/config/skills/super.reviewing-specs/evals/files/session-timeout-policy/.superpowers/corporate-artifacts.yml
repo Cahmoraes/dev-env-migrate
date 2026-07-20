@@ -1,0 +1,4 @@
+# Artefatos corporativos declarados para esta feature.
+# Documentos de terceiros/empresa que têm precedência sobre a spec/PRD gerados.
+artifacts:
+  - path: corporate/security-session-policy.md

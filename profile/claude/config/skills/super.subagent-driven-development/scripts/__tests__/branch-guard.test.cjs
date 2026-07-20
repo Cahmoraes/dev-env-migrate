@@ -54,7 +54,7 @@ test('the Red Flag points to the active guard (no longer a passive reminder)', (
   assert.match(redFlag, /main\/master without explicit user consent/,
     'the Red Flag for starting on main/master must remain');
   assert.match(redFlag, /Branch Guard/,
-    'the Red Flag must reference the active § Branch Guard, not stand alone');
+    'the Red Flag must reference the active "Branch Guard" section, not stand alone');
 });
 
 // Cross-skill invariant: ALL three execution skills must guard the base branch with the

@@ -11,11 +11,18 @@ The re-sync gate activates **after preferences are loaded** and **before Triagem
 ```
 ChecandoPreferencias
   → session_memory_enabled = false → Triagem (skip entirely)
-  → session_memory_enabled = true → check dirty state
-    → no changes detected → Triagem (skip silently)
-    → changes detected → ask user about re-sync
-      → user accepts → SincronizandoMemoria → Triagem
-      → user declines → Triagem
+  → session_memory_enabled = true:
+    → [artifact sync] check dirty state
+        → no changes detected → skip silently
+        → changes detected → ask about re-sync
+            → accepts → SincronizandoMemoria
+            → declines → skip
+    → [embedding drift] check stale_count (ALWAYS, independent of dirty)
+        → stale_count = 0 → skip silently
+        → stale_count > 0 → ask about re-embed
+            → accepts → reembed
+            → declines → skip
+    → Triagem
 ```
 
 ## Deterministic Scripts
@@ -49,13 +56,16 @@ Inspect the output fields:
 |-------|------------------------|
 | `repoNotFound: true` | Skip silently — not a git repo |
 | `docsExists: false` | Skip silently — nothing to sync |
-| `dirty: false` | Skip silently — no changes since last sync |
+| `dirty: false` | Skip the artifact re-sync — no changes since last sync (still run the **Embedding Model Drift** check below; it is independent of `dirty`) |
 | `memoryExists: false` | Run `pmem init` first, then continue |
 | `dirty: true` | Proceed to ask the user |
+| `driftedSlugs: [ … ]` | Manifest slugs with NO note in `memory.db` — **presence drift**. `dirty` is already forced `true` for you; these slugs are re-synced like changed features |
 
 The script reads the manifest and computes the artifact content fingerprint in one call.
 
 > **`dirty` is content-based — never reconstruct it by hand.** The script hashes the *content* of the canonical artifacts (spec/prd/qa/adrs) on disk and compares it to the manifest, feature by feature — the same hashing `compute-inventory.cjs` uses (shared `lib/artifact-hash.cjs`). It is **not** a git tree object hash and **not** a commit sha. Do not "double-check" with `git rev-parse HEAD:docs/superpowers` or `git log -1 -- docs/superpowers`: those never match the fingerprint, and the commit sha also flips on non-artifact files like `plans/`. Trust `check-resync.cjs`'s `dirty` field, nothing else.
+
+> **Presence drift — the third staleness axis (content-independent).** Content dirty only knows what the manifest records; it never consults the DB. So a feature marked synced but with **no note in `memory.db`** (a silently-failed `pmem add`, a manifest seeded ahead of the inserts, a restored/pruned DB) hashes as unchanged and would stay invisible forever. To close that hole, `check-resync.cjs` also queries the DB read-only (shared `lib/db-presence.cjs`) and reports any absent manifest slug in `driftedSlugs`, forcing `dirty: true`; `compute-inventory.cjs` then reclassifies those slugs from `unchanged` to `changed` (field `dbPresent:false`) so Step 3 re-adds them. This is what makes the historical phantom-sync gap **self-healing**: the next session detects and repairs it through the normal flow. Both scripts degrade gracefully — when the DB can't be read, `driftedSlugs`/`dbPresent` are `null` and behaviour is exactly the prior content-only one. The parser tolerates legacy `feature:<slug>,type:<type>` tags, so old notes count as present.
 
 ### Manifest Schema (`.memory/resync-manifest.json`)
 
@@ -89,15 +99,44 @@ The `last_synced_tree_hash` field stores the **artifact content fingerprint** (`
 
 Ask in the configured language (`preferences.communication.language`):
 
-**pt-BR:**
-> "Detectei alterações em `docs/superpowers/` desde a última sincronização da memória. Isso pode incluir artefatos produzidos por outros desenvolvedores. Deseja atualizar a memória persistida com base nesses artefatos?"
-> - **Sim** — sincroniza memória com artefatos atuais
-> - **Não** — pula e prossegue normalmente
-
 **en:**
 > "I detected changes in `docs/superpowers/` since the last memory sync. This may include artifacts produced by other developers. Would you like to update persistent memory based on these artifacts?"
 > - **Yes** — sync memory with current artifacts
 > - **No** — skip and proceed normally
+
+---
+
+## Embedding Model Drift (independent of artifact sync)
+
+The artifact-sync flow (Steps 1–5) keeps memory current with **committed artifacts**. A second, orthogonal staleness exists: when the **embedding model** is upgraded (the `EMBED_MODEL` constant in `super.persistent-memory/scripts/memory.py`), every stored vector was built by the previous model. Semantic search filters by `WHERE model = ?`, so those notes silently fall out of semantic recall even though their content is unchanged and `dirty` is `false`. Lexical (FTS5) search is unaffected, so the regression is quiet — which is exactly why the gate checks for it explicitly.
+
+**Detect (silent, no model load):**
+
+```bash
+<super.persistent-memory-base-dir>/scripts/pmem embedding-status
+```
+
+JSON fields: `current_model`, `current_count`, `stale_count` (notes on an older model), `missing_count`, `stale_models` (old model → count), `reembed_needed`. Act only when `stale_count > 0` — a genuine model drift. (`missing_count > 0` with `stale_count == 0` is the normal new-note case, already covered by the artifact-sync add/backfill path — not here.)
+
+**The Re-Embed Question** — ask in the configured language (`preferences.communication.language`):
+
+**pt-BR:**
+> "O modelo de embeddings foi atualizado. <N> nota(s) ainda usam o modelo anterior e ficam fora da busca semântica até serem reprocessadas. Deseja reprocessar os embeddings agora?"
+> - **Sim** — reprocessa os vetores com o modelo atual (nada é perdido: só os vetores são regenerados, o conteúdo das notas é preservado)
+> - **Não** — pula (busca léxica continua; recall semântico fica degradado até reprocessar)
+
+**en:**
+> "The embedding model was upgraded. <N> note(s) still use the previous model and are excluded from semantic search until reprocessed. Re-embed them now?"
+> - **Yes** — regenerate vectors with the current model (nothing is lost: only the vectors are rebuilt, note content is preserved)
+> - **No** — skip (lexical search keeps working; semantic recall stays degraded until re-embedded)
+
+**On accept**, run until convergence (`reembed_needed: false`):
+
+```bash
+<super.persistent-memory-base-dir>/scripts/pmem reembed
+```
+
+`reembed` regenerates missing/stale vectors in place (idempotent, one model load). `backfill-embeddings` does NOT refresh stale vectors — it only fills missing ones — so `reembed` is the model-upgrade path. Re-run if the DB exceeds one `--batch` (default 500). This check is independent of `dirty`: it runs even when no artifacts changed, and re-embedding never deletes or rewrites note content (only the vectors), so nothing is lost.
 
 ---
 
@@ -127,32 +166,31 @@ Artifact paths follow `docs/superpowers/<slug>/{specs,prd,qa,adrs}/...` (exact f
 
 Features classified `unchanged` already have current entries — do **not** prune or re-add them. This is the manifest-based skip: identical content is never reprocessed.
 
-### Parallelization: Batch reads across features
+### Ingestion runs in parallel subagents — the orchestrator never reads artifacts
 
-Batch all `view` calls for `new` and `changed` features **in a single LLM turn** — do not wait for one feature before reading the next. Keep each feature's prune + re-add together (one agent owns one feature) so a failure stays isolated to that feature.
+**The artifact bytes are the token cost.** A feature's spec/prd/qa/adrs can be many KB each; reading and synthesizing them **inline in the orchestrator** pushes all that raw content into the main thread's context — exactly the ingestion-into-the-controller cost the pipeline avoids everywhere else (reviewers, exploration, research all run read-only off the main thread). So the orchestrator **must not read or synthesize artifacts itself.** Instead it dispatches **one sync-worker subagent per `new`/`changed` feature, all in a single turn** (they run in parallel). Each subagent reads only *its* feature, synthesizes, writes that feature's `pmem` entries, and returns a **compact receipt** — the raw artifact content stays in the subagent's context and never enters the orchestrator, regardless of how many features are dirty.
 
-### For each `new` or `changed` feature
+**Safe to parallelize.** `pmem` opens the DB in **WAL mode with a 30s busy timeout** (`memory.py`: `journal_mode=WAL`, `connect(timeout=30)`), so concurrent per-feature writes serialize on the SQLite write lock without `SQLITE_BUSY`, while the expensive part — the embedding-model load (torch, ~6–7s) — runs concurrently across subagents. Wall-clock drops and the orchestrator's context stays flat.
 
-1. **Prune this feature's stale entries** (harmless no-op for `new`):
-   ```bash
-   pmem prune --source "artifact-sync" --tags "<feature-slug>"
-   ```
+**Subagent toolset = `Read`, `Grep`, `Glob`, `Bash` only** (no `Edit`/`Write`/`Task`): it reads files and drives the `pmem` CLI, nothing else — the same read-only economy as the review/exploration subagents. One agent owns one feature, so a failure stays isolated to that feature. (Platform tool-name mapping — `references/<platform>-tools.md`.)
 
-2. **Read artifacts** — use the `path` from the inventory output. Skip any artifact where `readable: false` (warn in the summary), and skip `exists: false` artifacts entirely (not yet created).
+**Dispatch prompt — one subagent per `new`/`changed` feature, emitted together in a single turn.** Fill the `<...>` paths from the `compute-inventory` output (do **not** paste artifact contents into the prompt — pass paths, the subagent reads them):
 
-3. **Synthesize and persist** — see Content Synthesis Rules below:
-   ```bash
-   pmem add "<synthesized content>" \
-     --tags "artifact-sync,<feature-slug>,<artifact-type>" \
-     --source "artifact-sync"
-   ```
-   > **Batch a feature's entries.** When a feature has several artifacts (spec + prd + qa + adrs), persist them in **one** `pmem add-batch` call, not several `pmem add` calls — the embedding model then loads once per feature, not per artifact. Pass `{"entries": [{content, tags, source}, ...]}` on stdin. (The per-feature `prune` above never loads the model.)
+> You are a memory-sync worker for the feature `<feature-slug>`. Work only inside this feature. Do exactly this, then stop:
+> 1. Prune stale entries (harmless no-op for a new feature): `pmem prune --source "artifact-sync" --tags "<feature-slug>"`
+> 2. Read these artifacts using the given paths; skip any marked `readable:false` (note it), skip `exists:false` entirely: spec `<spec.path>`, prd `<prd.path>`, qa `<qa.path>`, adrs `<adrs.path>`.
+> 3. Synthesize each artifact per the Content Synthesis Rules below — **synthesize, never dump raw content** — and persist them all in **one** `pmem add-batch` call (one embedding-model load per feature, not per artifact): `{"entries":[{"content":"…","tags":"artifact-sync,<feature-slug>,<artifact-type>","source":"artifact-sync"}, …]}` on stdin.
+> 4. Return **only** this JSON receipt, no artifact text: `{"slug":"<feature-slug>","ok":true|false,"entriesAdded":<N>,"skipped":["<artifact-type>:<reason>"],"error":"<message if ok:false>"}`
+>
+> [inline the Content Synthesis Rules block here so the subagent needs no follow-up reads]
 
-> **Failure isolation:** if a feature's re-add fails, do **not** include that slug in `syncedFeatures` (Step 4). Its manifest hash stays stale, so the next session re-detects it as `changed` and retries — only that one feature was ever affected.
+**Await the receipts — never poll for them.** After emitting all the dispatches in one turn, just wait: the harness runs the workers in the background and re-invokes you with each receipt when it finishes. Do **not** `sleep`, and do **not** schedule a wakeup/timer to "check on" workers you just launched — busy-polling harness-tracked background work is wasted (you are re-invoked automatically), and a malformed poll call can error out mid-sync. Only move on to collecting receipts once the workers have actually returned.
 
-### For each `deleted` feature
+**Collect the receipts (orchestrator).** Only features whose receipt has `ok:true` go into `syncedFeatures` (Step 4). A receipt with `ok:false`, or a subagent that errored, leaves that slug's manifest hash stale — the next session re-detects it as `changed` and retries; only that one feature is affected. The write-side guard in `update-manifest.cjs` is the backstop: it refuses to record any slug the DB holds no note for, so even a lying `ok:true` receipt cannot mint a phantom sync.
 
-The feature directory was removed since the last sync. Prune its stale entries (no `pmem add` — it no longer exists):
+### For each `deleted` feature (orchestrator, no subagent)
+
+A `deleted` feature has no artifact to read, so there is nothing to ingest and no token cost — the orchestrator prunes it inline rather than dispatching a subagent to read nothing. The feature directory was removed since the last sync. Prune its stale entries (no `pmem add` — it no longer exists):
 
 ```bash
 pmem prune --source "artifact-sync" --tags "<feature-slug>"
@@ -187,9 +225,9 @@ The script merges the update into the existing manifest, preserving unchanged fe
 
 ---
 
-## Step 5 — Verify the Sync (audit, optional but recommended)
+## Step 5 — Verify the Sync (audit — REQUIRED, not optional)
 
-Close the loop: confirm the manifest and the database agree, so a silently-failed `pmem add` doesn't leave a feature marked synced but absent from memory (which the next session would wrongly skip).
+Close the loop: confirm the manifest and the database agree, so a silently-failed `pmem add` doesn't leave a feature marked synced but absent from memory (which the next session would wrongly skip). **Always run this after Step 4** — skipping it is exactly how the historical drift accumulated (dozens of features marked synced with no note in the DB).
 
 ```bash
 node <super.persistent-memory-base-dir>/scripts/verify-sync.cjs \
@@ -202,7 +240,12 @@ node <super.persistent-memory-base-dir>/scripts/verify-sync.cjs \
 | `missing: [...]` (exit 2) | A manifest slug has no sync-namespace entries (drift) | Re-run the per-feature sync for those slugs, or omit them from the manifest |
 | `verifiable: false` (exit 0) | Could not read the DB (e.g. `node:sqlite` unavailable on this runtime) | Non-blocking — skip the audit on this runtime |
 
-Read-only; never mutates memory; degrades gracefully without `node:sqlite`.
+Read-only; never mutates memory; degrades gracefully without `node:sqlite`. Recognizes both the current (`artifact-sync,<slug>,<type>`) and legacy (`feature:<slug>,type:<type>`) tag conventions, so an old-format note is never mis-reported as missing.
+
+> **This audit is now enforced in code, not just prose — Step 5 is the human-readable view of two deterministic guards:**
+> - **Write-side (`update-manifest.cjs`):** a slug is refused (`rejected[]` + a stderr warning) unless the DB already holds a note for it, so a phantom sync can no longer be minted in the first place. Field `validated:false` means the DB was unreadable and the check was skipped.
+> - **Read-side (`check-resync.cjs` / `compute-inventory.cjs`):** presence drift is a third staleness axis (see below). Even if a phantom slips in, the next session detects it and heals it through the normal ask→sync flow.
+> Both degrade gracefully when the DB can't be read — presence is additive signal, never a blocker.
 
 ---
 

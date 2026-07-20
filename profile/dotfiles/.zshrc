@@ -96,9 +96,6 @@ alias findn="find . -name"
 alias nw="node --watch"
 # Git
 alias ammend="git commit --amend --no-edit"
-# Roteamento Headroom agora é durável (headroom init claude): ANTHROPIC_BASE_URL
-# e hooks ficam em ~/.claude/settings.json, então 'claude' direto já passa pelo
-# proxy — sem 'headroom wrap', sem o delay de setup a cada abertura.
 alias claudey="claude --dangerously-skip-permissions"
 alias claudya="claude agents --dangerously-skip-permissions"
 alias glow="glow -p"
@@ -160,8 +157,10 @@ export PATH="$HOME/.local/bin:$PATH"
 # >>> headroom persistent env >>>
 export HEADROOM_PORT="8787"
 export HEADROOM_HOST="127.0.0.1"
-export HEADROOM_MODE="token"
+export HEADROOM_MODE="cache"
 export HEADROOM_BACKEND="anthropic"
+export HEADROOM_TELEMETRY="off"
+export HEADROOM_MEMORY_ENABLED="1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
-export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
+export ENABLE_TOOL_SEARCH="true"
 # <<< headroom persistent env <<<

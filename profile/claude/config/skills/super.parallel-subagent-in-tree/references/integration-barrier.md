@@ -33,6 +33,8 @@ Dispatch each implementer with `super.subagent-driven-development/agents/impleme
 
 It creates/edits only its files, confirms them with its scoped test, and returns the files it wrote — **no commit SHAs** (it does not commit).
 
+**After dispatching the wave, await the implementers — never poll.** They run in the background and the harness re-invokes you as each returns; simply wait for their results before the scope-verification gate. Do **not** `sleep` or schedule a wakeup/timer to "check on" implementers you just dispatched — busy-polling harness-tracked background work is wasted (you are re-invoked automatically) and a malformed wakeup call errors out mid-flow.
+
 ## Scope verification (after the wave, before the barrier)
 
 Worktree mode would catch an under-declared dependency as a **merge conflict** (`check-integration.cjs` flags overlapping diffs); the shared tree overwrites silently. So before the barrier, verify the implementers wrote only what the plan declared:

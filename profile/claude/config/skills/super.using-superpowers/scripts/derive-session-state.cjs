@@ -22,7 +22,8 @@
  *                            never duplicated.
  *
  * PLATFORM GATING
- *   caveman + memory + model_tiers are platform-agnostic (apply on every platform).
+ *   caveman + memory + model_tiers + qa_gate + auto_commit are platform-agnostic
+ *   (apply on every platform).
  *   The native-review variables exist only on their own platform:
  *     - claude_code.{simplify, code_review_final, code_review_effort} → Claude Code
  *     - copilot.review_final                                          → Copilot CLI
@@ -31,8 +32,8 @@
  *
  * MODEL TIERS
  *   model_tiers.{cheap,standard,capable} map abstract execution tiers to concrete
- *   model names for the user's harness (see super.subagent-driven-development
- *   § Model Selection). null = "auto" — the controller picks the least-powerful
+ *   model names for the user's harness (see super.subagent-driven-development,
+ *   "Model Selection" section). null = "auto" — the controller picks the least-powerful
  *   model that fits each task's tier from whatever the harness offers, instead of
  *   inheriting its own (over-provisioning) model. Surfaced here so the Session
  *   State Re-Entry Guard restores them after a compaction like every other var.
@@ -60,8 +61,7 @@
 'use strict';
 
 const path = require('path');
-const { execFileSync } = require('child_process');
-const { DEFAULTS } = require('./read-preferences.cjs');
+const { DEFAULTS, loadPreferences } = require('./read-preferences.cjs');
 
 const PLATFORMS = ['claude-code', 'copilot', 'codex', 'gemini', 'other'];
 
@@ -82,17 +82,14 @@ sessionState holds only preferences-derived variables; controller latches
 `.trimStart();
 
 /**
- * Read the merged preferences by delegating to read-preferences.cjs, so the
- * YAML parse/merge/normalize logic lives in exactly one place.
+ * Read the merged preferences by calling read-preferences.cjs's loadPreferences
+ * IN-PROCESS (no subprocess spawn), so the YAML parse/merge/normalize logic lives in
+ * exactly one place and this runs with one fewer node process. We drop the warnings
+ * array — the previous spawn already discarded read-preferences' stderr (stdio:'ignore').
  */
 function readPreferences(repoRoot) {
-  const readPrefsPath = path.join(__dirname, 'read-preferences.cjs');
-  const args = [readPrefsPath];
-  if (repoRoot) {
-    args.push('--repo-root', repoRoot);
-  }
-  const out = execFileSync('node', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return JSON.parse(out);
+  const { result } = loadPreferences(repoRoot);
+  return result;
 }
 
 /**
@@ -109,6 +106,14 @@ function deriveSessionState(preferences, platform) {
     session_caveman_active: Boolean(preferences.optimization.caveman),
     session_caveman_level: preferences.optimization.caveman_level,
 
+    // Platform-agnostic workflow gates. qa_gate drives whether the end-of-implementation
+    // QA gate (super.user-story-verification) runs at all; false skips it silently and
+    // suppresses every QA mention, including at the PRD step (independent verification is
+    // unaffected — it is always-on). auto_commit is surfaced for the session-state display
+    // (the execution skills still read workflow.auto_commit directly at their commit gate).
+    session_qa_gate_enabled: Boolean(preferences.workflow.qa_gate),
+    session_auto_commit: Boolean(preferences.workflow.auto_commit),
+
     // Claude Code native — resolve to safe defaults off Claude Code.
     session_simplify_enabled: isClaudeCode ? Boolean(preferences.claude_code.simplify) : false,
     session_code_review_final_enabled: isClaudeCode ? Boolean(preferences.claude_code.code_review_final) : false,
@@ -121,7 +126,7 @@ function deriveSessionState(preferences, platform) {
 
     // Platform-agnostic — abstract model tiers → concrete model names for the
     // harness. null = "auto" (controller picks least-powerful-sufficient per task,
-    // never inherits its own model). See subagent-driven-development § Model Selection.
+    // never inherits its own model). See subagent-driven-development, "Model Selection" section.
     session_model_tier_cheap: preferences.model_tiers?.cheap ?? null,
     session_model_tier_standard: preferences.model_tiers?.standard ?? null,
     session_model_tier_capable: preferences.model_tiers?.capable ?? null,

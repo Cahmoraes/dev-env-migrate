@@ -37,7 +37,7 @@ mockup set is incomplete; flag it rather than guessing.
    brainstorming), and (b) which **visual-fidelity capabilities** are available in
    *this* environment (design-to-code or visual-regression skills/MCPs). Discover them
    the same way you discover domain skills for "Conformidade com as Skills Padrão" —
-   inspect the consuming repo's `chat.agentSkillsLocations` and connected MCP tools,
+   inspect the consuming repo's available skills and connected MCP tools,
    match by capability/description, and **never hardcode a tool name**. This is the
    single discovery pass; the execution-time Step 0 only *confirms with the user and
    fills gaps* (see `./required-task-step-pattern.md`), it does not re-discover from
@@ -45,7 +45,7 @@ mockup set is incomplete; flag it rather than guessing.
    manually and does not block.
 3. **Record this in the task's `### Fidelidade Visual` subsection** (see
    `../templates/task-file-template.md`). The deterministic gate
-   (`validate-tasks.cjs --mockups`, see the skill's § Self-Review) verifies at least
+   (`validate-tasks.cjs --mockups`, see the skill's "Self-Review" section) verifies at least
    one task carries this subsection when a curated mockup exists.
 
 If no mockups or visual spec exist, omit all of the above — most non-UI tasks have no

@@ -45,6 +45,25 @@ const ALL_ON =
   'claude_code:\n  simplify: true\n  code_review_final: true\n  code_review_effort: high\n' +
   'copilot:\n  review_final: true\n';
 
+test('qa_gate + auto_commit derive platform-agnostically (default on, honored off)', () => {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
+    // Defaults (no file) → both on.
+    let root = mkRepo();
+    try {
+      const s = derive(root, platform).sessionState;
+      assert.equal(s.session_qa_gate_enabled, true, `qa_gate default on ${platform}`);
+      assert.equal(s.session_auto_commit, true, `auto_commit default on ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    // Explicit false → both off on every platform (no platform gating).
+    root = mkRepo('workflow:\n  qa_gate: false\n  auto_commit: false\n');
+    try {
+      const s = derive(root, platform).sessionState;
+      assert.equal(s.session_qa_gate_enabled, false, `qa_gate off ${platform}`);
+      assert.equal(s.session_auto_commit, false, `auto_commit off ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 test('caveman + memory derive from preferences on every platform', () => {
   for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
     const root = mkRepo(ALL_ON);

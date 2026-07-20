@@ -15,7 +15,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { detectRepoRoot } = require('./lib/repo-root.cjs');
+const { loadPreferences } = require('./read-preferences.cjs');
 
 const HELP = `
 superpowers-status.cjs — Report pipeline phase/progress for superpowers feature(s).
@@ -78,15 +79,9 @@ function parseArgs(argv) {
   return options;
 }
 
+// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
 function detectGitRoot() {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch {
-    return null;
-  }
+  return detectRepoRoot();
 }
 
 // Same task-line shape validate-tasks.cjs enforces: capture group 1 is the checkbox state.
@@ -115,14 +110,16 @@ function countTasks(indexPath) {
  * and how far execution has progressed. Order of precedence runs from the end of the
  * pipeline backwards so the furthest-reached stage wins.
  */
-function derivePhaseAndNext(artifacts, tasks) {
+function derivePhaseAndNext(artifacts, tasks, qaGateEnabled = true) {
   if (artifacts.qa) {
     return { phase: 'qa-complete', nextAction: 'super.finishing-a-development-branch' };
   }
   if (artifacts.plan) {
     if (tasks && tasks.total > 0 && tasks.done >= tasks.total) {
-      // All tasks done; QA only runs when a PRD exists to verify against.
-      return artifacts.prd
+      // All tasks done; the QA gate runs only when a PRD exists to verify against AND the
+      // qa_gate preference is on. With qa_gate off it is skipped silently (never surfaced),
+      // so the resume router points straight at finishing.
+      return artifacts.prd && qaGateEnabled
         ? { phase: 'execution-complete', nextAction: 'super.user-story-verification' }
         : { phase: 'execution-complete', nextAction: 'super.finishing-a-development-branch' };
     }
@@ -143,7 +140,7 @@ function derivePhaseAndNext(artifacts, tasks) {
   return { phase: 'not-started', nextAction: 'super.brainstorming' };
 }
 
-function statusForFeature(baseDir, featureName) {
+function statusForFeature(baseDir, featureName, qaGateEnabled = true) {
   const featureDir = path.join(baseDir, featureName);
   const artifacts = {
     research: fs.existsSync(path.join(featureDir, 'research', `research-${featureName}.md`)),
@@ -155,7 +152,7 @@ function statusForFeature(baseDir, featureName) {
   const tasks = artifacts.plan
     ? countTasks(path.join(featureDir, 'plans', `tasks-${featureName}.md`))
     : null;
-  const { phase, nextAction } = derivePhaseAndNext(artifacts, tasks);
+  const { phase, nextAction } = derivePhaseAndNext(artifacts, tasks, qaGateEnabled);
   return { featureName, artifacts, tasks, phase, nextAction };
 }
 
@@ -185,11 +182,14 @@ function main() {
 
   const docsExists = fs.existsSync(baseDir);
 
+  // qa_gate off → the QA gate is skipped silently, so the resume router must never point at it.
+  const qaGateEnabled = loadPreferences(repoRoot).result.preferences.workflow.qa_gate !== false;
+
   let features;
   if (featureName) {
-    features = [statusForFeature(baseDir, featureName)];
+    features = [statusForFeature(baseDir, featureName, qaGateEnabled)];
   } else {
-    features = listFeatureDirs(baseDir).map((name) => statusForFeature(baseDir, name));
+    features = listFeatureDirs(baseDir).map((name) => statusForFeature(baseDir, name, qaGateEnabled));
   }
 
   if (pending) {

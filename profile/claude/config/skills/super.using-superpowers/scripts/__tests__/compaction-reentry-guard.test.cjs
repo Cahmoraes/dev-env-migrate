@@ -41,13 +41,23 @@ const EXECUTION_SKILLS = [
 
 const SSOT_SCRIPT = 'derive-session-state.cjs';
 
+// parallel-subagent-in-tree's Step 2 delegates its re-entry guard wholesale to
+// parallel-subagent-development's Step 2 ("Apply the policy... verbatim") instead
+// of duplicating it — include the delegated body so the anchor/region checks see
+// the real content.
+const PARALLEL_DEV = 'super.parallel-subagent-development/SKILL.md';
+function readSkillBody(rel) {
+  const body = read(rel);
+  return rel === 'super.parallel-subagent-in-tree/SKILL.md' ? body + '\n' + read(PARALLEL_DEV) : body;
+}
+
 // Hand-mapped preference paths must NOT appear in an execution skill's re-entry
 // guard — that is the duplication/leak the SSOT script exists to remove.
 const HANDMAP_LEAKS = ['preferences.claude_code', 'preferences.copilot', 'preferences.optimization.caveman'];
 
 // ─── Canonical guard (subagent-driven-development) ───────────────────────────
 
-test('canonical skill declares a § Session State Re-Entry Guard section', () => {
+test('canonical skill declares a "Session State Re-Entry Guard" section', () => {
   assert.match(
     read(CANONICAL),
     /###\s+Session State Re-Entry Guard/,
@@ -96,7 +106,7 @@ test('canonical guard does not hand-map preferences (no duplicated mapping/leak)
 
 for (const rel of EXECUTION_SKILLS) {
   test(`${rel}: re-entry guard delegates to ${SSOT_SCRIPT}`, () => {
-    const body = read(rel);
+    const body = readSkillBody(rel);
     const anchor = body.search(/Session State Re-Entry Guard|Re-entry guard/i);
     assert.ok(anchor >= 0, `${rel} must reference a session-state re-entry guard`);
     const region = body.slice(anchor, anchor + 2000);
@@ -107,7 +117,7 @@ for (const rel of EXECUTION_SKILLS) {
   });
 
   test(`${rel}: re-entry guard does not hand-map platform preferences`, () => {
-    const body = read(rel);
+    const body = readSkillBody(rel);
     const anchor = body.search(/Session State Re-Entry Guard|Re-entry guard/i);
     const region = body.slice(anchor, anchor + 2000);
     for (const leak of HANDMAP_LEAKS) {
@@ -121,14 +131,14 @@ for (const rel of EXECUTION_SKILLS) {
 
 // ─── Router documents the variables and points at the SSOT script ────────────
 
-test('router § Session State derives via the script and lists the variables', () => {
+test('router "Session State" section derives via the script and lists the variables', () => {
   const body = read('super.using-superpowers/SKILL.md');
   const start = body.indexOf('### Session State');
-  assert.ok(start >= 0, 'router must have a § Session State section');
+  assert.ok(start >= 0, 'router must have a "Session State" section');
   const region = body.slice(start, start + 3000);
-  assert.ok(region.includes(SSOT_SCRIPT), 'router § Session State must derive via derive-session-state.cjs');
+  assert.ok(region.includes(SSOT_SCRIPT), 'router "Session State" section must derive via derive-session-state.cjs');
   for (const v of ['session_simplify_enabled', 'session_code_review_final_enabled', 'session_copilot_review_final_enabled']) {
-    assert.ok(region.includes(v), `router § Session State must still document ${v}`);
+    assert.ok(region.includes(v), `router "Session State" section must still document ${v}`);
   }
 });
 

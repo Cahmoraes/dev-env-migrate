@@ -114,6 +114,24 @@ test('reports sync-namespace slugs not in the manifest as extraSlugs', { skip: S
   }
 });
 
+test('legacy-tagged notes (feature:<slug>,type:<t>) count as present, not missing', { skip: SKIP }, () => {
+  const root = mkRepo();
+  try {
+    buildDb(root, [
+      { source: 'artifact-sync', tags: 'feature:ui-pagination-select-polish,type:spec', content: 'legacy A' },
+      { source: 'artifact-sync', tags: 'feature:sidebar-collapse-toggle,type:spec,type:prd', content: 'legacy B' },
+    ]);
+    writeManifest(root, ['ui-pagination-select-polish', 'sidebar-collapse-toggle']);
+    const r = run(root);
+    assert.equal(r.code, 0, 'legacy tags must not be read as drift');
+    assert.equal(r.json.allPresent, true);
+    assert.deepEqual(r.json.missing, []);
+    assert.deepEqual(r.json.extraSlugs, [], 'legacy feature:/type: tokens are not extra slugs');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('missing manifest → found:false, exit 0 (nothing to verify)', { skip: SKIP }, () => {
   const root = mkRepo();
   try {

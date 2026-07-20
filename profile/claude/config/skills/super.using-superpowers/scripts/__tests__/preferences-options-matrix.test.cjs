@@ -63,7 +63,7 @@ test('FULL option set: every preferences.yml option round-trips write -> read', 
   const root = mkRepo();
   try {
     const input = {
-      workflow: { auto_commit: false, confirm_destructive_actions: false },
+      workflow: { auto_commit: false, confirm_destructive_actions: false, qa_gate: false },
       communication: { language: 'en-US' },
       copilot: { rubber_duck: true, review_final: true },
       claude_code: { simplify: true, code_review_final: true, code_review_effort: 'high' },
@@ -76,7 +76,7 @@ test('FULL option set: every preferences.yml option round-trips write -> read', 
     assert.equal(w.written, true);
     assert.equal(w.roundTripValid, true);
     const r = read(root).preferences;
-    assert.deepEqual(r.workflow, { auto_commit: false, confirm_destructive_actions: false });
+    assert.deepEqual(r.workflow, { auto_commit: false, confirm_destructive_actions: false, qa_gate: false });
     assert.equal(r.communication.language, 'en-US');
     assert.deepEqual(r.copilot, { rubber_duck: true, review_final: true });
     assert.deepEqual(r.claude_code, { simplify: true, code_review_final: true, code_review_effort: 'high' });
@@ -169,6 +169,7 @@ test('communication.language round-trips arbitrary locale tags', () => {
 test('every boolean option round-trips both true and false', () => {
   const BOOLEANS = [
     ['workflow', 'auto_commit'],
+    ['workflow', 'qa_gate'],
     ['workflow', 'confirm_destructive_actions'],
     ['copilot', 'rubber_duck'],
     ['copilot', 'review_final'],

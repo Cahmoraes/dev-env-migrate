@@ -1,0 +1,22 @@
+{
+  "skill_name": "diagram-enrichment",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Read the attached design spec once, start to finish, at normal reading pace (no re-reading, no external tools). Then, from memory of what you just read, reconstruct the full webhook delivery state machine: list every state, every transition (source state -> target state, with its trigger/condition), and which states are terminal.",
+      "expected_output": "A complete and accurate state transition table for the webhook delivery retry lifecycle, matching the spec exactly.",
+      "files": [
+        "files/spec-with-diagram.md",
+        "files/spec-without-diagram.md"
+      ],
+      "expectations": [
+        "Lists all 6 states: pending, delivering, delivered, retrying, dead_letter, cancelled",
+        "Correctly identifies all 3 terminal states: delivered, dead_letter, cancelled",
+        "Correctly states the retry cap is 5 attempts before moving to dead_letter",
+        "Correctly identifies that cancellation is reachable from all three non-terminal states (pending, delivering, retrying) — not just from one",
+        "Correctly identifies the retry loop (retrying -> delivering after backoff elapses) as a cycle that can repeat, not a single one-way transition",
+        "No hallucinated state or transition (e.g. no delivering -> pending, no invented states like 'paused' or 'queued')"
+      ]
+    }
+  ]
+}

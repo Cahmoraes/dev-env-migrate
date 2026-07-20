@@ -13,6 +13,7 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | `Skill` tool (invoke a skill) | Skills load natively — just follow the instructions |
 | Research (`super.deep-research`) | Fan-out via `spawn_agent` + `wait_agent` with native web access |
 | `Read`, `Write`, `Edit` (files) | Use your native file tools |
+| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep` if it doesn't resolve immediately. |
 
 ## Asking the user structured questions
 

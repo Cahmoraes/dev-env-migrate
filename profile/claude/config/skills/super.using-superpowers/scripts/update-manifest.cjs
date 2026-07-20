@@ -40,7 +40,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { detectRepoRoot } = require('./lib/repo-root.cjs');
+const { queryPresentSlugs } = require('./lib/db-presence.cjs');
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
@@ -68,8 +69,15 @@ Output (JSON to stdout):
   {
     "written":   boolean,
     "path":      string,
-    "timestamp": string
+    "timestamp": string,
+    "validated": boolean,    // false when memory.db could not be consulted
+    "rejected":  string[]    // syncedFeatures slugs refused (no note in memory.db)
   }
+
+A slug is only recorded as synced when the memory DB actually holds a note for it;
+slugs with no backing note are dropped into "rejected" (a warning is printed) so the
+manifest can never claim a phantom sync. When the DB is unreadable this check is
+skipped and "validated" is false.
 
 Exit codes:
   0  success
@@ -96,16 +104,9 @@ for (let i = 0; i < args.length; i++) {
 
 // ─── Git root detection ───────────────────────────────────────────────────────
 
+// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
 function detectGitRoot() {
-  try {
-    const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch {
-    return null;
-  }
+  return detectRepoRoot();
 }
 
 // ─── Read input JSON ─────────────────────────────────────────────────────────
@@ -218,7 +219,36 @@ for (const slug of deletedSlugs) {
   delete mergedSynced[slug];
 }
 
+// ─── Write-side presence gate ───────────────────────────────────────────────────
+//
+// A slug may only be RECORDED as synced if the memory DB actually holds a note for
+// it. This is the structural fix for the phantom-sync bug: previously the manifest
+// was written blindly, trusting that the preceding `pmem add` succeeded — so a
+// silently-failed add (or a manifest seeded ahead of the inserts) left the feature
+// marked synced but absent from memory, permanently invisible to dirty detection.
+//
+// Validation is best-effort by design: when the DB cannot be consulted (missing DB
+// or `node:sqlite` unavailable) we cannot verify, so we write as before and flag
+// `validated:false`. Presence is additive — it never blocks a flow it cannot audit.
+// The read-side gate (check-resync / compute-inventory) is the backstop that heals
+// any drift a non-validating write leaves behind.
+const dbPath = path.join(memoryDir, 'memory.db');
+const presence = queryPresentSlugs({ dbPath, source: 'artifact-sync' });
+const rejected = [];
+
 for (const [slug, entry] of Object.entries(syncedFeatures)) {
+  if (presence.available && !presence.presentSlugs.has(String(slug).toLowerCase())) {
+    // The DB has no note for this slug — refuse to mint a phantom sync record.
+    // Any pre-existing entry for the slug is left untouched (its stale/absent hash
+    // makes the next session re-detect and retry it), and a `new` slug is simply
+    // not added, so it stays a candidate too.
+    rejected.push(slug);
+    process.stderr.write(
+      `Warning: refusing to record "${slug}" as synced — no artifact-sync note found in memory.db. ` +
+      `Re-run the per-feature sync (pmem add-batch) before updating the manifest.\n`,
+    );
+    continue;
+  }
   mergedSynced[slug] = canonicalizeEntry(entry);
 }
 
@@ -258,6 +288,8 @@ const result = {
   written: true,
   path: manifestPath,
   timestamp,
+  validated: presence.available,   // false → DB unverifiable, slugs written unchecked
+  rejected,                        // slugs refused because the DB has no note for them
 };
 
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');

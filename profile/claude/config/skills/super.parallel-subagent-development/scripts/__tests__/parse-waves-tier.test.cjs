@@ -200,6 +200,20 @@ test('invalid/garbage **Tier:** value is ignored → falls back to computed tier
   }
 });
 
+test('critical-surface keyword ("rate limit") in title → reviewShape is always two-stage, never lighter', () => {
+  const dir = mkdir();
+  try {
+    const index = build(dir, [
+      { n: 1, indexTitle: 'Add rate limit to login route', body: taskFile({ title: '# Task: Add rate limit to login route' }) },
+    ]);
+    const r = runJson(index);
+    assert.equal(r.tasks[0].reviewShape, 'two-stage');
+    assert.ok(r.tasks[0].reviewSignals.some((s) => /critical-surface/.test(s)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('wave derivation still works after tier enrichment (regression)', () => {
   const dir = mkdir();
   try {

@@ -23,6 +23,8 @@ brainstorming (spec approved) → super.generating-prd → super.writing-plans
 
 If the user explicitly skips PRD generation (e.g., "skip PRD", "go straight to planning"), respect that and proceed directly to super.writing-plans.
 
+Note: the Large-tier, known-domain fast path (`super.using-superpowers`'s `references/large-known-domain-fast-path.md`) still dispatches this skill — it only skips the upstream confirmation question, not the PRD itself. Under that fast path, this skill's step 1 (see "Leverage prior work" below) will typically ask zero clarifying questions, since the domain is known and requirements are already stable — but it still always writes a real, standalone PRD file.
+
 ## Inputs
 
 | Source | What it provides |
@@ -34,7 +36,7 @@ If the user explicitly skips PRD generation (e.g., "skip PRD", "go straight to p
 
 You already have all of the above — the spec was written and reviewed this session, and corporate artifacts (if provided during onboarding) were passed by `super.using-superpowers` in context.
 
-**Precedence:** Corporate artifacts are the company's source of truth and take precedence on conflict — but never silently. Use them to populate the PRD (especially user stories and acceptance criteria that may already be documented), converting their content into our PRD template. If a corporate artifact conflicts with the approved spec or a current-session decision, do **not** just follow the spec: flag the conflict to the user, present the corporate value as the recommended truth, and ask which one to follow. The user's answer governs.
+**Precedence:** When converting corporate artifacts into the PRD template (user stories, acceptance criteria, and other content they may already document), apply the precedence rule in `../super.brainstorming/references/fr-corporate-fidelity.md` ("Corporate artifact precedence") — corporate wins on conflict with the approved spec or a session decision, but the conflict must be flagged, never resolved silently.
 
 ## Process
 
@@ -92,8 +94,9 @@ Quick inline check before presenting:
 2. **Traceability**: Can each functional requirement be traced to a user story?
 3. **No implementation**: Does any section prescribe HOW to build something? Remove it.
 4. **Measurability**: Are objectives and acceptance criteria measurable?
-5. **Consistency with spec**: Does the PRD contradict the design spec anywhere?
+5. **Consistency with spec**: Does the PRD contradict the design spec anywhere? Apply the "FR mechanism fidelity" rule from `../super.brainstorming/references/fr-corporate-fidelity.md` to every FR that names a concrete mechanism, and fix the FR text (or name the deliberate deviation explicitly) before moving on.
 6. **ID prefixes**: Is every user story `US-NN` and every functional requirement `FR-NNN`? Fix any drift.
+7. **Named-but-open scan**: Apply the "Named-but-dropped fork" rule from `../super.brainstorming/references/fr-corporate-fidelity.md` to every capability the PRD names in prose (a retry, a deduplication, an ordering guarantee, an audit trail, a rate limit) — promote it to an FR or rule it out under "Fora de Escopo" with a reason.
 
 Fix issues inline.
 

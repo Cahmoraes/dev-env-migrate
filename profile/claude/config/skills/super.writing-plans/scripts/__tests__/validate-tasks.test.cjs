@@ -384,3 +384,89 @@ test('returns found:false for a missing index', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ─── Transient task-writer-briefing.md cleanup ─────────────────────────────────
+
+const BRIEFING = 'task-writer-briefing.md';
+
+function writeBriefing(dir) {
+  const p = path.join(dir, BRIEFING);
+  fs.writeFileSync(p, '# transient briefing\n\ndigest + decomposition\n', 'utf8');
+  return p;
+}
+
+test('a clean full validation removes the transient task-writer-briefing.md', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile(), 'utf8');
+    const briefing = writeBriefing(dir);
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    const r = runJson(['--tasks-index', index]);
+    assert.equal(r.valid, true);
+    assert.equal(r.briefingCleanup.existed, true);
+    assert.equal(r.briefingCleanup.removed, true);
+    assert.equal(fs.existsSync(briefing), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failing validation keeps the briefing (writer will be handed it to fix)', () => {
+  const dir = mkdir();
+  try {
+    // Missing task-01.md on disk → validation fails.
+    const briefing = writeBriefing(dir);
+    const index = writeIndex(dir, ['- [ ] 1. Missing file → `task-01.md`']);
+    const r = runJson(['--tasks-index', index]);
+    assert.equal(r.valid, false);
+    assert.equal(r.briefingCleanup.removed, false);
+    assert.equal(fs.existsSync(briefing), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--index-only never removes the briefing (per-file validity not established)', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile(), 'utf8');
+    const briefing = writeBriefing(dir);
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    const r = runJson(['--tasks-index', index, '--index-only']);
+    assert.equal(r.valid, true);
+    assert.equal(r.briefingCleanup.removed, false);
+    assert.equal(fs.existsSync(briefing), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--keep-briefing preserves the briefing on a clean run', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile(), 'utf8');
+    const briefing = writeBriefing(dir);
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    const r = runJson(['--tasks-index', index, '--keep-briefing']);
+    assert.equal(r.valid, true);
+    assert.equal(r.briefingCleanup.existed, false);
+    assert.equal(r.briefingCleanup.removed, false);
+    assert.equal(fs.existsSync(briefing), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cleanup is a no-op (not an error) when no briefing exists', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile(), 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    const r = runJson(['--tasks-index', index]);
+    assert.equal(r.valid, true);
+    assert.equal(r.briefingCleanup.existed, false);
+    assert.equal(r.briefingCleanup.removed, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

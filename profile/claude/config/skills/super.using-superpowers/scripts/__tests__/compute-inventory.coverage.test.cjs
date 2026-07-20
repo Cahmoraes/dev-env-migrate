@@ -198,3 +198,95 @@ test('compute-inventory: manifest slug absent from disk → status deleted', () 
     fs.rmSync(repo, { recursive: true, force: true })
   }
 })
+
+// ─── presence override: unchanged-by-hash but absent from memory.db ────────────
+
+let DatabaseSync = null
+try {
+  ({ DatabaseSync } = require('node:sqlite'))
+} catch { /* older runtime — presence-override tests skipped */ }
+
+function sha256(content) {
+  const crypto = require('node:crypto')
+  return 'sha256:' + crypto.createHash('sha256').update(content, 'utf8').digest('hex')
+}
+
+function writeDefaultManifest(root, slug, content) {
+  const dir = path.join(root, '.memory')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'resync-manifest.json'), JSON.stringify({
+    last_synced_at: 'x',
+    last_synced_tree_hash: 'x',
+    last_synced_hash_method: 'artifact-content',
+    synced_features: {
+      [slug]: { spec_hash: sha256(content), prd_hash: null, qa_hash: null, adr_hash: null },
+    },
+  }), 'utf8')
+}
+
+function seedDb(root, rows) {
+  const dbPath = path.join(root, '.memory', 'memory.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT ''
+  );`)
+  const stmt = db.prepare('INSERT INTO notes (source, tags, content_hash) VALUES (?, ?, ?)')
+  let i = 0
+  for (const r of rows) stmt.run(r.source, r.tags, `h${i++}`)
+  db.close()
+}
+
+test('compute-inventory: unchanged hash but absent from DB → status changed + driftedSlugs', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# Design\n\nstable\n'
+    writeSpec(repo, 'phantom-feat', content)
+    writeDefaultManifest(repo, 'phantom-feat', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'artifact-sync,other-feat,spec' }])
+    const result = runJson(['--repo-root', repo])
+    const f = featureBySlug(result, 'phantom-feat')
+    assert.equal(f.status, 'changed', 'absent-from-DB unchanged feature must be reclassified')
+    assert.equal(f.dbPresent, false)
+    assert.deepEqual(result.driftedSlugs, ['phantom-feat'])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: unchanged hash AND present in DB → stays unchanged', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# Design\n\nstable\n'
+    writeSpec(repo, 'backed-feat', content)
+    writeDefaultManifest(repo, 'backed-feat', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'artifact-sync,backed-feat,spec' }])
+    const result = runJson(['--repo-root', repo])
+    const f = featureBySlug(result, 'backed-feat')
+    assert.equal(f.status, 'unchanged')
+    assert.equal(f.dbPresent, true)
+    assert.deepEqual(result.driftedSlugs, [])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: no DB → dbPresent null, no reclassification', () => {
+  const repo = mkTmp()
+  try {
+    const content = '# Design\n\nstable\n'
+    writeSpec(repo, 'nodb-feat', content)
+    writeDefaultManifest(repo, 'nodb-feat', content)
+    const result = runJson(['--repo-root', repo])
+    const f = featureBySlug(result, 'nodb-feat')
+    assert.equal(f.status, 'unchanged')
+    assert.equal(f.dbPresent, null)
+    assert.deepEqual(result.driftedSlugs, [])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})

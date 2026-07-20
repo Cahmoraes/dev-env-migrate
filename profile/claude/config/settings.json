@@ -11,7 +11,33 @@
     "skipDangerousModePermissionPrompt": true
   },
   "model": "sonnet",
+  "skillOverrides": {
+    "architectural-analyzer": "off",
+    "commit-push-pr": "off",
+    "context-mode-ops": "off",
+    "deep-teach": "off",
+    "find-skills": "off",
+    "frontend-design": "off",
+    "git-rebase": "off",
+    "refactoring": "off",
+    "security-review": "off",
+    "to-adr": "off",
+    "xstate": "off",
+    "zod": "off",
+    "zustand": "off"
+  },
   "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Needs your input!\" &'"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -38,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${HOME}/.claude/hooks/context-mode-cache-heal.mjs\""
+            "command": "wsl-screenshot-cli start --daemon --quiet 2>/dev/null"
           }
         ]
       },
@@ -52,11 +78,24 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '~/bin/claude-notify \"Claude Code\" \"Done!\" &'"
+          }
+        ]
+      }
     ]
   },
   "worktree": {
     "baseRef": "fresh"
   },
+  "disableWorkflows": true,
+  "enableWorkflows": false,
   "workflowKeywordTriggerEnabled": false,
   "statusLine": {
     "type": "command",
@@ -64,20 +103,17 @@
   },
   "enabledPlugins": {
     "caveman@caveman": true,
-    "context-mode@context-mode": true,
-    "frontend-design@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": false,
     "claude-md-management@claude-plugins-official": true,
     "explanatory-output-style@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": false,
     "rust-analyzer-lsp@claude-plugins-official": false,
-    "commit-commands@claude-plugins-official": true,
-    "headroom@headroom-marketplace": true,
-    "chrome-devtools-mcp@chrome-devtools-plugins": true,
+    "commit-commands@claude-plugins-official": false,
+    "chrome-devtools-mcp@chrome-devtools-plugins": false,
     "security-guidance@claude-plugins-official": true,
-    "serena@claude-plugins-official": true,
-    "figma@claude-plugins-official": true
+    "chrome-devtools-mcp@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -112,7 +148,7 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "editorMode": "normal",
@@ -120,6 +156,5 @@
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true,
-  "enableWorkflows": false
+  "skipAutoPermissionPrompt": true
 }

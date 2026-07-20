@@ -9,6 +9,7 @@ Skills use Claude Code tool names. Use your platform equivalent:
 | `Edit` (file editing) | `edit` |
 | `Bash` (run commands) | `bash` |
 | `Grep` (search file content) | `grep` |
+| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep` if it doesn't resolve immediately. |
 | `Glob` (search files by name) | `glob` ⚠️ see limitation below |
 | `Skill` tool (invoke a skill) | `skill` |
 | `AskUserQuestion` (structured user question) | `ask_user` |

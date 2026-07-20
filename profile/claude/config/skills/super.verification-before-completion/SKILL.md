@@ -11,6 +11,8 @@ Claiming work complete without verification is dishonesty, not efficiency. **Cor
 
 **Violating the letter of this rule is violating the spirit of this rule.**
 
+**Relationship to super.independent-verification:** This skill is the controller's own self-check, run in the SAME session by the author of the work. It is complemented by `super.independent-verification` - an always-on, blind gate run once at the end of a feature by a FRESH Verifier (author != verifier) with mutation testing. Distinct lenses that do not overlap: this one keeps the author honest in-session; that one independently re-derives spec coverage before finishing.
+
 ## The Iron Law
 
 ```
@@ -25,7 +27,7 @@ If you haven't run the verification command in this message, you cannot claim it
 BEFORE claiming any status or expressing satisfaction:
 
 1. IDENTIFY: What command proves this claim?
-2. RUN: Execute the FULL command (fresh, complete)
+2. RUN: Execute the command in full (fresh, complete) — at the scope defined below
 3. READ: Full output, check exit code, count failures
 4. VERIFY: Does output confirm the claim?
    - If NO: State actual status with evidence
@@ -34,6 +36,12 @@ BEFORE claiming any status or expressing satisfaction:
 
 Skip any step = lying, not verifying
 ```
+
+## Scope: per-task = affected tests, not the whole suite
+
+"Fresh, complete" means the command runs in full and unfaked — it does **not** mean re-running the entire suite on every task. For a **per-task** check, the required evidence is the tests **affected by the task** (the file/module the task touched, plus what imports it) at exit 0. Re-running the whole suite once per task is redundant re-execution, not extra rigor: the complete suite runs once as a wave/batch safety net (owned by `super.subagent-driven-development`), and the authoritative terminal full run belongs to `super.independent-verification`. The "evidence before claims" principle is unchanged — only the *scope* of what a per-task claim must run is narrowed to what the task can affect. When a change is genuinely cross-cutting (shared util, config, build) so "affected" is effectively the whole suite, run the whole suite.
+
+**Out of scope for this gate:** this self-check never runs mutation testing and never re-derives spec coverage from the spec — those are `super.independent-verification`'s lenses, not the VBC self-check's. Do not read any wording here as asking for them.
 
 ## Common Failures
 

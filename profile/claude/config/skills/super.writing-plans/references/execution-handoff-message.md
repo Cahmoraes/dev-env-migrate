@@ -40,6 +40,10 @@ After saving the index and task files, offer the message below (fill in feature 
 
 **Recommended for this plan: option X** — <one short paragraph of reasoning from Step 2>
 
+**0. Revisar a spec (opcional)** — before picking how to execute, send the spec — and these just-created tasks — through a final critical review via `super.reviewing-specs`, without leaving this session
+- Not required; skip straight to an execution option if the plan is already trusted
+- See Step 4 below for what happens when the user picks this
+
 **Three execution options:**
 
 **1. Subagent-Driven** — I dispatch a fresh subagent per task, sequentially, review between tasks, fast iteration
@@ -61,6 +65,20 @@ After saving the index and task files, offer the message below (fill in feature 
 
 > **If `workflow.auto_commit` is `false`:** only **option 1** honors it (its implementers leave each task uncommitted). Options 2 and 3 commit as part of how they integrate — the in-tree barrier commits once per wave, and each worktree task commits on its branch so it can be merged — so a parallel mode **will commit even when `auto_commit` is false**. If the user set `auto_commit: false` and leans toward a parallel mode, tell them their work will still be committed (per wave / per task) before they choose.
 
-**Which approach? (my recommendation is option X — see above)"**
+**Which approach? (my recommendation is option X — see above; or 0 to review the spec first)"**
 
 > Fill the wave summary line from `parse-waves.cjs` (W = `waveCount`, P = count of `waveKinds` equal to `parallel`, K = `maxParallelWave`). The recommendation line and the `(recommended)` tag both come from Step 2 — they must agree and reflect THIS plan, not a fixed default.
+
+## Step 4 — If the user picks option 0 (spec review)
+
+Invoke `super.reviewing-specs`, passing the spec path this plan was built from — do not ask the user for it, and do not let `super.reviewing-specs` ask either. Tasks already exist for this feature, so its Lens 3 (spec↔tasks) runs automatically once it resolves the feature's companions — you don't need to point at the tasks index separately.
+
+- **Reached from `super.writing-plans`' own Execution Handoff** (right after tasks were created): you already have the spec path from `find-feature-files.cjs` at the start of this skill.
+- **Reached from `super.using-superpowers`' Execution Mode Election (option 5)**, which renders this same Step 3 message for pre-existing tasks: resolve the spec path deterministically from the `featureName` you already located (`superpowers-status.cjs --pending`) via `node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>` — `spec.path` in its output.
+
+When `super.reviewing-specs` returns control to you, one of two things happened:
+
+- **It handed off to `super.writing-plans`** (its own Step 5 — only when the user both applied a finding *and* agreed to update the tasks). That inner `super.writing-plans` run ends by re-running this same Execution Handoff with a freshly computed recommendation (tasks may have changed, so wave structure may too). **Do not present this Step 3 message a second time** — the loop is already closed.
+- **It did not** (the spec was already sound, the user declined the findings, applied a spec-only fix without touching tasks, or chose "save to adjust later"). In this branch nothing reached the tasks, so the wave structure is unchanged — **return here and re-offer the Step 3 message** using the recommendation you already computed; no need to re-run `parse-waves.cjs`.
+
+Either way, the user always lands back at an execution-mode choice — reviewing the spec never strands them mid-flow or forces a session restart through the opening triage.

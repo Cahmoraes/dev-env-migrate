@@ -45,19 +45,13 @@
     {
       "name": "context-mode@context-mode",
       "enabled": true,
-      "version": "1.0.162",
-      "gitCommitSha": "9bb94829cd9483c2dc6135e0b4eca21288388d5d"
+      "version": "1.0.169",
+      "gitCommitSha": "ee78b02aac136a521dda721447cdbefc489bc067"
     },
     {
       "name": "frontend-design@claude-plugins-official",
-      "enabled": true,
+      "enabled": false,
       "version": "unknown",
-      "gitCommitSha": null
-    },
-    {
-      "name": "typescript-lsp@claude-plugins-official",
-      "enabled": true,
-      "version": "1.0.0",
       "gitCommitSha": null
     },
     {
@@ -92,21 +86,15 @@
     },
     {
       "name": "commit-commands@claude-plugins-official",
-      "enabled": true,
+      "enabled": false,
       "version": "unknown",
       "gitCommitSha": null
     },
     {
-      "name": "headroom@headroom-marketplace",
-      "enabled": true,
-      "version": "0.22.3",
-      "gitCommitSha": "19eac8e00dc9e3911f3afe8e8e5dcc9e00346baa"
-    },
-    {
       "name": "chrome-devtools-mcp@chrome-devtools-plugins",
-      "enabled": true,
+      "enabled": false,
       "version": "1.2.0",
-      "gitCommitSha": "228cf3936ad99d9e0c09b43d77fbbac8712f2357"
+      "gitCommitSha": "4f8eb7ad6beecc58f56ec383f9ff43549a5604d4"
     },
     {
       "name": "security-guidance@claude-plugins-official",
@@ -115,16 +103,22 @@
       "gitCommitSha": null
     },
     {
-      "name": "serena@claude-plugins-official",
-      "enabled": true,
-      "version": "unknown",
-      "gitCommitSha": null
-    },
-    {
       "name": "figma@claude-plugins-official",
       "enabled": true,
       "version": "2.2.68",
-      "gitCommitSha": "bea8bea5f676ab2bf76fa822b82f50b66653c098"
+      "gitCommitSha": null
+    },
+    {
+      "name": "chrome-devtools-mcp@claude-plugins-official",
+      "enabled": false,
+      "version": "1.6.0",
+      "gitCommitSha": "6e56c028cf80ac977c501a94d0958568dea901c2"
+    },
+    {
+      "name": "typescript-lsp@claude-plugins-official",
+      "enabled": true,
+      "version": "1.0.0",
+      "gitCommitSha": null
     }
   ],
   "language_servers": [
@@ -136,7 +130,7 @@
       ],
       "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.nvm/versions/node/v24.10.0/bin/typescript-language-server",
+      "source_path": "/home/cahmoraes/.local/share/pnpm/typescript-language-server",
       "install": {
         "pnpm": "pnpm add -g typescript-language-server typescript",
         "npm": "npm install -g typescript-language-server typescript"
@@ -150,7 +144,7 @@
       ],
       "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.nvm/versions/node/v24.10.0/bin/vtsls",
+      "source_path": "/home/cahmoraes/.local/share/pnpm/vtsls",
       "install": {
         "pnpm": "pnpm add -g @vtsls/language-server",
         "npm": "npm install -g @vtsls/language-server"
@@ -164,7 +158,7 @@
       ],
       "describe": "LSP de Python (Pyright)",
       "installed_on_source": true,
-      "source_path": "/Users/caique/.local/share/pnpm/pyright-langserver",
+      "source_path": "/home/cahmoraes/.pyenv/versions/3.13.4/bin/pyright-langserver",
       "install": {
         "pnpm": "pnpm add -g pyright",
         "npm": "npm install -g pyright",
@@ -175,22 +169,23 @@
   "hook_dependencies": [],
   "global_node_packages": {
     "pnpm": [
-      "pnpm@11.7.0",
+      "@github/copilot@0.0.406",
+      "@nestjs/cli@11.0.16",
+      "@openai/codex@0.130.0",
+      "@playwright/cli@0.1.15",
+      "@vtsls/language-server@0.3.0",
+      "ctx7@0.4.0",
+      "ntl@5.1.0",
+      "opencode-ai@1.15.3",
+      "pnpm@10.23.0",
       "typescript-language-server@5.3.0",
       "typescript@6.0.3"
     ],
     "npm": [
-      "@ast-grep/cli@0.44.0",
-      "@github/copilot@1.0.12",
-      "@playwright/cli@0.1.13",
-      "@vtsls/language-server@0.3.0",
-      "corepack@0.34.0",
-      "ctx7@0.4.1",
-      "npm@11.10.0",
-      "ntl@5.1.0",
-      "taze@19.11.0",
-      "typescript-language-server@5.3.0",
-      "typescript@6.0.3"
+      "@mermaid-js/mermaid-cli@11.16.0",
+      "context-mode@1.0.169",
+      "corepack@0.35.0",
+      "npm@11.16.0"
     ]
   },
   "security_flags": {
@@ -198,8 +193,13 @@
     "skipDangerousModePermissionPrompt": true,
     "skipAutoPermissionPrompt": true
   },
-  "non_portable_markers_found": [],
-  "secrets_removed_from_settings": [],
+  "non_portable_markers_found": [
+    "wsl-screenshot-cli",
+    "~/bin/claude-notify"
+  ],
+  "secrets_removed_from_settings": [
+    "env.ANTHROPIC_BASE_URL"
+  ],
   "config_files_copied": [
     "settings.json",
     "keybindings.json",
@@ -210,8 +210,7 @@
     "TOKEN-EFFICIENT.md",
     "hooks/",
     "agents/",
-    "skills/",
-    "commands/"
+    "skills/"
   ],
   "config_inventory": {
     "hooks": [
@@ -221,7 +220,6 @@
       "caveman-stats.js",
       "caveman-statusline.ps1",
       "caveman-statusline.sh",
-      "context-mode-cache-heal.mjs",
       "package.json"
     ],
     "agents": [
@@ -230,16 +228,11 @@
     ],
     "skills": [
       "architectural-analyzer",
-      "birchline-html",
       "commit-push-pr",
       "context-mode-ops",
       "context7",
-      "ctx-index",
-      "ctx-insight",
-      "ctx-purge",
-      "ctx-search",
-      "dedupe",
       "deep-teach",
+      "design-doc-mermaid",
       "exa-web-search-free",
       "find-skills",
       "frontend-design",
@@ -248,22 +241,22 @@
       "improve-codebase-architecture",
       "mermaid-diagrams",
       "no-workarounds",
-      "oncall-triage",
       "playwright-cli",
       "refactoring",
       "security-review",
       "skill-creator",
-      "spec",
       "super.brainstorming",
       "super.deep-research",
+      "super.design-doc-mermaid",
       "super.dispatching-parallel-agents",
       "super.finishing-a-development-branch",
       "super.generating-prd",
+      "super.independent-verification",
       "super.parallel-subagent-development",
       "super.parallel-subagent-in-tree",
       "super.persistent-memory",
-      "super.receiving-code-review",
       "super.requesting-code-review",
+      "super.reviewing-specs",
       "super.subagent-driven-development",
       "super.systematic-debugging",
       "super.test-driven-development",
@@ -272,12 +265,12 @@
       "super.using-superpowers",
       "super.verification-before-completion",
       "super.writing-plans",
+      "tlc-spec-driven",
       "to-adr",
       "xstate",
       "zod",
       "zustand"
-    ],
-    "commands": []
+    ]
   },
   "_note": "Reconstrua com `claude plugin marketplace add` + `claude plugin install`. Instale os language_servers (binários) para os plugins LSP funcionarem e os hook_dependencies (binários) para os hooks do settings.json não falharem. Revise security_flags e non_portable_markers antes de aplicar."
 }

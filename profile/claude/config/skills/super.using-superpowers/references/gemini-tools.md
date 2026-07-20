@@ -10,6 +10,7 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | `Bash` (run commands) | `run_shell_command` |
 | `Grep` (search file content) | `grep_search` |
 | `Glob` (search files by name) | `glob` |
+| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep_search` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep_search` if it doesn't resolve immediately. |
 
 ## ⚠️ Checking Files in Hidden Directories
 

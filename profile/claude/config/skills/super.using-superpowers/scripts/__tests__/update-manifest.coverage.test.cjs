@@ -249,6 +249,117 @@ test('.memory occupied by a file → mkdir fails, exit 1', () => {
   }
 });
 
+// ─── write-side presence validation ────────────────────────────────────────────
+
+let DatabaseSync = null;
+try {
+  ({ DatabaseSync } = require('node:sqlite'));
+} catch { /* older runtime — presence-validation tests skipped */ }
+
+function seedDb(root, rows) {
+  const dbPath = path.join(root, '.memory', 'memory.db');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT ''
+  );`);
+  const stmt = db.prepare('INSERT INTO notes (source, tags, content_hash) VALUES (?, ?, ?)');
+  let i = 0;
+  for (const r of rows) stmt.run(r.source, r.tags, `h${i++}`);
+  db.close();
+}
+
+test('no memory.db → validated:false and slugs written unchecked', () => {
+  const root = mkRepo();
+  try {
+    const inputFile = path.join(root, 'in.json');
+    fs.writeFileSync(inputFile, JSON.stringify({
+      treeHash: 't', hashMethod: 'git',
+      syncedFeatures: { anything: { spec_hash: 'sha256:abc' } },
+      deletedSlugs: [],
+    }), 'utf8');
+    const r = run(['--repo-root', root, '--input-file', inputFile]);
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.validated, false);
+    assert.deepEqual(out.rejected, []);
+    assert.ok(readManifest(root).synced_features.anything, 'written despite no DB');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('DB backs the slug → recorded, validated:true, nothing rejected', { skip: !DatabaseSync }, () => {
+  const root = mkRepo();
+  try {
+    seedDb(root, [{ source: 'artifact-sync', tags: 'artifact-sync,backed-feature,spec' }]);
+    const inputFile = path.join(root, 'in.json');
+    fs.writeFileSync(inputFile, JSON.stringify({
+      treeHash: 't', hashMethod: 'git',
+      syncedFeatures: { 'backed-feature': { spec_hash: 'sha256:abc' } },
+      deletedSlugs: [],
+    }), 'utf8');
+    const r = run(['--repo-root', root, '--input-file', inputFile]);
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.validated, true);
+    assert.deepEqual(out.rejected, []);
+    assert.ok(readManifest(root).synced_features['backed-feature']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('DB has no note for the slug → rejected, not recorded, warning printed', { skip: !DatabaseSync }, () => {
+  const root = mkRepo();
+  try {
+    seedDb(root, [{ source: 'artifact-sync', tags: 'artifact-sync,other-feature,spec' }]);
+    const inputFile = path.join(root, 'in.json');
+    fs.writeFileSync(inputFile, JSON.stringify({
+      treeHash: 't', hashMethod: 'git',
+      syncedFeatures: { phantom: { spec_hash: 'sha256:abc' } },
+      deletedSlugs: [],
+    }), 'utf8');
+    const r = run(['--repo-root', root, '--input-file', inputFile]);
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.validated, true);
+    assert.deepEqual(out.rejected, ['phantom']);
+    assert.match(r.stderr, /refusing to record "phantom"/);
+    assert.equal(readManifest(root).synced_features.phantom, undefined, 'phantom not recorded');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rejecting a NEW slug leaves a pre-existing entry untouched', { skip: !DatabaseSync }, () => {
+  const root = mkRepo();
+  try {
+    seedDb(root, [{ source: 'artifact-sync', tags: 'artifact-sync,kept,spec' }]);
+    writeManifest(root, {
+      last_synced_at: 'x', last_synced_tree_hash: 'old', last_synced_hash_method: 'artifact-content',
+      synced_features: { kept: { spec_hash: 'sha256:kept' } },
+    });
+    const inputFile = path.join(root, 'in.json');
+    fs.writeFileSync(inputFile, JSON.stringify({
+      treeHash: 't', hashMethod: 'git',
+      syncedFeatures: { phantom: { spec_hash: 'sha256:abc' } },
+      deletedSlugs: [],
+    }), 'utf8');
+    const r = run(['--repo-root', root, '--input-file', inputFile]);
+    assert.equal(r.status, 0);
+    const m = readManifest(root);
+    assert.equal(m.synced_features.phantom, undefined);
+    assert.equal(m.synced_features.kept.spec_hash, 'sha256:kept', 'existing entry preserved');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('manifest path occupied by a non-empty directory → rename fails, exit 1', () => {
   const root = mkRepo();
   try {

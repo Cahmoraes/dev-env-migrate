@@ -3,7 +3,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const HELP = `
 find-feature-files.cjs — Locate PRD, spec, tasks index, QA report, and curated visual mockup artifacts for a feature.
@@ -60,14 +59,16 @@ function parseArgs(argv) {
   return options;
 }
 
+// Git working-tree root, resolved in-process (no `git` spawn): walk up looking for
+// a `.git` entry (a dir in a clone, a FILE in a linked worktree — both match). Same
+// discovery `git rev-parse --show-toplevel` does; null when not in a repo.
 function detectGitRoot() {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch {
-    return null;
+  let dir = process.cwd();
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
@@ -115,6 +116,26 @@ function specHasVisualSection(specPath) {
   }
 }
 
+// A spec can carry the PRD content INLINE instead of in a physical prd/prd-<feature>.md file.
+// The "Large, known-domain fast path" merges brainstorming + PRD into one pass, so the user
+// stories (US-NN) and functional requirements (FR-NNN) live in the spec's requirements section
+// rather than a standalone PRD. By the SAME condition a physical PRD would exist, that inline
+// content must still pass the deterministic FR-coverage gate (validate-tasks --prd). If the
+// tokens are present but no physical PRD file exists, the orchestrator would omit --prd and the
+// FR gate is silently skipped — the exact false "pass" this surfaces. Mirrors the visual-section
+// signal above. Dual-accepts the canonical FR-NNN and legacy RF-NNN (as validate-tasks does) plus
+// US-NN user stories; a false negative (skipping the gate) is the dangerous direction, so the
+// match is tolerant of position. Three+ digits on FR/RF avoids firing on incidental "FR-1" prose.
+const EMBEDDED_PRD_RE = /\bUS-\d+\b|\b(?:FR|RF)-\d{3,}\b/iu;
+
+function specHasEmbeddedPrd(specPath) {
+  try {
+    return EMBEDDED_PRD_RE.test(fs.readFileSync(specPath, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
 function main() {
   const { featureName, repoRoot: providedRepoRoot, baseDir: baseDirArgument } = parseArgs(process.argv);
   const repoRoot = providedRepoRoot || detectGitRoot();
@@ -128,7 +149,9 @@ function main() {
   const featureDir = path.join(baseDir, featureName);
   const spec = buildFileEntry(path.join(featureDir, 'specs', `${featureName}-design.md`));
   spec.visualSection = spec.found ? specHasVisualSection(spec.path) : false;
+  spec.embeddedPrd = spec.found ? specHasEmbeddedPrd(spec.path) : false;
   const mockups = buildDirEntry(path.join(featureDir, 'specs', 'mockups'));
+  const prd = buildFileEntry(path.join(featureDir, 'prd', `prd-${featureName}.md`));
   const warnings = [];
   if (spec.visualSection && !mockups.found) {
     warnings.push({
@@ -140,9 +163,24 @@ function main() {
         `or external design informed the feature.`,
     });
   }
+  // Embedded-PRD signal: the spec carries US-NN / FR-NNN inline but no physical PRD file exists
+  // (the Large known-domain fast path). Expose the spec as the PRD source (prd.embeddedIn) so the
+  // orchestrator passes --prd <spec> and the FR-coverage gate runs instead of being silently
+  // skipped. Backward-compat: when the physical PRD exists (prd.found), this is inert — prd.path
+  // stays unchanged and no field/warning is added.
+  if (!prd.found && spec.embeddedPrd) {
+    prd.embeddedIn = spec.path;
+    warnings.push({
+      code: 'prd-embedded-in-spec',
+      message:
+        `no physical prd/prd-${featureName}.md exists, but the design spec carries embedded PRD ` +
+        `content (US-NN / FR-NNN). Pass --prd "${spec.path}" to validate-tasks.cjs so the ` +
+        `FR-coverage gate runs against the spec instead of being silently skipped.`,
+    });
+  }
   const result = {
     featureName,
-    prd: buildFileEntry(path.join(featureDir, 'prd', `prd-${featureName}.md`)),
+    prd,
     spec,
     tasksIndex: buildFileEntry(path.join(featureDir, 'plans', `tasks-${featureName}.md`)),
     qaReport: buildFileEntry(path.join(featureDir, 'qa', `qa-report-${featureName}.md`)),

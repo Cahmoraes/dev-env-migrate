@@ -31,7 +31,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 **2. Dispatch code reviewer subagent:**
 
-Use Task tool with `general-purpose` type, fill template at `agents/code-reviewer.md`. Set an explicit `model:` on the dispatch — a code reviewer runs at the task's tier, floored at `standard`; never inherit the controller's model by omission (see super.subagent-driven-development § Model Selection).
+Use Task tool with `general-purpose` type, fill template at `agents/code-reviewer.md`. Set an explicit `model:` on the dispatch — a code reviewer is a validation gate: it runs at the task's tier floored at `standard` (a cheap task is reviewed one family up, by the standard tier, not the most-expensive capable); never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
 
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
@@ -43,7 +43,6 @@ Use Task tool with `general-purpose` type, fill template at `agents/code-reviewe
 - Fix Critical issues immediately
 - Fix Important issues before proceeding
 - Note Minor issues for later
-- Push back if reviewer is wrong (with reasoning)
 
 ## Example
 
@@ -95,5 +94,3 @@ You: [Fix progress indicators]
 - Push back with technical reasoning
 - Show code/tests that prove it works
 - Request clarification
-
-See template at: super.requesting-code-review/agents/code-reviewer.md

@@ -27,11 +27,26 @@ const SCRIPTS = path.resolve(__dirname, '..');
 const READ = path.join(SCRIPTS, 'read-preferences.cjs');
 const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/superpowers/skills
 
+// parallel-subagent-in-tree and parallel-subagent-development delegate their
+// Step 5 finish-tail prose (final reviewer, /code-review, Copilot review,
+// per-task-gates-unaffected) to finish-tail.md instead of duplicating it — so
+// their bodies must include it here too, or every guard below sees it as missing.
+// finish-tail.md hard-wraps its prose at ~100 cols, so a sentence checked by a
+// literal-space regex can straddle a line break; collapse whitespace runs to a
+// single space so wrapping never masks content that is actually present.
+const FINISH_TAIL = fs
+  .readFileSync(path.join(SKILLS, 'super.subagent-driven-development', 'references', 'finish-tail.md'), 'utf8')
+  .replace(/\s+/g, ' ');
+const DELEGATES_FINISH_TAIL = new Set(['super.parallel-subagent-in-tree', 'super.parallel-subagent-development']);
+
 const EXECUTION_SKILLS = [
   'super.subagent-driven-development',
   'super.parallel-subagent-in-tree',
   'super.parallel-subagent-development',
-].map((name) => ({ name, body: fs.readFileSync(path.join(SKILLS, name, 'SKILL.md'), 'utf8') }));
+].map((name) => ({
+  name,
+  body: fs.readFileSync(path.join(SKILLS, name, 'SKILL.md'), 'utf8') + (DELEGATES_FINISH_TAIL.has(name) ? '\n' + FINISH_TAIL : ''),
+}));
 
 function mkRepo() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'native-flow-'));
@@ -181,6 +196,7 @@ test('SKILL.md declares the native session variables with safe defaults', () => 
 const PER_TASK_REVIEW_PROMPTS = [
   'super.subagent-driven-development/agents/spec-reviewer.md',
   'super.subagent-driven-development/agents/code-quality-reviewer.md',
+  'super.subagent-driven-development/agents/combined-reviewer.md',
   'super.requesting-code-review/agents/code-reviewer.md',
 ];
 

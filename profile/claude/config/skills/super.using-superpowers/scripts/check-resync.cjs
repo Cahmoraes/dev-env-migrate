@@ -28,19 +28,27 @@
  *
  * Output (stdout): JSON
  * Diagnostics (stderr): warnings only
+ *
+ * Token economy (IMPORTANT): by default the parsed manifest body is NOT emitted
+ * (`manifest: null`) — it can be ~10 KB and no consumer reads it. The `dirty`
+ * decision already incorporates the manifest, and the sync algorithm re-reads it
+ * from `manifestPath` on disk (via compute-inventory.cjs / update-manifest.cjs).
+ * Pass `--with-manifest` only when you genuinely need the manifest inline
+ * (debugging); the gate never does.
  */
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { detectRepoRoot } = require('./lib/repo-root.cjs');
 const {
   computeDiskMap,
   deriveManifestMap,
   mapsEqual,
   fingerprintOfMap,
 } = require('./lib/artifact-hash.cjs');
+const { queryPresentSlugs, driftedSlugs } = require('./lib/db-presence.cjs');
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
@@ -52,6 +60,9 @@ Usage:
 
 Options:
   --repo-root <path>  Explicit path to the repository root (overrides git detection)
+  --with-manifest     Include the full parsed manifest in output (default: omitted
+                      to save ~10 KB / session — no consumer reads it; dirty already
+                      reflects it and the sync re-reads manifestPath from disk)
   --help              Show this help text and exit 0
 
 Output (JSON to stdout):
@@ -59,7 +70,9 @@ Output (JSON to stdout):
     "dirty": boolean,            // true when a re-sync is needed
     "docsExists": boolean,       // false → skip GateResync silently (nothing to sync)
     "memoryExists": boolean,     // false → run pmem init before syncing
-    "manifest": {...} | null,    // current manifest content, or null if missing
+    "driftedSlugs": string[]|null, // manifest slugs with NO note in memory.db (presence
+                                 //   drift); null when the DB could not be consulted
+    "manifest": {...} | null,    // manifest content only with --with-manifest; else null
     "currentArtifactHash": string|null,  // content fingerprint of artifacts on disk
     "hashMethod": "artifact-content"|"none",
     "manifestPath": string,
@@ -72,6 +85,8 @@ Dirty flag is set when ANY of:
   - manifest file does not exist / is unparseable
   - the on-disk artifact content map differs from the manifest's recorded content
     (a feature is new, changed, or deleted)
+  - a manifest slug has no note in memory.db (presence drift) — only when the DB
+    could actually be consulted; otherwise this axis is skipped (driftedSlugs: null)
 
 Dirty detection is content-based over spec/prd/qa/adrs only; commits that touch
 plans/ or other non-artifact files never trigger a re-sync, and uncommitted
@@ -89,6 +104,8 @@ if (args.includes('--help') || args.includes('-h')) {
   process.exit(0);
 }
 
+const withManifest = args.includes('--with-manifest');
+
 let repoRoot = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo-root' && args[i + 1]) {
@@ -98,16 +115,9 @@ for (let i = 0; i < args.length; i++) {
 
 // ─── Git root detection ───────────────────────────────────────────────────────
 
+// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
 function detectGitRoot() {
-  try {
-    const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch {
-    return null;
-  }
+  return detectRepoRoot();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -119,6 +129,7 @@ if (!repoRoot) {
       dirty: false,
       docsExists: false,
       memoryExists: false,
+      driftedSlugs: null,
       manifest: null,
       currentArtifactHash: null,
       hashMethod: 'none',
@@ -142,6 +153,7 @@ if (!fs.existsSync(docsPath)) {
     dirty: false,
     docsExists: false,
     memoryExists: fs.existsSync(memoryDir),
+    driftedSlugs: null,
     manifest: null,
     currentArtifactHash: null,
     hashMethod: 'none',
@@ -179,11 +191,36 @@ if (manifest === null) {
   dirty = !mapsEqual(diskMap, manifestMap);
 }
 
+// ─── Presence drift (third axis) ────────────────────────────────────────────────
+//
+// Content-hash dirty above only knows what the manifest records — it never consults
+// the memory DB. So a feature marked synced but with NO note in the DB (a silently
+// failed add, a seeded manifest, a restored/pruned DB) hashes as unchanged and stays
+// invisible forever. Here we ask the DB directly: any manifest slug absent from it is
+// drift, and drift means the gate must offer a re-sync even when content is unchanged.
+//
+// Read-only and cheap (one SELECT, no model load). Degrades gracefully: when the DB
+// cannot be consulted, driftedSlugs is null (unknown) and `dirty` keeps its
+// content-only value — exactly the prior behaviour.
+const memoryExists = fs.existsSync(memoryDir);
+const manifestSlugs = (manifest && manifest.synced_features)
+  ? Object.keys(manifest.synced_features)
+  : [];
+const presence = queryPresentSlugs({
+  dbPath: path.join(memoryDir, 'memory.db'),
+  source: 'artifact-sync',
+});
+const drifted = driftedSlugs(manifestSlugs, presence);
+if (drifted && drifted.length > 0) {
+  dirty = true;
+}
+
 const result = {
   dirty,
   docsExists: true,
-  memoryExists: fs.existsSync(memoryDir),
-  manifest,
+  memoryExists,
+  driftedSlugs: drifted, // manifest slugs with no note in memory.db; null if unverifiable
+  manifest: withManifest ? manifest : null,
   currentArtifactHash,
   hashMethod,
   manifestPath,

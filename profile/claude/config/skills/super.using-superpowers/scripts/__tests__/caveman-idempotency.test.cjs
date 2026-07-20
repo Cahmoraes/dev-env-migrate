@@ -30,6 +30,15 @@ const EXECUTION_SKILLS = [
   'super.parallel-subagent-development/SKILL.md',
 ];
 
+// parallel-subagent-in-tree's Step 2 delegates its caveman policy wholesale to
+// parallel-subagent-development's Step 2 ("Apply the policy... verbatim") instead
+// of duplicating it — include the delegated body so the guard sees the real content.
+const PARALLEL_DEV = 'super.parallel-subagent-development/SKILL.md';
+function readSkillBody(rel) {
+  const body = read(rel);
+  return rel === 'super.parallel-subagent-in-tree/SKILL.md' ? body + '\n' + read(PARALLEL_DEV) : body;
+}
+
 test('router declares the session_caveman_in_effect liveness flag', () => {
   const body = read(ROUTER);
   assert.match(body, /session_caveman_in_effect/, 'the liveness flag must be declared in the router');
@@ -52,7 +61,7 @@ test('router states the idempotency rule (skip re-invoking when already in effec
 
 for (const rel of EXECUTION_SKILLS) {
   test(`${rel}: caveman activation is guarded by session_caveman_in_effect`, () => {
-    const body = read(rel);
+    const body = readSkillBody(rel);
     assert.match(
       body,
       /session_caveman_in_effect/,
@@ -61,7 +70,7 @@ for (const rel of EXECUTION_SKILLS) {
   });
 
   test(`${rel}: deactivation resets session_caveman_in_effect to false`, () => {
-    const body = read(rel);
+    const body = readSkillBody(rel);
     assert.match(
       body,
       /session_caveman_in_effect\s*=\s*false/,

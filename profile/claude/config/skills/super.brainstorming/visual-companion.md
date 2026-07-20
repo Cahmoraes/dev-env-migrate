@@ -31,7 +31,7 @@ it has two mutually exclusive answers:
   cards of *title + paragraph*. It is **incapable of drawing layout**: no positioning, no
   wireframe, no UI representation. Use it only for conceptual A/B/C choices that happen to
   read better as clean cards than as terminal text.
-- **Visual mockup** (bespoke HTML with real design tokens — see § Project-aware mockups) —
+- **Visual mockup** (bespoke HTML with real design tokens — see the "Project-aware mockups" section) —
   the **only** path that actually draws the UI: where a button sits, how a layout flows,
   how two designs compare side by side.
 
@@ -69,8 +69,8 @@ remind the user to add `.superpowers/` to `.gitignore` if it isn't already.
 If you backgrounded the launch and didn't capture stdout, read `<state_dir>/server-info`
 to recover the URL and port. The server auto-exits after 30 minutes idle, or when the
 owner process dies. **Platform differences** (Windows/Codex/Gemini foreground behavior,
-remote `--host 0.0.0.0` binding) live in `visual-companion-reference.md § Launching by
-platform`.
+remote `--host 0.0.0.0` binding) live in `visual-companion-reference.md`, "Launching by
+platform" section.
 
 ## The loop
 
@@ -106,8 +106,8 @@ platform`.
 ## Writing content
 
 **First, apply the layout gate (above).** If the question is visual (positioning, layout,
-spacing, hierarchy, component appearance), write a bespoke mockup (*§ Project-aware
-mockups*) — not `render-screen.cjs`. The spec generator below is only for
+spacing, hierarchy, component appearance), write a bespoke mockup (the
+"Project-aware mockups" section) — not `render-screen.cjs`. The spec generator below is only for
 conceptual/textual choices.
 
 **For textual screens — generate from a compact spec, don't write HTML inline.** For the
@@ -140,8 +140,8 @@ positioning, wireframe, mockup, or side-by-side comparison. Write **fragments**,
 documents: if your HTML does not start with `<!DOCTYPE`/`<html>`, the server wraps it in
 the frame template automatically (header, theme CSS, selection indicator, and the client
 helper are all injected). The full building-block catalog — `.cards`, `.mockup`, `.split`,
-`.pros-cons`, mock wireframe elements, typography — is in `visual-companion-reference.md §
-CSS classes`. Keep 2–4 options per screen and state the question on every page.
+`.pros-cons`, mock wireframe elements, typography — is in `visual-companion-reference.md`,
+"CSS classes" section. Keep 2–4 options per screen and state the question on every page.
 
 **Never write your own selection JavaScript.** The injected helper handles the whole
 selection lifecycle for any element carrying a `data-choice` attribute: click to select,
@@ -167,8 +167,8 @@ reads them in its own context and hands back just the distilled report.
 
 **Dispatch (read-only subagent — tools: `Read`, `Grep`, `Glob`, `Bash` read-only):**
 > Discover this project's design system and the target screen so a faithful HTML mockup can be
-> built. Follow `super.brainstorming/visual-companion-reference.md § Project-aware design
-> tokens` (discovery playbook). Return **only** the distilled report shape defined there —
+> built. Follow the "Project-aware design tokens" section of `super.brainstorming/visual-companion-reference.md`
+> (discovery playbook). Return **only** the distilled report shape defined there —
 > tokens, button/card shape, spacing, font, and a short summary of the target screen's current
 > layout and any reusable component names. Do **not** paste raw file contents, full configs, or
 > whole component sources; return the derived values only.
@@ -179,7 +179,7 @@ wireframe leaves the user unable to judge layout against their real app. After t
 returns, **build the mockup from it — do not re-read those files inline** (that would refill
 the orchestrator with the bytes the subagent was dispatched to keep out).
 
-See `visual-companion-reference.md § Project-aware design tokens` for the discovery playbook,
+See the "Project-aware design tokens" section of `visual-companion-reference.md` for the discovery playbook,
 the exact return shape, and a worked example.
 
 ## Distilling the approved mockup (curated visual artifact)
@@ -213,7 +213,7 @@ It is **authored, not copied** — curate, don't dump. Include:
 - **The core HTML/JSX** — only the representative, meaningful markup (the actual
   layout), never the waiting/placeholder/option screens.
 - **Design tokens applied** — colors, typography, radius, spacing taken from the
-  project's theme (see § Project-aware mockups).
+  project's theme (see the "Project-aware mockups" section).
 - **Original design source (if any)** — a design-tool URL, an export, or a
   screenshot. Tool-agnostic: record whatever this project used, or state "none".
 - **Fidelity note** — the artifact is a *norte* (direction), not the pixel-final

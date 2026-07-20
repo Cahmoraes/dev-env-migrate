@@ -7,7 +7,7 @@ details.
 
 ## Launching by platform
 
-The canonical command is in `visual-companion.md § Launch`. The server must keep running
+The canonical command is in `visual-companion.md`, "Launch" section. The server must keep running
 in the background across conversation turns; platforms differ in how they treat
 background processes.
 
@@ -90,7 +90,7 @@ in the returned URL JSON.
 
 The frame template provides these classes for your content. For the common kinds
 (`options`, `cards`, `pros-cons`) you normally don't write this markup by hand — generate
-it from a spec with `render-screen.cjs` (see `visual-companion.md § Writing content`).
+it from a spec with `render-screen.cjs` (see `visual-companion.md`, "Writing content" section).
 This catalog is for the escape-hatch case (bespoke layouts) and for understanding what the
 generator emits.
 
@@ -201,8 +201,8 @@ exist, the user didn't interact in the browser — use only their terminal text.
 ## Design tips
 
 The Quick Start already covers stating the question on every page, 2–4 options per screen,
-iterating before advancing, and matching the project's visual language (§ Project-aware
-design tokens below). Beyond those:
+iterating before advancing, and matching the project's visual language (the "Project-aware
+design tokens" section below). Beyond those:
 
 - Scale fidelity to the question — wireframes for layout, polish for polish questions.
 - Use real content when it matters (e.g. actual images for a portfolio); placeholders hide

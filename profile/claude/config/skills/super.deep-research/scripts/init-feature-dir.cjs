@@ -33,7 +33,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
@@ -86,15 +85,16 @@ function parseArgs(argv) {
 }
 
 /** Resolve the git toplevel of cwd; null when cwd is not inside a git repo. */
+// Git working-tree root, resolved in-process (no `git` spawn): walk up looking for
+// a `.git` entry (a dir in a clone, a FILE in a linked worktree — both match). Same
+// discovery `git rev-parse --show-toplevel` does; null when not in a repo.
 function detectGitRoot() {
-  try {
-    const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return result.trim() || null;
-  } catch {
-    return null;
+  let dir = process.cwd();
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
