@@ -178,7 +178,21 @@
       "detect_path": null,
       "shell_init": null,
       "config_dirs": null,
-      "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado."
+      "note": "Instala em ~/.local/bin/rtk. Cuidado com colisão de nome: 'reachingforthejack/rtk' (Rust Type Kit) usa o mesmo binário. Verifique com `rtk gain` após instalar — se falhar, é o errado. Integração com o Claude Code é via hook do settings.json (viaja em config_to_export do Claude). Integração com o GitHub Copilot CLI é um passo À PARTE — ver `copilot_cli_integration` abaixo."
+    },
+    {
+      "name": "context-mode",
+      "source": "https://github.com/mksglu/context-mode",
+      "install": {
+        "all": "npm install -g context-mode"
+      },
+      "verify": "context-mode doctor",
+      "detect": "context-mode",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "No Claude Code o plugin já viaja via marketplace (ver claude-manifest.json → plugins, marketplace 'context-mode'). Este binário global só é necessário à parte para o GitHub Copilot CLI — ver `copilot_cli_integration` abaixo."
     },
     {
       "name": "ast-grep",
@@ -288,82 +302,112 @@
     ".config/micro",
     ".config/glow",
     ".config/starship.toml",
-    ".config/caveman",
-    ".config/token-crunch"
+    ".config/caveman"
   ],
   "platform_specific_lines": [
     {
-      "line": 58,
+      "line": 54,
       "pattern": "WARP_ENABLE_WAYLAND",
       "platform": "wsl_windows",
       "text": "export WARP_ENABLE_WAYLAND=1"
     },
     {
-      "line": 59,
+      "line": 55,
       "pattern": "MESA_D3D12",
       "platform": "wsl_windows",
       "text": "export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA"
     },
     {
-      "line": 63,
+      "line": 59,
       "pattern": "WarpTerminal",
       "platform": "wsl_windows",
       "text": "if [[ \"$TERM_PROGRAM\" == \"WarpTerminal\" ]]; then"
     },
     {
-      "line": 64,
+      "line": 60,
       "pattern": "SourcedRcFileForWarp",
       "platform": "wsl_windows",
       "text": "printf '\\ePsf{\"hook\":\"SourcedRcFileForWarp\",\"value\":{\"shell\":\"zsh\"}}\\x9c'"
     },
     {
-      "line": 68,
+      "line": 64,
       "pattern": "alias bat=\"batcat\"",
       "platform": "debian_binary_rename",
       "text": "alias bat=\"batcat\""
     },
     {
-      "line": 69,
+      "line": 65,
       "pattern": "alias fd=\"fdfind\"",
       "platform": "debian_binary_rename",
       "text": "alias fd=\"fdfind\""
     },
     {
-      "line": 141,
+      "line": 137,
       "pattern": "/mnt/c",
       "platform": "wsl_windows",
       "text": "VSCODE_BIN=\"/mnt/c/Users/ike_m/AppData/Local/Programs/Microsoft VS Code/bin\""
     },
     {
-      "line": 142,
+      "line": 138,
       "pattern": "VSCODE_BIN",
       "platform": "wsl_windows",
       "text": "[[ -d \"$VSCODE_BIN\" ]] && path=(\"$VSCODE_BIN\" $path)"
     },
     {
-      "line": 146,
+      "line": 142,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode='bash ~/nice-vscode.sh'"
     },
     {
-      "line": 147,
+      "line": 143,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode-restore='bash ~/nice-vscode.sh 0'"
     },
     {
-      "line": 148,
+      "line": 144,
       "pattern": "pastepng",
       "platform": "wsl_windows",
       "text": "alias pscreen='pastepng /tmp/screen.png && echo /tmp/screen.png'"
     },
     {
-      "line": 151,
+      "line": 147,
       "pattern": "/mnt/wslg",
       "platform": "wsl_windows",
       "text": "export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native"
     }
   ],
-  "_note": "Gerado por export.sh. Cada item de 'platform_specific_lines' tem um campo 'platform' (macos/wsl_windows/debian_binary_rename). No destino, REMOVA as linhas cuja plataforma não corresponde ao SO de lá. Bidirecional."
+  "copilot_cli_integration": {
+    "copilot_cli_present": true,
+    "steps": [
+      {
+        "id": "rtk-copilot-hook",
+        "tool": "rtk",
+        "requires_binary": "rtk",
+        "describe": "Registra hook PreToolUse do rtk no Copilot CLI (reescreve automaticamente comandos shell, ex.: git status -> rtk git status) + injeta instruções no system prompt do Copilot",
+        "command": "rtk init -g --copilot --auto-patch",
+        "verify": "rtk gain",
+        "detect_artifact": "~/.copilot/hooks/rtk-rewrite.json",
+        "generates": [
+          "~/.copilot/hooks/rtk-rewrite.json",
+          "~/.copilot/copilot-instructions.md"
+        ],
+        "applied_here": false
+      },
+      {
+        "id": "context-mode-copilot-plugin",
+        "tool": "context-mode",
+        "requires_binary": "context-mode",
+        "describe": "Registra o context-mode como plugin do Copilot CLI (MCP server + hooks + skill de roteamento ctx-search/ctx-index/etc.)",
+        "command": "copilot plugin install mksglu/context-mode:configs/copilot-cli",
+        "verify": "copilot mcp list",
+        "verify_expect": "linha 'context-mode (local)' na seção Plugin servers",
+        "detect_artifact": "~/.copilot/installed-plugins/_direct/mksglu--context-mode--configs-copilot-cli",
+        "note": "`context-mode doctor` pode acusar WARN/FAIL num caminho legado manual (~/.copilot/hooks/context-mode.json e mcpServers no mcp-config.json raiz) — essas checagens não reconhecem o registro via PLUGIN (este método, o recomendado). Fonte de verdade real: `copilot plugin list` e `copilot mcp list`, não o doctor.",
+        "applied_here": true
+      }
+    ]
+  },
+  "_note": "Gerado por export.sh. Cada item de 'platform_specific_lines' tem um campo 'platform' (macos/wsl_windows/debian_binary_rename). No destino, REMOVA as linhas cuja plataforma não corresponde ao SO de lá. Bidirecional. 'copilot_cli_integration' é opcional/agnóstico de SO — só se aplica se o destino tiver o binário `copilot`."
 }

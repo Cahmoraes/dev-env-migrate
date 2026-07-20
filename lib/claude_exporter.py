@@ -404,8 +404,8 @@ no `config/settings.json` (Fase 4) — aqui você só instala os binários.
   no profile).
 - Gerenciadores conforme os language servers necessários: `pnpm`/`npm` (TS),
   `pip`/`pnpm` (pyright), `go` (gopls), `rustup`/`cargo` (rust-analyzer).
-- Toolchain das dependências de binário dos hooks (Fase 3.5), se houver — ex.:
-  `go` para o `token-crunch`.
+- Toolchain das dependências de binário dos hooks (Fase 3.5), se houver — a fase
+  só aparece quando algum `hook_dependency` é detectado nos hooks atuais.
 
 ## Fase 1 — Marketplaces
 Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
