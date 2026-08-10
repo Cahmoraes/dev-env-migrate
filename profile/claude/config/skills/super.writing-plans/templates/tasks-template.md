@@ -1,7 +1,5 @@
 # Tarefas: [Feature Name]
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use super.subagent-driven-development (recommended, sequential), super.parallel-subagent-in-tree (parallel waves in the shared tree, no worktrees), or super.parallel-subagent-development (parallel waves in isolated worktrees — see the `## Ondas de Execução` section below) to implement tasks. Progress is tracked at the task level via the checkbox (`- [ ]`) list below — each task file contains the full implementation steps for its task.
-
 **Spec:** `../specs/<feature-name>-design.md`
 **PRD:** `../prd/prd-<feature-name>.md`
 

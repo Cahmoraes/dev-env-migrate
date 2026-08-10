@@ -28,6 +28,19 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
 
+// The project's test command must not inherit a test-runner context from whatever
+// spawned this script. `node --test` reads NODE_TEST_CONTEXT and, when it is set,
+// reports results to a parent runner over IPC instead of the terminal - and exits 0
+// EVEN WHEN TESTS FAIL. Inherited, it makes every mutant look like it SURVIVED: the
+// sensor would call a discriminating suite blind, which is the one verdict this
+// script exists to get right. Verified: `NODE_TEST_CONTEXT=child-v8 node --test` on a
+// failing test exits 0, the same command without it exits 1.
+function childEnv() {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  return env;
+}
+
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
@@ -98,7 +111,7 @@ function main() {
       // subagent, and needs shell features (`--`, `&&`, globs) to work. It is NOT
       // untrusted external input. The mutation inputs (--file/--find/--replace) never
       // reach the shell - they only feed fs.readFileSync/writeFileSync above.
-      execSync(args.test, { stdio: 'ignore' });
+      execSync(args.test, { stdio: 'ignore', env: childEnv() });
       testExitCode = 0;
     } catch (e) {
       testExitCode = typeof e.status === 'number' ? e.status : 1;

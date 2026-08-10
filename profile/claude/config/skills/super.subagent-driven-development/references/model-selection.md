@@ -8,6 +8,8 @@
 
 **Forbidden is omission, not the model itself.** A tier may legitimately resolve to the same model the controller runs (e.g. controller on standard, a `standard`-tier task). That is correct — the model was chosen *for the task* and still passed explicitly. The bug is "inherited by omission, without resolving the tier." Resolve the tier first; if the answer equals your model, set it explicitly anyway.
 
+> **Platform note — where the tier lands is not the same everywhere.** The policy is unchanged on every platform; only the *mechanism* that carries it differs, because not every dispatch tool has a `model` argument. **Claude Code / Copilot CLI:** `model:` on the dispatch, as written throughout this file. **Codex:** the v1 `spawn_agent` takes `model`; the v2 surface does not. **Gemini CLI:** a subagent's `model` defaults to `inherit` — literally the controller's model — so the tier needs a custom agent with an explicit `model:`. **opencode:** `task` has no `model` argument at all; the tier is carried by `subagent_type`, backed by one generated agent per tier (`scripts/generate-opencode-agents.cjs`). On any platform where the tier cannot be set at dispatch time, say so in-thread rather than dispatching silently, and record the model actually used in the `validate-dispatch.cjs` manifest so the mechanical gate stays meaningful. Per-platform detail: `super.using-superpowers/references/{codex,gemini,opencode}-tools.md`.
+
 ## Abstract tiers (decoupled from model names)
 
 Reason in **tiers**, never hard-coded model names, so a rename or new release never breaks the policy:

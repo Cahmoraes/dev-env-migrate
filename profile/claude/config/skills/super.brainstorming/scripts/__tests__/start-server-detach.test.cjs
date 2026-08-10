@@ -22,8 +22,16 @@
  * we assert here, plus that the launcher returns (does not block) and that the
  * pid file is authoritative (written by the server itself).
  *
- * Skipped when `setsid` is unavailable (e.g. Git Bash on Windows), where the
- * skill auto-foregrounds instead and this invariant does not apply.
+ * Skipped only where the script has NO detaching path at all (e.g. Git Bash on
+ * Windows), because there it auto-foregrounds and this invariant does not apply.
+ *
+ * The guard must mirror start-server.sh's OWN capability check, not just `setsid`:
+ * macOS ships no `setsid` binary and the script falls back to
+ * `perl -e 'use POSIX "setsid"; setsid()'`, which reaches the same syscall and
+ * must produce the same SID == pid invariant. Guarding on `setsid` alone silently
+ * skipped these tests on every Mac — i.e. on the platform where the perl fallback
+ * is the only thing standing between the companion and the harness reaping it
+ * between turns, the detachment invariant went unverified.
  */
 
 const test = require('node:test');
@@ -38,19 +46,59 @@ const START = path.join(SCRIPTS_DIR, 'start-server.sh');
 const STOP = path.join(SCRIPTS_DIR, 'stop-server.sh');
 
 const hasSetsid = spawnSync('bash', ['-c', 'command -v setsid'], { encoding: 'utf8' }).status === 0;
+// macOS path: no setsid binary, but perl exposes the same syscall (see start-server.sh).
+const hasPerlSetsid =
+  process.platform === 'darwin' &&
+  spawnSync('bash', ['-c', 'command -v perl >/dev/null && perl -e \'use POSIX "setsid";\''], { encoding: 'utf8' })
+    .status === 0;
+const canDetach = hasSetsid || hasPerlSetsid;
 
-/** Read a process's session id, or null if the process is gone. */
-function sessionId(pid) {
-  const r = spawnSync('ps', ['-o', 'sid=', '-p', String(pid)], { encoding: 'utf8' });
-  const sid = (r.stdout || '').trim();
-  return sid ? Number.parseInt(sid, 10) : null;
+/**
+ * Can we OBSERVE the invariant on this box? Detaching and proving detachment are two
+ * different capabilities: a minimal Linux image (busybox `ps`, no `-o` support) can run
+ * setsid perfectly well yet report nothing readable. Probe the exact `ps` invocation the
+ * assertion uses, against a pid that is certainly alive (our own), so an unobservable
+ * environment SKIPS instead of failing a real, working server.
+ */
+const canObserveDetachment = (() => {
+  const keyword = process.platform === 'darwin' ? 'pgid' : 'sid';
+  const r = spawnSync('ps', ['-o', `${keyword}=`, '-p', String(process.pid)], { encoding: 'utf8' });
+  return r.status === 0 && Number.isFinite(Number.parseInt((r.stdout || '').trim(), 10));
+})();
+
+const canRunDetachTests = canDetach && canObserveDetachment;
+
+/**
+ * Read the process attribute that proves detachment, as `{ kind, value }`.
+ *
+ * `setsid(2)` sets BOTH the session id and the process group id to the caller's pid,
+ * so either equalling `pid` proves the process leads its own session. Which one we can
+ * observe is platform-dependent:
+ *
+ *   Linux  — `ps -o sid=` reports the session id directly.
+ *   macOS  — BSD `ps` has no `sid` keyword at all, and `-o sess=` reports 0 (the kernel
+ *            no longer exposes the session pointer). The observable left is `pgid`,
+ *            which setsid sets to pid in the same call. It is the weaker of the two
+ *            statements but not a weaker guarantee here: the launcher's teardown
+ *            signals a process GROUP, so pgid == pid is precisely what keeps the
+ *            server alive across turns on macOS.
+ *
+ * Returns `{ kind: null, value: null }` when the process is gone.
+ */
+function detachmentKey(pid) {
+  const keyword = process.platform === 'darwin' ? 'pgid' : 'sid';
+  const r = spawnSync('ps', ['-o', `${keyword}=`, '-p', String(pid)], { encoding: 'utf8' });
+  const raw = (r.stdout || '').trim();
+  if (!raw) return { kind: null, value: null };
+  const value = Number.parseInt(raw, 10);
+  return { kind: keyword, value: Number.isFinite(value) ? value : null };
 }
 
 function isAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-test('background launch detaches the server into its own session and survives the launcher', { skip: !hasSetsid }, () => {
+test('background launch detaches the server into its own session and survives the launcher', { skip: !canRunDetachTests }, () => {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstorm-detach-'));
   let pid = null;
   let sessionDir = null;
@@ -76,7 +124,12 @@ test('background launch detaches the server into its own session and survives th
     // Root-cause invariant: the server leads its OWN session (SID == PID), so a
     // teardown of the launcher's session cannot reap it. With the old nohup path
     // the SID would be the launcher shell's session instead.
-    assert.equal(sessionId(pid), pid, 'server is a session leader (detached from the launcher)');
+    const key = detachmentKey(pid);
+    assert.equal(
+      key.value,
+      pid,
+      `server is a session leader (detached from the launcher); observed ${key.kind}=${key.value}, expected ${pid}`
+    );
   } finally {
     if (sessionDir) {
       try { execFileSync('bash', [STOP, sessionDir], { stdio: 'ignore' }); } catch (e) { /* best effort */ }
@@ -88,7 +141,7 @@ test('background launch detaches the server into its own session and survives th
   }
 });
 
-test('stop-server.sh stops the detached server via its authoritative pid file', { skip: !hasSetsid }, () => {
+test('stop-server.sh stops the detached server via its authoritative pid file', { skip: !canRunDetachTests }, () => {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstorm-stop-'));
   let pid = null;
   try {

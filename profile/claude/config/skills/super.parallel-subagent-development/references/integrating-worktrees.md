@@ -12,12 +12,27 @@ How a parallel wave's worktrees are created, merged into the base branch, and ho
 Defer creation to `super.using-git-worktrees` — do not hand-roll `git worktree add` if a native worktree tool exists. For each task:
 
 1. Invoke `super.using-git-worktrees` for a workspace off the base branch, with a deterministic, auditable name: `wt/<feature-name>-task-NN`.
-2. Let that skill run project setup (install deps) and confirm a clean test baseline. A task must start green — if the baseline fails, report it and do not dispatch the implementer until resolved.
+2. Let that skill run project setup (install deps), **allocate the worktree's ports (its Step 3.5)**, and confirm a clean test baseline. A task must start green — if the baseline fails, report it and do not dispatch the implementer until resolved.
 3. Record the mapping `task-NN → worktree path → branch name`. The implementer is pinned to this path and commits only inside it.
+
+## Runtime isolation, not just file isolation
+
+A wave is the exact situation port collisions were waiting for: N implementers, one loopback interface, the same hard-coded ports in every checkout. The first one to `npm run dev`, `docker compose up` or run an integration test wins; its siblings fail with `EADDRINUSE` and report it as a broken implementation — a false BLOCKED that costs a debugging round trip, and worse, one that lands on whichever task happened to start second rather than on the task that is actually wrong.
+
+`super.using-git-worktrees` Step 3.5 closes this, per worktree, before the baseline. Two wave-level obligations remain here:
+
+- **Carry the ports into the dispatch.** A pinned implementer that never learns its worktree has a `ports.env` will hard-code the canonical port and collide anyway. The scoping block in `../agents/implementer.md` states this; do not paraphrase it away.
+- **Audit the wave before dispatching.** Ports are allocated one worktree at a time, so the wave-level question — *is any block shared?* — is asked once, after all of them exist:
+
+  ```bash
+  node <super.using-git-worktrees-base-dir>/scripts/allocate-ports.cjs --check --json-only
+  ```
+
+  `disjoint: false` is a **STOP**: dispatching into overlapping blocks reproduces the exact failure the isolation exists to prevent. Each `conflicts` entry names the two worktrees and the fix. When the repo has no `.superpowers/ports.yml` the check reports `enabled: false` and there is nothing to audit — that is a pass, not a skip.
 
 ## Dispatching implementers
 
-Each implementer gets the standard `super.subagent-driven-development/agents/implementer.md` content plus the scoping block from `../agents/implementer.md`: the absolute worktree path to work in, no `cd` out of it, and a commit on its task branch before returning. Reviews run against that worktree's diff (`git -C <worktree> diff <base>...HEAD`).
+Each implementer gets the standard `super.subagent-driven-development/agents/implementer.md` content plus the scoping block from `../agents/implementer.md`: the absolute worktree path to work in, no `cd` out of it, its allocated ports, and a commit on its task branch before returning. Reviews run against that worktree's diff (`git -C <worktree> diff <base>...HEAD`).
 
 ## Pre-merge gate (deterministic)
 
@@ -76,6 +91,8 @@ A session can die mid-wave — some worktrees merged, others not, the tracker st
 ## Cleanup
 
 Remove the wave's worktrees before starting the next wave so they don't accumulate:
+- **Release the port block first** — `allocate-ports.cjs --release --worktree <path>` — while the path still exists. Skipping this is self-healing but not free: the lease lingers until something reaps it, and the next wave allocates around a block nobody is using.
+- Stop anything the worktree started (`docker compose down` with its `COMPOSE_PROJECT_NAME` loaded) before removing the directory; a container outliving its worktree holds the ports the lease just gave back.
 - Native tool: use its teardown (it reclaims unchanged worktrees automatically).
 - Git fallback: `git worktree remove <path>` for each; the task branch can be deleted after its merge commit lands (`git branch -d wt/<feature-name>-task-NN`).
 

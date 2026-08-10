@@ -8,7 +8,7 @@
  *   table duplicated across super.using-superpowers and every execution skill.
  *   Every new preference meant editing 4+ files, and the platform-specific rows
  *   ("always false off Claude Code / Copilot CLI") leaked one platform's detail
- *   into skills that may run on another (Codex, Gemini). This script is the single
+ *   into skills that may run on another (Codex, Gemini, opencode). This script is the single
  *   source of truth for that mapping and the platform gating, so the skills just
  *   run it and read the resolved values — no hand-mapping, no duplication, no leak.
  *   This is the superpowers rule that anything which must not depend on model
@@ -22,7 +22,7 @@
  *                            never duplicated.
  *
  * PLATFORM GATING
- *   caveman + memory + model_tiers + qa_gate + auto_commit are platform-agnostic
+ *   caveman + memory + model_tiers + qa_gate + auto_commit + language are platform-agnostic
  *   (apply on every platform).
  *   The native-review variables exist only on their own platform:
  *     - claude_code.{simplify, code_review_final, code_review_effort} → Claude Code
@@ -47,11 +47,19 @@
  *   node scripts/derive-session-state.cjs [--platform <name>] [--repo-root <path>]
  *
  * Options:
- *   --platform <name>   claude-code (default) | copilot | codex | gemini | other
+ *   --platform <name>   claude-code (default) | copilot | codex | gemini | opencode | other
  *   --repo-root <path>  Explicit repo root (else git detection, via read-preferences).
  *   --help              Show this help and exit 0.
  *
- * Output (JSON to stdout): { platform, preferencesFound, sessionState }
+ * Output (JSON to stdout): { platform, preferencesFound, malformed, preferencesPath, sessionState }
+ *
+ * WHY IT ALSO CARRIES preferencesFound / malformed / has_corporate_artifacts
+ *   The entry point used to run read-preferences.cjs AND this script back to back, one
+ *   tool call each, over the same YAML — the first one only for `found`, `malformed` and
+ *   `context.has_corporate_artifacts`, since every other field it read is already mapped
+ *   into sessionState here. Those three now ride along, so session start is ONE call.
+ *   read-preferences.cjs stays the SSOT for reading (and the raw object still matters for
+ *   the option-0 wizard, which needs current values as pre-selected defaults).
  *
  * Exit codes:
  *   0  success
@@ -63,7 +71,7 @@
 const path = require('path');
 const { DEFAULTS, loadPreferences } = require('./read-preferences.cjs');
 
-const PLATFORMS = ['claude-code', 'copilot', 'codex', 'gemini', 'other'];
+const PLATFORMS = ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other'];
 
 const HELP = `
 derive-session-state.cjs — Derive superpowers session_* variables from preferences.
@@ -76,7 +84,7 @@ Options:
   --repo-root <path>  Explicit repo root (else git detection).
   --help              Show this help and exit 0.
 
-Output (JSON to stdout): { platform, preferencesFound, sessionState }
+Output (JSON to stdout): { platform, preferencesFound, malformed, preferencesPath, sessionState }
 sessionState holds only preferences-derived variables; controller latches
 (session_caveman_in_effect / _prompted / _resync_completed) are not derived here.
 `.trimStart();
@@ -113,6 +121,19 @@ function deriveSessionState(preferences, platform) {
     // (the execution skills still read workflow.auto_commit directly at their commit gate).
     session_qa_gate_enabled: Boolean(preferences.workflow.qa_gate),
     session_auto_commit: Boolean(preferences.workflow.auto_commit),
+
+    // Platform-agnostic — whether the repo declares corporate artifacts. Surfaced here so the
+    // entry point learns it from THIS call instead of spending a second tool call on
+    // read-preferences.cjs just for one boolean (the rest of that object is already mapped above).
+    session_has_corporate_artifacts: Boolean(preferences.context?.has_corporate_artifacts),
+
+    // Platform-agnostic — the human-language every skill writes its user-facing artifacts in
+    // (validation/QA reports, spec/PRD prose, subagent-authored notes). Defaults to pt-BR.
+    // The structural skeleton of machine-validated artifacts (report section headings, field
+    // labels, status tokens like PASS ✅/FAIL ❌, and FR/AC/US identifiers) stays canonical
+    // regardless — only human-readable prose follows this. See the report-producing skills
+    // (super.independent-verification, super.user-story-verification) for that split.
+    session_language: preferences.communication.language,
 
     // Claude Code native — resolve to safe defaults off Claude Code.
     session_simplify_enabled: isClaudeCode ? Boolean(preferences.claude_code.simplify) : false,
@@ -167,6 +188,8 @@ function main(argv) {
   const result = {
     platform,
     preferencesFound: Boolean(prefsResult.found),
+    malformed: Boolean(prefsResult.malformed),
+    preferencesPath: prefsResult.preferencesPath ?? null,
     sessionState: deriveSessionState(prefsResult.preferences, platform),
   };
 

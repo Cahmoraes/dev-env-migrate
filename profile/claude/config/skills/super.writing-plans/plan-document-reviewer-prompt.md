@@ -6,10 +6,10 @@ Use this template when dispatching a plan document reviewer subagent.
 
 **Dispatch after:** The complete plan is written.
 
-**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob` only (no `Edit`/`Write`/`Bash`/`Task`). A plan document reviewer only reads markdown files (plan + spec) and returns a verdict; it never modifies files or runs commands, so withholding write/dispatch tools keeps their schemas out of its context window. If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
+**Dispatch as a read-only subagent** — allowed tools are file reading and searching, nothing else (no editing, no writing, no shell, no dispatching). A plan document reviewer only reads markdown files (plan + spec) and returns a verdict; it never modifies files or runs commands, so withholding write/dispatch tools keeps their schemas out of its context window. If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
 
 ```
-Task tool — read-only subagent (tools: Read, Grep, Glob):
+Task tool — read-only subagent (tools: file reading and searching, no shell):
   description: "Review plan document"
   prompt: |
     You are a plan document reviewer. Verify this plan is complete and ready for implementation.

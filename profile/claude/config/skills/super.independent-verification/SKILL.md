@@ -1,6 +1,7 @@
 ---
 name: super.independent-verification
 description: Always-on independent verification gate that runs once after the final code review, before the QA gate and before finishing a branch. A fresh, blind Verifier subagent (author != verifier) re-derives requirement coverage from the spec with an evidence-or-zero rule, runs a spec-anchored outcome check (each acceptance criterion mapped to file:line + the exact assertion expression and its spec-defined value), and runs a discrimination sensor (mutation testing in a git-scratch state) proving the tests actually kill regressions. Writes a persisted validation report, turns surviving mutants and spec-precision gaps into fix tasks (bounded fix->re-verify loop), and distills grounded lessons. Use after all tasks are implemented and the final code review passed, when verifying an implementation against its spec/PRD, or when asked to prove the tests catch bugs (mutation testing). Complements super.verification-before-completion (controller self-check) with a blind, independent second pair of eyes.
+user-invocable: false
 ---
 
 # Independent Verification
@@ -37,12 +38,37 @@ mutation mechanism, both cases.
 Dispatch a **genuinely fresh subagent** that did **not** implement any task and did **not**
 orchestrate the session. It inherits none of the author's assumptions.
 
+**When a fresh dispatch is impossible — declare the degradation, never hide it.** If the platform
+or the session genuinely cannot dispatch a subagent, the gate does **not** silently become "the
+controller reviews its own work". Two outcomes are acceptable; pretending is not:
+
+- **Preferred — BLOCKED.** Report the gate as `NOT_RUN (no dispatch available)`, leave the feature
+  **not done**, and say so to the user in `session_language`. Do not write a PASS.
+- **Fallback — SELF-DEGRADED.** Only when the user accepts a weaker gate: the controller runs the
+  same procedure, but MUST (a) read `agents/verifier.md` in full first, (b) execute every mutation
+  for real (see the sensor rule below), and (c) record `**Verifier:** SELF-DEGRADED (author ==
+  verifier)` in the report. A SELF-DEGRADED run can never produce a clean `PASS` — its best
+  possible verdict is `PASS (degraded)`, which does **not** satisfy the Iron Law and must be
+  re-run by a fresh verifier before `super.finishing-a-development-branch`.
+
+The failure this closes: with no stated fallback, a runtime that cannot dispatch improvises an
+inline gate and self-declares PASS. Measured consequence (benchmark 2026-07-25, brief C): the
+sensor degenerated from *executed* to *argued* — the report reasoned about what a mutation "would"
+break instead of injecting one — and a module carrying 27 live mutants shipped as "no blocking
+defects found".
+
 **Context budget (keep minimal):**
 - the **spec** (and PRD if one exists) - the acceptance criteria are the source of truth;
 - the **git diff surface** of the feature, `BASE_SHA..HEAD_SHA` (the whole feature range, not one
   task);
 - the **test files** in scope;
 - its operating checklist (`agents/verifier.md`).
+
+Fill the `{SESSION_LANGUAGE}` placeholder in that checklist with `session_language` (from
+`derive-session-state.cjs`; `communication.language` in preferences, default `pt-BR`) so the
+persisted report's prose is written in the user's language. The report's structural skeleton
+(section headings, field labels, status tokens, FR/AC identifiers) stays canonical regardless —
+`check-verification-report.cjs` and the controller re-run key off it.
 
 **Do NOT send:** full session transcript, prior task files, planning artifacts, or the complete
 source tree. The Verifier re-derives coverage from the spec alone. Extra context only raises cost
@@ -52,7 +78,7 @@ It re-derives coverage independently under an **evidence-or-zero** rule and retu
 is **read-only for source and tests** (never edits them); its only writes are the persisted
 `validation.md` report and - via `scripts/lessons.py` - the machine-owned lessons store. Mutation
 faults are injected only in a **git-scratch state** and always reverted (see Discrimination
-Sensor). Give it tools `Read, Grep, Glob, Bash` (Bash for read-only git inspection + the
+Sensor). Give it tools file reading, searching and the shell (Bash for read-only git inspection + the
 scratch-state mutation cycle + running the test command + `lessons.py`). Set `model:` explicitly
 by feature tier: **Micro/Small non-critical → `cheap`**, **Medium and Small security/critical → `standard`**,
 **Large/Complex → `capable`**. **The tier is not a model — resolve it via `model_tiers.<tier>`
@@ -70,12 +96,18 @@ Dispatch payload and full operating procedure: `agents/verifier.md`.
 
 ## What the Verifier Does
 
-**First, confirm the suite is green.** The Verifier **may reuse the wave/batch full-suite green**
-from the gate immediately before it (`super.subagent-driven-development`, run just before the
-final review) instead of re-running from scratch — but only if `git status --porcelain` is empty
-and `HEAD` equals the verified SHA. A red or moved tree forces a fresh run; the discrimination
-sensor below always runs its own test executions regardless. Full procedure: `agents/verifier.md`,
-Step 1.
+**First, confirm the suite is green.** Pass the previous gate's full-suite result **with its SHA**
+as `{BASELINE_GREEN}` (the integration barrier in `super.subagent-driven-development`). A blind
+Verifier cannot reuse a green it was never shown: an omitted baseline buys a whole extra suite run
+per dispatch, and again per re-verify round. It reuses only while `git status --porcelain` is empty
+and `HEAD` matches; the sensor always runs its own. Full: `agents/verifier.md`, Step 1.
+
+**Load the procedure before running either check.** Whoever executes checks 1–2 — the dispatched
+Verifier, or the controller in SELF-DEGRADED mode — MUST read `agents/verifier.md` in full first.
+This file states *what* the gate is; `agents/verifier.md` is *how* to run it (the exact
+mutate→test→restore cycle, the 5-point evidence procedure, the report skeleton). Running the checks
+off this description alone is the known failure mode: the prose here is satisfiable by reasoning
+about what a mutation *would* do, and a sensor that is argued instead of executed proves nothing.
 
 ### 1. Spec-anchored outcome check (evidence-or-zero)
 
@@ -91,12 +123,48 @@ Each criterion resolves to ✅ PASS / ❌ gap (uncovered or wrong value) / ⚠�
 ### 2. Discrimination sensor (mutation testing)
 
 Empirical proof the tests detect regressions, run after the gate is confirmed green, against a
-git-scratch state (the real working tree is never modified). Depth is proportional: default
-*lightweight* (1–3 behavior-level mutations on the highest-risk new logic); *full* (≥5, or a
-dedicated mutation tool) for P0/critical paths. A surviving mutant means the tests aren't
-discriminating for that behavior — it becomes a **fix task**; the feature is not done while one
-survives. Mutation types, the per-mutation cycle (`scripts/run-mutation.cjs`), and the manual
-fallback: `references/mutation-tooling.md`; full procedure: `agents/verifier.md`, Step 3.
+git-scratch state (the real working tree is never modified).
+
+**A mutation counts only if it was executed.** Fault injected into the file, suite actually run,
+exit status observed, tree restored. Writing that a mutation "would break test X" is analysis, not
+a sensor reading — the `Killed?` column must carry an **observed** `killed`/`survived`, never a
+predicted one, and a report whose sensor rows were reasoned rather than run is a **FAIL**.
+
+**Depth scales with the surface, not only with the risk.** Floor: `max(3, one mutation per new
+logic file in the diff)`, capped at 10 for a lightweight pass; P0/critical paths (payments, auth,
+data integrity) run full (≥5, or a dedicated mutation tool if the stack has one). **Every new logic
+file in the diff gets at least one mutation** — a barrel/re-export file is not logic. When the cap
+binds, spend the budget on the files with the largest logical surface first (most branches and
+operators), because that is where untested behavior hides. A feature decomposed into many small
+modules does not earn a cheaper sensor; it earns a wider one.
+
+**Depth also scales *within* a file, not just across files.** The per-file floor above proves
+every file got *some* mutation — it does not prove a dense file got *enough*. Declare, per new
+logic file, its own branch/operator count alongside its mutation count (`**Sensor depth**: <N>
+mutations across <M> logic files — <file>: <mutations>/<branches> branches, …`); each file's
+minimum is `max(1, min(5, ceil(branches / 3)))` — roughly one mutation per three branches/operators
+in that file, capped at 5. A file with 12 branches cannot satisfy depth with the same single
+mutation a 1-branch file uses to clear the floor. Measured consequence (benchmark 2026-07-25):
+`hash-to-bucket.ts` and `lru-ttl-cache.ts` each concentrated 5 survivors out of ~8 mutants while
+meeting the old per-file floor — the floor was satisfied, the file was not actually probed.
+`check-verification-report.cjs` validates the breakdown: entry count matches the declared logic
+file count, the per-file sum matches the declared total, and each file meets its own proportional
+minimum.
+
+A surviving mutant means the tests aren't discriminating for that behavior — it becomes a **fix
+task**; the feature is not done while one survives. **Exception: a genuine equivalent mutant** —
+the mutated branch/condition can never differ in observable behavior because an invariant enforced
+elsewhere in the code guarantees its value (e.g. a `!== undefined` guard on a variable that is only
+ever reached already-defined) — cannot be killed by any test, and treating it as a normal survivor
+either stalls the fix→re-verify loop or pressures a change to working code just to force a kill.
+Accept it only with a dedicated `## Equivalent Mutants` block per survivor: the invariant proof
+(traced, not assumed) and the alternative test that was actually tried and still couldn't kill it.
+Mark that sensor row `Equivalent` (not `Survived`) — a bare `Survived` row still fails the gate even
+if you believe it's equivalent. `check-verification-report.cjs` cross-checks every `Equivalent` row
+against its block by file:line and rejects placeholder invariants/attempts.
+
+Mutation types and the runner (`scripts/run-mutation-batch.cjs` — isolated snapshots,
+subset-first): `references/mutation-tooling.md`; full procedure: `agents/verifier.md`, Step 3.
 
 ### 3. Write the persisted report
 
@@ -216,8 +284,8 @@ semantic/LSP (Serena `find_symbol` / `find_referencing_symbols`, IDE diagnostics
   violation.
 - "Tests pass, so we're done" without the discrimination sensor → you proved the tests run, not
   that they catch bugs.
-- Injecting a mutation in the real working tree, or leaving the tree changed after the sensor →
-  always use a git-scratch state and restore.
+- Mutating the real tree, leaving it dirty, or running mutation cycles concurrently against one
+  tree → isolated snapshots; concurrency there reports a real survivor as `killed`.
 - Skipping this gate because the QA gate "already runs" → different lens; QA is consent-based and
   user-story-scoped, this is unconditional and spec-coverage-scoped.
 - Recording a lesson on a clean PASS → no signal → no lesson.

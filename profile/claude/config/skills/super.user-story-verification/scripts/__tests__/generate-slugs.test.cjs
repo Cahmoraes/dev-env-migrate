@@ -116,7 +116,7 @@ test('regression: the exact legacy shape HU-NN — **Título** Como ... parses',
 });
 
 test('regression: ID and title sharing one bold span, story text on the next physical line', () => {
-  // Reproduces the real admin-role-management PRD shape:
+  // Reproduces a real PRD shape observed in the field:
   // "**US-01 — Título**\nComo ..." — unlike "US-01 — **Título** Como ...",
   // the closing ** comes AFTER the title, not right after the ID, and the
   // story text is not on the same source line as the marker at all.
@@ -148,7 +148,7 @@ test('non-story lines (RF, headings) are ignored', () => {
 });
 
 test('regression: hard-wrapped story (benefit clause on the next physical line) parses in full', () => {
-  // Reproduces the real admin-edit-user-data PRD shape: the sentence wraps at
+  // Reproduces a real PRD shape: the sentence wraps at
   // a fixed column, so "para que eu" ends line 1 and the rest of the benefit
   // continues, unmarked, on line 2.
   const prd = [
@@ -211,7 +211,7 @@ test('a continuation line does not merge past the next list item', () => {
 });
 
 test('regression: accented Portuguese words are transliterated in the slug, not dropped', () => {
-  // Reproduces the real gym-cards-animation PRD: the slug builder used to
+  // Reproduces a real PRD: the slug builder used to
   // strip diacritics entirely instead of transliterating them, producing
   // "usurio"/"transio" instead of "usuario"/"transicao".
   const r = runJson('- **US-06** — Como usuário autenticado, eu quero que a transição entre resultados de busca seja suave, para que os cards antigos saiam\n');
@@ -219,7 +219,7 @@ test('regression: accented Portuguese words are transliterated in the slug, not 
 });
 
 test('regression: "quero" without a preceding "eu" parses (Como X, quero Y, para que Z)', () => {
-  // Reproduces the real admin-user-detail-panel PRD shape — "eu quero" was
+  // Reproduces a real PRD shape — "eu quero" was
   // hard-coded, so this valid Portuguese phrasing (no "eu") matched 0 stories.
   const r = runJson('- **US-01** — Como administrador, quero clicar em um usuário na lista para ver seus detalhes completos, para que eu possa avaliar sua conta sem sair da página.\n');
   assert.equal(r.count, 1);
@@ -229,7 +229,7 @@ test('regression: "quero" without a preceding "eu" parses (Como X, quero Y, para
 });
 
 test('regression: ID+title header on its own line, story on the next line as a blockquote', () => {
-  // Reproduces the real google-social-login PRD shape: "**US-001 — Título**"
+  // Reproduces a real PRD shape: "**US-001 — Título**"
   // with nothing else on that line, followed immediately by "> Como ...".
   const prd = [
     '**US-001 — Novo usuário cadastrando-se via Google**',

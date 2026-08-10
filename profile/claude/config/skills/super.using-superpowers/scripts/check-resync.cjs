@@ -12,7 +12,7 @@
  *
  * Dirty detection (IMPORTANT — read before changing):
  *   Dirty is computed by comparing the CONTENT of the canonical artifact set
- *   (spec/prd/qa/adrs per feature) on disk against the same content recorded in
+ *   (spec/prd/qa/iv/adrs per feature) on disk against the same content recorded in
  *   the manifest's synced_features. This is the SAME hashing compute-inventory
  *   uses, imported from lib/artifact-hash.cjs, so the two can never disagree.
  *

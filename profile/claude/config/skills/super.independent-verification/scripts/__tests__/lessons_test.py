@@ -5,6 +5,7 @@ or simply: python3 scripts/__tests__/lessons_test.py"""
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -93,6 +94,58 @@ class LessonsTest(unittest.TestCase):
         self.assertIn("billing rule", out)
         _, out = run(self.dir, "list", "--status", "confirmed", "--scope", "auth")
         self.assertIn("no confirmed", out.lower())
+
+
+class ConcurrentAddTest(unittest.TestCase):
+    """The Verifier records one lesson per grounded signal, so several `add` calls
+    are naturally issued at once. Before the lock, every trial silently lost lessons
+    (measured: 4-5 of 6 written, 5/5 trials) and one run tripped over a half-written
+    file. Silent loss is the bad failure here - lessons ARE the recurrence-prevention
+    channel, so a dropped one fails open with no signal.
+    """
+
+    SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lessons.py")
+
+    def _spawn_adds(self, root, n):
+        procs = [
+            subprocess.Popen(
+                [sys.executable, self.SCRIPT, "--root", root, "add",
+                 "--feature", "f%d" % i, "--signal", "surviving_mutant",
+                 "--source", "src/f%d.js:%d" % (i, 10 + i),
+                 "--text", "concurrent lesson number %d" % i],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            for i in range(n)
+        ]
+        errors = []
+        for p in procs:
+            _, err = p.communicate()
+            if p.returncode != 0:
+                errors.append(err.decode("utf-8", "replace"))
+        return errors
+
+    def test_concurrent_adds_lose_nothing(self):
+        n = 6
+        with tempfile.TemporaryDirectory() as root:
+            errors = self._spawn_adds(root, n)
+            self.assertEqual(errors, [], "no `add` may fail under concurrency")
+            with open(os.path.join(root, ".superpowers", "lessons.json"), encoding="utf-8") as handle:
+                store = json.load(handle)  # unparseable JSON fails here by design
+            self.assertEqual(len(store["lessons"]), n,
+                             "every concurrent add must survive: lost update means a lesson "
+                             "vanished with no error anyone can see")
+            self.assertEqual(len({l["id"] for l in store["lessons"]}), n, "ids must stay unique")
+
+    def test_store_is_replaced_atomically(self):
+        """A reader must never observe a partially written store."""
+        with tempfile.TemporaryDirectory() as root:
+            run(root, "add", "--feature", "f1", "--signal", "ac_gap", "--source", "s1", "--text", "first lesson")
+            store_path = os.path.join(root, ".superpowers", "lessons.json")
+            before_inode = os.stat(store_path).st_ino
+            run(root, "add", "--feature", "f2", "--signal", "ac_gap", "--source", "s2", "--text", "second lesson")
+            self.assertNotEqual(before_inode, os.stat(store_path).st_ino,
+                                "an atomic replace swaps the inode; an in-place rewrite would not")
+            leftovers = [f for f in os.listdir(os.path.dirname(store_path)) if f.startswith(".tmp-")]
+            self.assertEqual(leftovers, [], "temp files must not be left behind")
 
 
 if __name__ == "__main__":

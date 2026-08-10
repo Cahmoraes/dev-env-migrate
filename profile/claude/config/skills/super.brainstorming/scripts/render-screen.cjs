@@ -32,6 +32,8 @@ const fs = require('fs')
 const path = require('path')
 
 const KINDS = new Set(['options', 'cards', 'pros-cons'])
+// Identifies generator output (text cards) as opposed to a bespoke mockup.
+const GENERATED_MARKER = '<!--companion:generated-->'
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 function fail(msg) {
@@ -109,7 +111,12 @@ function renderFragment(spec) {
   if (spec.subtitle) head.push(`<p class="subtitle">${escapeHtml(spec.subtitle)}</p>`)
 
   const body = kind === 'pros-cons' ? renderProsCons(spec) : renderOptionLike(spec, kind)
-  return head.concat('', body).join('\n') + '\n'
+  // Stamp the output as generator-made. These kinds render TEXT CARDS and cannot draw a
+  // layout, so the Layout gate forbids them for positioning/spacing/appearance questions
+  // (visual-companion.md). The marker lets check-visual-state.cjs report what is actually
+  // on screen — a real run answered "bottom sheet vs centered dialog" with these cards.
+  // An HTML comment, so no rendered markup changes.
+  return [GENERATED_MARKER].concat(head, '', body).join('\n') + '\n'
 }
 
 function readSpec(args) {
@@ -149,4 +156,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { renderFragment, escapeHtml, safeChoice }
+module.exports = { renderFragment, escapeHtml, safeChoice, GENERATED_MARKER }

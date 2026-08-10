@@ -26,11 +26,11 @@ Unlike `super.brainstorming` (interactive — needs a simulated user), `super.re
 | 1 | `files/webhook-outbound-delivery/` (spec + index + task-01/02) | feature-with-tasks, 5 planted defects + 1 well-closed axis | **detection + no-over-build**, incl. the task↔task `durable` contradiction that only surfaces reading tasks against each other (Lens 3) |
 | 2 | `files/api-rate-limiting/` (spec only) | pure spec review, genuinely sound | **honesty** — the report must come back clean, not fabricate |
 
-The planted defects in scenario 1 mirror the real defect classes observed in the field (the inspiring `notification-broadcast-fanout` review): a ghost method (here reframed as an internal 2.1↔2.2 contradiction so the fixture is self-contained, no external codebase needed), a durable-arg divergence across two tasks, a named-but-dropped messaging fork, a mitigation citing a mechanism that exists nowhere, and a plan that quietly decided QoS the spec is silent on.
+The planted defects in scenario 1 mirror the real defect classes observed in the field (the message-fanout review that inspired them): a ghost method (here reframed as an internal 2.1↔2.2 contradiction so the fixture is self-contained, no external codebase needed), a durable-arg divergence across two tasks, a named-but-dropped messaging fork, a mitigation citing a mechanism that exists nowhere, and a plan that quietly decided QoS the spec is silent on.
 
 ### The real-spec simulation (not a committed eval)
 
-A third, higher-fidelity scenario — reviewing the **live** `notification-broadcast-fanout` spec in the consuming study repo — is run as the skill's end-to-end **simulation**, not a committed fixture, because it points at an absolute path outside this repo. Its ground truth (honest about the well-closed forks — `PRECONDITION_FAILED`, DLQ, orphan queues, direct-exchange regression — while surfacing the genuinely-open duplicate-delivery and the AMQP-reconnect-vs-`Last-Event-ID` mismatch, and treating ordering as acceptable silence) is the same honesty bar as evals 1+2, on a real, already-corrected spec.
+A third, higher-fidelity scenario — reviewing a **live** spec in a real consuming repo — is run as the skill's end-to-end **simulation**, not a committed fixture, because it points at an absolute path outside this repo. Pick a spec that has already been corrected, so its ground truth is known: the review must stay honest about the forks that spec closed well (naming them back as closed, not manufacturing findings) while still surfacing the ones it genuinely left open, and treating deliberate silence as acceptable. Same honesty bar as evals 1+2, at full fidelity.
 
 ## Grading integrity — grade the raw report, not a compressed Read
 

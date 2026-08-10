@@ -8,7 +8,7 @@ You: I'm using Subagent-Driven Development to execute this plan.
 [Read task-03.md — PRD: ../prd/prd-toggle-light-dark-theme.md, Spec: ../specs/toggle-light-dark-theme-design.md]
 [Read PRD and Spec for full feature context]
 [Extract remaining tasks 3-5 with full text and context]
-[Create TodoWrite with remaining tasks]
+[Mirror remaining tasks into the session task list — only if a task tool is already loaded]
 
 Task 3: Token refresh endpoint
 

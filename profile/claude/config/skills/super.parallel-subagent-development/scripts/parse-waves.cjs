@@ -29,7 +29,8 @@
  *                                  //   mode, optionNumber, confidence,
  *                                  //   decisionRequired, signals[], alternatives[] }
  *     "tasks": Task[],            // { number, file, dependsOn, fanIn, specPresent,
- *                                 //   fileCount, explicitTier, suggestedTier, tierSignals,
+ *                                 //   fileCount, explicitTier, criticalSurfaceBody,
+ *                                 //   suggestedTier, tierSignals,
  *                                 //   reviewShape ("two-stage"|"combined"|"none"), reviewSignals }
  *     "errors": Issue[],          // cycles, dangling refs, ordering violations
  *     "warnings": Issue[],
@@ -96,10 +97,12 @@ const FILES_SECTION = /^##\s+(?:Arquivos|Files)\s*$/imu;
 // Title keywords that signal design/architecture judgment → most-capable model.
 const CAPABLE_KEYWORDS = /\b(architect\w*|arquitet\w*|design|redesign|refactor\w*|refator\w*|migrat\w*|migra\w*|schema|data\s*model|modelo\s*de\s*dados|security|seguran\w*|infra\w*)\b/iu;
 
-// Title keywords for a critical/security surface, checked independently of the
-// task's (possibly explicit, possibly under-tiered) **Tier:** field — a planner
-// marking a security-sensitive task "standard" must not silently drop it to a
-// lighter review shape. Superset of CAPABLE_KEYWORDS' security terms plus
+// Keywords for a critical/security surface, matched against the task title AND the
+// task file's body, and checked independently of the task's (possibly explicit,
+// possibly under-tiered) **Tier:** field — a planner marking a security-sensitive
+// task "standard" must not silently drop it to a lighter review shape. The body is
+// scanned because a title names the artifact while the rule it enforces is described
+// inside. Superset of CAPABLE_KEYWORDS' security terms plus
 // auth/session/credential surfaces that don't always read as "design".
 // Note: bare "token" is intentionally excluded — too common in non-security
 // contexts (e.g. "token bucket" rate-limiting algorithm); use qualified forms.
@@ -302,9 +305,18 @@ function deriveReviewShape(task) {
 
   // Checked BEFORE the tier read: an explicit **Tier:** can under-classify a
   // security-sensitive task (planner error), but it must never buy that task
-  // a lighter review — title/spec keyword match overrides tier here.
-  if (CRITICAL_SURFACE_KEYWORDS.test(task.title || "")) {
-    return { reviewShape: "two-stage", reviewSignals: [`critical-surface keyword in title (auth/security/middleware/etc.) — never reviewed lighter than default regardless of tier (${tier})`] };
+  // a lighter review — a critical-surface keyword overrides tier here.
+  //
+  // The body is scanned as well as the title, because a title names the *artifact*
+  // ("FetchGymByIdController") while the authorization rule it enforces lives in the
+  // body. Title-only matching sent the highest-risk task of a real auth feature to the
+  // lightest shape: 0 of 19 titles matched even though the spec's top-priority
+  // characteristic was authorization. Escalating on a body match is the safe direction
+  // — the shape ladder is one-way upward by design.
+  const titleHit = CRITICAL_SURFACE_KEYWORDS.test(task.title || "");
+  if (titleHit || task.criticalSurfaceBody === true) {
+    const where = titleHit ? "title" : "task body";
+    return { reviewShape: "two-stage", reviewSignals: [`critical-surface keyword in ${where} (auth/security/middleware/etc.) — never reviewed lighter than default regardless of tier (${tier})`] };
   }
   if (tier === "capable") {
     return { reviewShape: "two-stage", reviewSignals: ["capable tier — architecture/security/no-spec/high fan-in never reviewed lighter than default"] };
@@ -550,6 +562,7 @@ function main() {
     let specPresent = false;
     let fileCount = 0;
     let explicitTier = null;
+    let criticalSurfaceBody = false;
     if (fs.existsSync(taskPath)) {
       try {
         const body = fs.readFileSync(taskPath, "utf8");
@@ -562,13 +575,14 @@ function main() {
         specPresent = hasSpec(body);
         fileCount = countFiles(body);
         explicitTier = parseTier(body);
+        criticalSurfaceBody = CRITICAL_SURFACE_KEYWORDS.test(body);
       } catch (err) {
         warnings.push({ message: `Could not read ${t.file}: ${err.message}; treating as N/A.` });
       }
     } else {
       warnings.push({ message: `Referenced task file not found: ${t.file}; treating as N/A.` });
     }
-    return { number: t.number, title: t.title, file: t.file, dependsOn, specPresent, fileCount, explicitTier };
+    return { number: t.number, title: t.title, file: t.file, dependsOn, specPresent, fileCount, explicitTier, criticalSurfaceBody };
   });
 
   // Fan-in: how many tasks depend on each task (a structural-node signal).

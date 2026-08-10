@@ -290,3 +290,121 @@ test('compute-inventory: no DB → dbPresent null, no reclassification', () => {
     fs.rmSync(repo, { recursive: true, force: true })
   }
 })
+
+// ─── --feature <slug>: narrow the REPORT, never the computation ───────────────
+//
+// The end-of-flow re-sync gate (super.finishing-a-development-branch, Step 8) syncs the
+// one feature it just finished. Without the filter it would have to pull every feature's
+// entry into the controller's context to find one slug — the exact ingestion-into-the-
+// controller cost the pipeline avoids everywhere else.
+//
+// The invariant worth guarding is not "it filters": it is that filtering happens LAST, so
+// the classification, the presence axis and the whole-repo treeHash a filtered run reports
+// are byte-identical to the unfiltered one. If they diverged, the manifest written by the
+// end-of-flow gate would disagree with what the entry gate computes next session, and the
+// feature would flip dirty forever.
+
+test('compute-inventory: --feature reports only that slug', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'wanted', '# Design\n\nA\n')
+    writeSpec(repo, 'other', '# Design\n\nB\n')
+    const result = runJson(['--repo-root', repo, '--feature', 'wanted'])
+    assert.deepEqual(result.features.map((f) => f.slug), ['wanted'])
+    assert.equal(result.feature, 'wanted')
+    assert.equal(result.features[0].status, 'new')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: treeHash stays whole-repo under --feature', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'wanted', '# Design\n\nA\n')
+    writeSpec(repo, 'other', '# Design\n\nB\n')
+    const all = runJson(['--repo-root', repo])
+    const one = runJson(['--repo-root', repo, '--feature', 'wanted'])
+    assert.equal(one.treeHash, all.treeHash,
+      'a filtered run must write the same fingerprint an unfiltered one would')
+    assert.equal(one.hashMethod, all.hashMethod)
+    assert.deepEqual(
+      one.features[0],
+      all.features.find((f) => f.slug === 'wanted'),
+      'the reported entry must be identical to the unfiltered classification',
+    )
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: --feature with an unknown slug reports no features', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'present', '# Design\n\nA\n')
+    const result = runJson(['--repo-root', repo, '--feature', 'never-existed'])
+    assert.deepEqual(result.features, [])
+    assert.equal(result.feature, 'never-existed')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: --feature still sees a deleted feature (manifest-only slug)', () => {
+  const repo = mkTmp()
+  try {
+    // Manifest records the slug; nothing on disk → deleted, and the gate must be able to
+    // tell "deleted" apart from "unknown" (it prunes nothing at end of flow either way,
+    // but the two reasons are reported differently).
+    writeSpec(repo, 'kept', '# Design\n\nA\n')
+    writeDefaultManifest(repo, 'gone', '# Design\n\nold\n')
+    const result = runJson(['--repo-root', repo, '--feature', 'gone'])
+    assert.deepEqual(result.features.map((f) => f.status), ['deleted'])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: --feature keeps the presence axis (drift still reclassifies)', { skip: !DatabaseSync }, () => {
+  const repo = mkTmp()
+  try {
+    const content = '# Design\n\nstable\n'
+    writeSpec(repo, 'phantom-scoped', content)
+    writeDefaultManifest(repo, 'phantom-scoped', content)
+    seedDb(repo, [{ source: 'artifact-sync', tags: 'artifact-sync,elsewhere,spec' }])
+    const result = runJson(['--repo-root', repo, '--feature', 'phantom-scoped'])
+    assert.equal(result.features[0].status, 'changed')
+    assert.deepEqual(result.driftedSlugs, ['phantom-scoped'])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: --feature drops another feature\'s read errors from the report', () => {
+  const repo = mkTmp()
+  try {
+    writeSpec(repo, 'wanted', '# Design\n\nA\n')
+    // An unreadable spec on a DIFFERENT feature must not surface in a scoped report.
+    writeSpec(repo, 'broken', '# Design\n\nB\n')
+    const broken = path.join(repo, 'docs', 'superpowers', 'broken', 'specs', 'broken-design.md')
+    fs.chmodSync(broken, 0o000)
+    const unfiltered = runJson(['--repo-root', repo])
+    const scoped = runJson(['--repo-root', repo, '--feature', 'wanted'])
+    fs.chmodSync(broken, 0o644)
+    if (unfiltered.errors.length === 0) return // running as root: chmod does not deny reads
+    assert.deepEqual(scoped.errors, [])
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('compute-inventory: --feature on a repo with no docs/ reports the slug and no features', () => {
+  const repo = mkTmp()
+  try {
+    const result = runJson(['--repo-root', repo, '--feature', 'anything'])
+    assert.deepEqual(result.features, [])
+    assert.equal(result.feature, 'anything')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
+})

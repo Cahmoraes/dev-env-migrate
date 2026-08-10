@@ -11,20 +11,13 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 **Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
 
-**Violating the letter of the rules is violating the spirit of the rules.**
+"I'm keeping the spirit, not the letter" is not available here: there is no gap between them. Skipping a step of the cycle is skipping TDD.
 
 ## When to Use
 
-**Always:**
-- New features
-- Bug fixes
-- Refactoring
-- Behavior changes
+**Always:** new features, bug fixes, refactoring, behavior changes.
 
-**Exceptions (ask your human partner):**
-- Throwaway prototypes
-- Generated code
-- Configuration files
+**Exceptions (ask your human partner):** throwaway prototypes, generated code, configuration files.
 
 Thinking "skip TDD just this once"? Stop. That's rationalization.
 
@@ -34,26 +27,11 @@ Thinking "skip TDD just this once"? Stop. That's rationalization.
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
 
-Write code before the test? Delete it. Start over.
-
-**No exceptions:**
-- Don't keep it as "reference"
-- Don't "adapt" it while writing tests
-- Don't look at it
-- Delete means delete
-
-Implement fresh from tests. Period.
+Wrote code before the test? Delete it and implement fresh from the tests. Not kept "as reference", not "adapted" as you write the test, not re-read — code you have just looked at makes the next test describe what you built instead of what was asked for. Delete means delete.
 
 ## Red-Green-Refactor
 
-```
-RED (write failing test) --> Verify fails correctly
-Verify fails correctly --wrong failure--> RED
-Verify fails correctly --yes--> GREEN (minimal code) --> Verify passes / all green
-Verify passes / all green --no--> GREEN
-Verify passes / all green --yes--> REFACTOR (clean up) --> Verify passes / all green (stay green)
-Verify passes / all green --> Next --> RED
-```
+RED (write a failing test) → verify it fails for the right reason → GREEN (minimal code) → verify it passes → REFACTOR → next test. A *wrong* failure sends you back to RED; a failure after GREEN means fix the code, never the test.
 
 ### RED - Write Failing Test
 
@@ -93,9 +71,11 @@ Vague name, tests mock not code
 </Bad>
 
 **Requirements:**
-- One behavior
-- Clear name
-- Real code (no mocks unless unavoidable)
+- One behavior — "and" in the name means split it
+- A name that states the behavior (`test1` states nothing), demonstrating the API you wish you had
+- Real code (no mocks unless unavoidable) — a mock test proves the mock works
+- Deep assertion (full relevant state/payload, not one field lifted out of it; for guard clauses,
+  the state exactly at the boundary — see Assertion Depth)
 
 ### Verify RED - Watch It Fail
 
@@ -184,24 +164,68 @@ Confirm:
 
 ### REFACTOR - Clean Up
 
-After green only:
-- Remove duplication
-- Improve names
-- Extract helpers
+After green only: remove duplication, improve names, extract helpers. Keep tests green, add no behavior.
 
-Keep tests green. Don't add behavior.
+*Use the `refactoring` skill here — it names the code smells and gives the catalog of moves.*
 
 ### Repeat
 
 Next failing test for next feature.
 
-## Good Tests
+## Assertion Depth
 
-| Quality | Good | Bad |
-|---------|------|-----|
-| **Minimal** | One thing. "and" in name? Split it. | `test('validates email and domain and whitespace')` |
-| **Clear** | Name describes behavior | `test('test1')` |
-| **Shows intent** | Demonstrates desired API | Obscures what code should do |
+**Density kills mutants, count doesn't.** A test asserting one field of a multi-field result
+gives every mutation on the *other* fields a free pass — the suite grows, the behavior it actually
+locks down doesn't. More tests with shallow asserts score worse against mutation testing than
+fewer tests that each assert deep.
+
+**Rule:** assert the complete relevant state or payload the caller depends on, not a single field
+lifted out of it.
+
+<Good>
+```typescript
+test('creates order with computed total', () => {
+  const order = createOrder({ items: [{ price: 10, qty: 2 }], customerId: 'c1' });
+
+  expect(order).toEqual({
+    customerId: 'c1',
+    items: [{ price: 10, qty: 2 }],
+    total: 20,
+    status: 'pending',
+  });
+});
+```
+One assertion locks the whole shape — a mutant on `status` or `total` alone still gets caught
+</Good>
+
+<Bad>
+```typescript
+test('creates order with computed total', () => {
+  const order = createOrder({ items: [{ price: 10, qty: 2 }], customerId: 'c1' });
+
+  expect(order.total).toBe(20);
+});
+```
+Passes untouched if `status` defaults wrong, `customerId` gets dropped, or `items` gets mutated —
+none of that is asserted
+</Bad>
+
+Use `toEqual`/`toStrictEqual` (or the language equivalent) over a chain of single-field `toBe`
+calls whenever the result is a value the caller consumes as a whole. For side effects (a call, a
+write, an emitted event), assert the payload's value/state — not merely that the call happened.
+
+**Where to stop:** assert every field the spec or the caller actually reads — not
+implementation-internal fields nobody depends on (that's coupling, not depth).
+
+**Signal you're under-asserting:** pick a field of the returned/stored value and imagine flipping
+it. If you can't name the test that would fail, the assertion is too shallow — deepen it before
+moving to the next test.
+
+**Before testing a branch that skips a side effect** — an early return that avoids an eviction, a
+duplicate write, a re-notify — read `references/assertion-depth-boundaries.md` (a reference doc to
+open with your file reader, not a skill to invoke). At that branch's boundary the wrong path
+returns the *right value*, so a return-value assertion passes by coincidence; the file gives the
+worked Good/Bad pair for placing the state at the edge and asserting the side effect.
 
 ## Why Order Matters
 
@@ -211,73 +235,27 @@ Tests-after pass immediately and prove nothing; test-first forces you to watch t
 
 | Excuse | Reality |
 |--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests passing immediately prove nothing. |
-| "Tests after achieve same goals" | Tests-after = "what does this do?" Tests-first = "what should this do?" |
+| "Too simple to test" | Simple code breaks. The test costs 30 seconds. |
+| "I'll test after" | Tests written after pass immediately and prove nothing. |
 | "Already manually tested" | Ad-hoc ≠ systematic. No record, can't re-run. |
-| "Deleting X hours is wasteful" | Sunk cost fallacy. Keeping unverified code is technical debt. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
-| "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
-| "TDD will slow me down" | TDD faster than debugging. Pragmatic = test-first. |
-| "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
-| "Existing code has no tests" | You're improving it. Add tests for existing code. |
+| "Deleting X hours is wasteful" | Sunk cost. The unverified code is the debt, not the delete. |
+| "Need to explore first" | Fine. Throw the exploration away, start with TDD. |
+| "Test hard to write" | Hard to test = hard to use. Listen to the test; simplify the design. |
+| "Manual test is faster" | It misses edge cases, and you re-run it by hand on every change. |
+| "TDD will slow me down" | Slower than debugging is a race nobody wins. |
+| "Existing code has no tests" | You're improving it — add tests for what you touch. |
 
 ## Red Flags - STOP and Start Over
 
-- Code before test
-- Test after implementation
-- Test passes immediately
-- Can't explain why test failed
-- Tests added "later"
-- Rationalizing "just this once"
-- "I already manually tested it"
-- "Tests after achieve the same purpose"
-- "It's about spirit not ritual"
-- "Keep as reference" or "adapt existing code"
-- "Already spent X hours, deleting is wasteful"
-- "TDD is dogmatic, I'm being pragmatic"
-- "This is different because..."
+These are observable states, not opinions. Any one of them means: delete the code, start over with TDD.
 
-**All of these mean: Delete code. Start over with TDD.**
-
-## Example: Bug Fix
-
-**Bug:** Empty email accepted
-
-**RED**
-```typescript
-test('rejects empty email', async () => {
-  const result = await submitForm({ email: '' });
-  expect(result.error).toBe('Email required');
-});
-```
-
-**Verify RED**
-```bash
-$ npm test
-FAIL: expected 'Email required', got undefined
-```
-
-**GREEN**
-```typescript
-function submitForm(data: FormData) {
-  if (!data.email?.trim()) {
-    return { error: 'Email required' };
-  }
-  // ...
-}
-```
-
-**Verify GREEN**
-```bash
-$ npm test
-PASS
-```
-
-**REFACTOR**
-Extract validation for multiple fields if needed.
-*Always use the `refactoring` skill here — it identifies code smells and offers a catalog of refactorings.*
+- Production code exists that no failing test preceded
+- A new test passed the first time it ran
+- You can't say why the test failed
+- Tests are queued to be "added later"
+- You are arguing with this skill — "just this once", "this is different because…", "spirit not ritual", "dogmatic vs pragmatic", "keep it as reference", "I already tested it by hand", "deleting those hours is wasteful", or any fresh variant of the same move
+- An assertion checks one field of a value that has several (see Assertion Depth)
+- A guard clause is tested away from its boundary instead of exactly at the edge where the wrong branch would fire (see Assertion Depth)
 
 ## Verification Checklist
 
@@ -291,6 +269,9 @@ Before marking work complete:
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
 - [ ] Edge cases and errors covered
+- [ ] Assertions cover the full relevant state/payload, not a single shallow field (Assertion Depth)
+- [ ] Guard clauses are tested exactly at their boundary with a full side-effect assertion, not just
+  away from the edge (Assertion Depth)
 
 Can't check all boxes? You skipped TDD. Start over.
 
@@ -305,11 +286,11 @@ Can't check all boxes? You skipped TDD. Start over.
 
 ## Debugging Integration
 
-Bug found? Write a failing test reproducing it, then follow the TDD cycle. Never fix bugs without a test.
+Bug found? Write a failing test that reproduces it, watch it fail, then run the cycle — the reproduction test is your RED. Never fix a bug without one.
 
 ## Testing Anti-Patterns
 
-When adding mocks or test utilities, read `testing-anti-patterns.md` (this dir) to avoid:
+When adding mocks or test utilities, read the local file `testing-anti-patterns.md` in this skill's directory (a reference doc to open with your file reader — not a skill to invoke) to avoid:
 - Testing mock behavior instead of real behavior
 - Adding test-only methods to production classes
 - Mocking without understanding dependencies

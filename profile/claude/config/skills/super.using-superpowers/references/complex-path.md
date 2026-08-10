@@ -12,7 +12,7 @@ When the triage read (checkpoint 0) or the first interview signal (checkpoint 1)
 
 Confirming question — offer it explicitly, in the session's language:
 
-> Isso parece um problema **complexo** (domínio novo / ambiguidade real / risco cross-cutting). Antes de desenhar, posso rodar uma etapa de **pesquisa profunda** (`super.deep-research`) para fundamentar o design em evidência — isso dispara fan-out de pesquisa e **consome tokens**. Pesquisar antes, ou ir direto ao brainstorming? (pesquisar / direto)
+> This looks like a **complex** problem (novel domain / genuine ambiguity / cross-cutting risk). Before designing, I can run a **deep research** stage (`super.deep-research`) to ground the design in evidence — it fans out research subagents and **costs tokens**. Research first, or go straight to brainstorming? (research / straight)
 
 If the user does not explicitly accept, skip it and go straight to `super.brainstorming` — the design still runs, just without the upfront research artifact. (If `complex` only surfaces at checkpoint 1, brainstorming's own research fan-out already covers the research need; the offer is still valid but not mandatory.)
 
@@ -20,9 +20,9 @@ If the user does not explicitly accept, skip it and go straight to `super.brains
 
 Once the design draft exists and checkpoint 2 confirms `complex`, offer `super.reviewing-specs` before handing off to `super.writing-plans`, so a fresh set of read-only lenses can catch open points, internal contradictions, and spec↔code / spec↔corporate gaps while they are still cheap to fix — before the fan-out builds on them.
 
-Confirming question:
+Confirming question — offer it explicitly, in the session's language:
 
-> O design deste problema complexo está pronto. Antes de planejar as tasks, posso rodar uma **revisão crítica independente da spec** (`super.reviewing-specs`) — várias lentes read-only em paralelo no tier `capable`, **consome tokens**. Revisar a spec agora, ou seguir direto para o plano? (revisar / direto)
+> The design for this complex problem is ready. Before planning the tasks, I can run an **independent critical review of the spec** (`super.reviewing-specs`) — several read-only lenses in parallel at the `capable` tier, **costs tokens**. Review the spec now, or go straight to the plan? (review / straight)
 
 If the user does not explicitly accept, proceed to `super.writing-plans` unchanged.
 

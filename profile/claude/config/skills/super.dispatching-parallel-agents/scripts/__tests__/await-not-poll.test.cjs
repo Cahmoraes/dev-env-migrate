@@ -3,7 +3,7 @@
 /**
  * await-not-poll.test.cjs — cross-skill contract lock.
  *
- * Two real sessions (estudo-clean-arch-solid-ddd) reproduced the same defect: after
+ * Two real sessions reproduced the same defect: after
  * dispatching background/parallel subagents, the orchestrator tried to BUSY-POLL their
  * completion with a `ScheduleWakeup`/timer and emitted a malformed call (`prompt` is
  * required when `stop` is not true), erroring mid-flow. Root cause was prose that said
@@ -53,5 +53,29 @@ for (const rel of DISPATCH_AND_AWAIT_FILES) {
     // The rationale: busy-polling harness-tracked work is wasted.
     assert.match(body, /busy-polling harness-tracked/i,
       `${rel} must state why polling is wrong (harness-tracked work re-invokes automatically)`);
+  });
+}
+
+// Presence is not survival. The guard above proved the prohibition exists in the file;
+// it said nothing about WHERE. A compaction re-injects only the first 20.000 characters
+// of an invoked SKILL.md, and a resumed run that sees pending background work is exactly
+// the moment the poll gets improvised — so a prohibition sitting past the cut is a
+// prohibition that is absent when it matters. Measured 2026-08-01: super.writing-plans
+// carried it at char 24.050 and super.brainstorming at 26.042, both past the cap, and
+// both are flows whose dispatch (research fan-out, sequential task writer) runs long
+// enough to be compacted through. References are exempt: they are read in full on demand,
+// so no cap applies to them.
+const CAP = 20000;
+
+for (const rel of DISPATCH_AND_AWAIT_FILES.filter((f) => f.endsWith('SKILL.md'))) {
+  test(`${rel} keeps the await-never-poll guard inside the compaction window`, () => {
+    const body = fs.readFileSync(path.join(SKILLS, rel), 'utf8');
+    const at = body.search(/busy-polling harness-tracked/i);
+    assert.ok(
+      at >= 0 && at < CAP,
+      `${rel} states the await-never-poll guard at char ${at}, past the ${CAP}-char compaction cut. `
+      + 'A resumed run with subagents still pending is precisely when the poll gets improvised, '
+      + 'and that is the run where this text no longer exists. Move it inside the window.',
+    );
   });
 }

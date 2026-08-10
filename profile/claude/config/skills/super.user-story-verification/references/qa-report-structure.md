@@ -2,6 +2,8 @@
 
 Save the report to `docs/superpowers/<feature-name>/qa/qa-report-<feature-name>.md` using the template at `../assets/qa-report-template.md` from this skill. That template file is the **canonical source** — if you change the structure here, keep both in sync.
 
+**Language:** write the report's prose (Resumo, notes, Conclusão, bug descriptions) in `session_language` (`communication.language`, default `pt-BR`). The section headings and column labels below stay verbatim in any language — they anchor the structure.
+
 Fill the template structure verbatim:
 
 - Frontmatter: `created_at` / `updated_at`.

@@ -60,7 +60,7 @@ consistente. Ganho de acertividade concreto e mecânico, não opinativo.
 
 ## Experimento 3 — Regressão do `super.brainstorming` (pós-sweep do glifo §)
 
-Spot-check com cenário derivado do repo de estudos (`login-security-lockout`), gabarito =
+Spot-check com cenário derivado de um caso real de auth, gabarito =
 design humano aprovado. Skill §-swept.
 
 - **Closure: 16/16 (100%)** — todo fork duro do gabarito fechado (resolve / tolerate / rule-out).

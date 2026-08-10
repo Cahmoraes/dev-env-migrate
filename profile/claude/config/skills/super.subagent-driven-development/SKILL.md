@@ -1,97 +1,74 @@
 ---
 name: super.subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
+argument-hint: "[path-to-tasks-<feature>.md]"
 ---
 
 # Subagent-Driven Development
 
 Execute the plan by dispatching a fresh subagent per task, with two-stage review after each: spec compliance first, then code quality.
 
-**Why:** subagents get isolated, precisely-crafted context instead of inheriting your session history — fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration, and your own context stays free for coordination.
+**Why:** subagents get isolated, precisely-crafted context instead of inheriting your session history, so quality stays high, iteration stays fast, and your own context stays free for coordination.
 
 > **Cardinal rule — you are the orchestrator, never the implementer.** You do NOT write, edit, or refactor production code or tests yourself. Your *only* mechanism for implementing a task is dispatching a fresh implementer subagent via the Agent/Task tool — **one subagent per task, no exception, even a plan with a single task or a one-line change.** If you catch yourself opening a file to edit, writing code in your turn, or thinking "this is small, I'll do it inline," STOP: that is the exact failure this skill prevents. Inline work silently skips the two-stage review, per-task model selection, and the verification gate — every quality mechanism below assumes a dispatched subagent produced the code. **Running read-only verification is NOT implementing** — `super.verification-before-completion` (and the serialized integration barrier in `super.parallel-subagent-in-tree`) require *you*, the controller, to run the test suite / typecheck / build and confirm evidence yourself. The prohibition is on *producing* code, never *observing* it. The lone exception is the **reviewers' findings loop**, which still dispatches a fresh implementer to fix each finding — never an inline patch.
 
-**Continuous execution:** Do not pause to check in between tasks. Execute all tasks without stopping. The only reasons to stop: BLOCKED status you cannot resolve, ambiguity that genuinely prevents progress, or all tasks complete. "Should I continue?" prompts waste time — you were asked to execute the plan, so execute it.
+**Continuous execution:** do not pause between tasks. The only reasons to stop: an unresolvable BLOCKED status, ambiguity that genuinely prevents progress, or all tasks complete. "Should I continue?" wastes time — execute the plan.
 
 ## When to Use
 
 **Tier guard.** This skill — fan-out per task (implementer + two-stage reviewer per task) plus the separate final code review and `super.independent-verification` gates — is the **Large/Complex** execution mechanism. For **Small/Medium** features, the router uses the inline execution + combined gate instead (`super.using-superpowers/references/medium-inline-path.md`): the controller writes code directly, and one fresh Verifier subagent fuses the final review and IV into a single dispatch (QA stays a separate opt-in gate at every tier). Do **not** dispatch a per-task implementer/reviewer for a Small/Medium feature — that is the exact cost this tier guard exists to avoid. The rest of this skill, and everything below, describes the Large/Complex mechanism unchanged.
 
-### Reverse tier mismatch guard
-
-If you arrived here but the feature was classified **Micro/Small/Medium** at triage, **pause and verify**:
-
-1. Did the user explicitly choose this skill ("execute com subagent-driven-development", "use fan-out", etc.)? If yes, proceed — the user overrode the default.
-2. Did `super.using-superpowers` route here because the tasks index has `waveCount > 1`, `maxParallelWave > 1`, or the recommendation was fan-out? If yes, proceed.
-3. Otherwise — the feature is Small/Medium and the route here was accidental — **route to `super.using-superpowers/references/medium-inline-path.md`** instead. Running a per-task fan-out for a Small/Medium feature wastes tokens and time without improving quality.
-
-This guard prevents the inverse drift: fan-out being used for trivial features just because an execution skill was invoked directly.
-
-```dot
-digraph when_to_use {
-  "Have implementation plan?" [shape=diamond];
-  "Tasks mostly independent?" [shape=diamond];
-  "Stay in this session?" [shape=diamond];
-  "super.subagent-driven-development" [shape=box];
-  "Manual execution or brainstorm first" [shape=box];
-
-  "Have implementation plan?" -> "Tasks mostly independent?" [label="yes"];
-  "Have implementation plan?" -> "Manual execution or brainstorm first" [label="no"];
-  "Tasks mostly independent?" -> "Stay in this session?" [label="yes"];
-  "Tasks mostly independent?" -> "Manual execution or brainstorm first" [label="no - tightly coupled"];
-  "Stay in this session?" -> "super.subagent-driven-development" [label="yes"];
-}
-```
+**Reverse tier mismatch guard (entry only).** If you arrived here but triage classified the feature **Micro/Small/Medium**, proceed only when the user chose this skill explicitly or `super.using-superpowers` routed here on a fan-out recommendation; otherwise the route was accidental — go to `super.using-superpowers/references/medium-inline-path.md`. Both guards, and the entry decision flow, are in `./references/entry-routing.md` (read at entry; settled once execution starts).
 
 ## The Process
 
 ### Parallelism check — use the right skill for the wave shape
 
-This skill executes tasks **sequentially**. Before dispatching the first implementer, run `parse-waves.cjs` on the tasks index:
+This skill executes tasks **sequentially**. Before the first implementer dispatch, run `parse-waves.cjs` on the tasks index:
+
+> **Resolving `<super.X-base-dir>`:** the skills are siblings — parent of your header's base directory + `/super.X`. Never `glob` for one (`glob` misses dotdirs); a gate script that will not run is a **STOP**, never a skipped gate.
 
 ```bash
 node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs \
+  --tasks-index <path/to/tasks-<feature-name>.md> && \
+node <super.subagent-driven-development-base-dir>/scripts/parse-tasks.cjs \
   --tasks-index <path/to/tasks-<feature-name>.md>
 ```
 
-- If `parallelizable` is **true** and `maxParallelWave > 1`, the plan contains independent tasks that can run concurrently. **Prefer `super.parallel-subagent-development` (isolated worktrees)** or `super.parallel-subagent-in-tree` (shared tree, when write-set disjointness is confirmed) — same per-task gates, shorter wall-clock time. Only stay in this sequential skill if the user explicitly chose it or the wave is tightly coupled (high fan-in, sequential dependency chain).
-- If `waveCount === 1` and all tasks are in a single sequential chain, this sequential skill is correct.
+**Both parsers go in this one call.** Same index, neither consumes the other's output — splitting costs a round trip and buys nothing. `parse-waves.cjs` answers *what shape is the plan*; `parse-tasks.cjs` answers *what is already done*. Read both JSON objects off the one result.
+
+- `parallelizable: true` and `maxParallelWave > 1` → the plan has independent tasks. **Prefer `super.parallel-subagent-development`** (isolated worktrees) or `super.parallel-subagent-in-tree` (shared tree, disjointness confirmed): same per-task gates, shorter wall-clock. Stay here only if the user chose it or the wave is tightly coupled.
+- `waveCount === 1`, single sequential chain → this skill is correct.
 
 Never run a parallelizable plan sequentially just because this skill was invoked — that wastes wall-clock without improving quality.
 
 ### Task Tracker Integration
 
-Before extracting tasks, locate the tasks index.
+**Discovery:** the path is passed explicitly in context (e.g. `docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md`); if not, look for a `tasks-*.md` in the feature's `plans/`.
 
-**Discovery:** The path is passed explicitly in context (e.g., `docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md`). If not passed, look for a `tasks-*.md` file in the feature's `plans/` directory.
-
-> **Deterministic task parsing (preferred):**
+> **Deterministic task parsing (preferred):** already run — it rode along with `parse-waves.cjs` above. Re-run standalone only if you entered without that call, or if task files changed since:
 > ```bash
 > node scripts/parse-tasks.cjs --tasks-index <path>
 > ```
-> Outputs JSON with `found`, `allDone`, `completed[]`, `pending[]`, `inProgress[]`, `mismatches[]`. Use `completed` to skip done tasks (session resume), `pending`+`inProgress` for what remains. Any `mismatches` between index and task file require manual resolution before proceeding.
-> **Fallback:** Read and parse the tasks index manually if the script is unavailable.
+> Outputs `found`, `allDone`, `completed[]`, `pending[]`, `inProgress[]`, `mismatches[]`. `completed` skips done tasks (session resume); `pending`+`inProgress` is what remains. Any `mismatches` require manual resolution before proceeding.
+> **Fallback:** parse the tasks index by hand if the script is unavailable.
 
 ### Session State Re-Entry Guard
 
-> **Run this FIRST — before the Memory Gate, before Caveman, before any dispatch.** Keeps execution correct when a session resumes **directly into this skill** after a compaction, **without** re-entering `super.using-superpowers` (which normally derives `session_*` vars at start but does not run on a mid-execution resume). Skip this and every variable reverts to `false`/default: caveman never activates, `/simplify` never runs, the final `/code-review` pass never fires — silently, since a default-`false` flag looks identical to a deliberately-disabled one.
-
-**Run this unconditionally — never gate it on whether the variables still look intact** (a wiped flag is indistinguishable from a deliberately-disabled one). Deterministic, read-only, idempotent — always re-derive the *entire* set in one call, never restore only caveman or hand-map variables:
+> **Run this FIRST — before the Memory Gate, before Caveman, before any dispatch.** Unconditionally, on a fresh start as much as on a resume: a wiped flag is indistinguishable from a deliberately-disabled one, so "the variables still look intact" is not something you can check. Skip it and caveman, `/simplify` and the final `/code-review` pass all silently never fire.
 
 ```bash
 node <super.using-superpowers-base-dir>/scripts/derive-session-state.cjs \
   --platform claude-code --repo-root "$(git rev-parse --show-toplevel)"
 ```
 
-Restore each `session_*` variable from the script's `sessionState` object. That script is the single source of truth for the `preferences.X.Y → session_*` mapping and for platform gating (returning the safe default for native vars that don't apply to the current platform), so there is no per-variable table to keep in sync here. Pass the `--platform` matching where you run (`claude-code`; or `copilot`, `codex`, `gemini` elsewhere).
+Restore every `session_*` variable from the script's `sessionState` object — the whole set, in one call, never a hand-mapped subset. Treat `session_caveman_in_effect` and `session_caveman_prompted` as `false`: they are runtime latches, deliberately not in `sessionState`.
 
-The two caveman latches are **not** part of `sessionState` — they are runtime bookkeeping, not configuration. A compaction wipes the live caveman skill, so treat `session_caveman_in_effect` and `session_caveman_prompted` as `false`: the Caveman State Check below re-loads caveman when `session_caveman_active` resolves true.
+**Then, before any dispatch:** resume (never restart) any task left at `**Status:** IN_PROGRESS`.
 
-**On resume, before touching any code, read the handoff first.** If `docs/superpowers/<feature>/STATE.md` exists, read its `## Handoff` section before re-deriving session state or dispatching anything — it carries the prior run's handoff context needed to resume correctly. (Another skill owns STATE.md's format; here you only consume that section.)
+> **Compaction invariant:** the physical task files (`task-NN.md` and `tasks-<feature-name>.md`) are the single source of truth for completion — `Status: DONE` **and** `[x]`. Session task-list entries and session memory do not count.
 
-**Then resume any interrupted task.** Check the task files (or `parse-tasks.cjs`) for a `**Status:** IN_PROGRESS` task — it was interrupted before the compaction. Re-read its `## Passos` and the current state of its touched files to resume rather than restart.
-
-> **Compaction invariant:** the physical task files (`task-NN.md` and `tasks-<feature-name>.md`) are the single source of truth for completion. A task is complete only if its file says `Status: DONE` and `tasks-<feature>.md` shows `[x]`. TodoWrite entries and session memory do not count.
+> **Why each of those steps exists, and the failure mode it prevents:** `./references/session-state-and-caveman.md`. Read it if a step's intent is unclear — the actions above are complete on their own.
 
 ### Branch Guard
 
@@ -106,165 +83,93 @@ DEFAULT=${DEFAULT:-$(git branch --list main master | tr -d ' *+' | head -1)}
 echo "current=$BRANCH default=${DEFAULT:-<none>}"
 ```
 
-- **`BRANCH` is `main`/`master`, or equals `DEFAULT`** → you are on the default branch. **STOP and ask the user before dispatching** — offer to create a feature branch (`git checkout -b <feature-name>`) or to proceed on the default branch with their explicit consent. Do not dispatch the first implementer until they choose. This is the *active* form of the "never start on main/master without consent" Red Flag: a deterministic check at the point of no return, not a reminder you can read past.
-- **`BRANCH` is a non-default branch** → the feature has its own branch; proceed.
-- **`BRANCH` is `HEAD` (detached), or the workspace is a worktree** → an externally-managed or isolated workspace; proceed (finishing handles integration for those).
+- **`BRANCH` is `main`/`master`, or equals `DEFAULT`** → **STOP and ask the user before dispatching** — offer a feature branch (`git checkout -b <feature-name>`) or explicit consent to proceed on the default branch. Do not dispatch the first implementer until they choose. This is the *active* form of the "never start on main/master without consent" Red Flag: a deterministic check at the point of no return, not a reminder you can read past.
+- **non-default branch** → proceed. **`HEAD` (detached) or a worktree** → externally-managed workspace; proceed (finishing handles integration).
 
-> **User-facing language (applies to every consent gate and question in the execution skills).** Surface each STOP, conflict, and option list in the session's `communication.language` — the field `read-preferences.cjs` already returns (default `pt-BR`). The English phrasing in these gates is their *structure*, not text to print verbatim: translate the prompt, the conflict, and the options into that language when you address the user. Never hard-code the prompt's language. This is the same rule `super.reviewing-specs` applies to its report (`references/honest-reporting.md`).
+> **User-facing language (applies to every consent gate and question in the execution skills).** Surface each STOP, conflict, and option list in the session's `communication.language` (`read-preferences.cjs`, default `pt-BR`). The English here is *structure*, not text to print verbatim.
+
+> **What a compaction takes from THIS file, and where to get it back.** It re-injects only the first 20.000 characters, so everything from Model Selection's tail onward falls past the cut — along with the sentences that would have told you it exists. Recover, never reconstruct — read, do not infer:
+> `./references/model-selection.md` (tier→model) · `./references/review-cost-control.md` (**how many reviewers a task gets**: `reviewShape`; downward override forbidden, upward safe) · `./references/red-flag-procedures.md` (**the prohibitions, and what to do when one fires**) · `./references/finish-tail.md` · `./references/code-analysis.md` · `./references/commit-messages.md` · `./references/example-workflow.md`.
 
 ### Memory Gate Check
 
-> **Conditional on `session_memory_enabled`.** If `session_memory_enabled = false`, skip this section and proceed to Caveman Mode Activation. (After compaction it must already be restored by the "Session State Re-Entry Guard" section above — never read `false` just because the variable was wiped.)
+> **Conditional on `session_memory_enabled`** — false → skip to Caveman Mode Activation. (The guard above already restored it; never read `false` from a wiped variable.) **When enabled it is the entry guard for Executando and must not be skipped — one-shot per feature, before the first dispatch. Already ran? Skip: it is not a per-wave checkpoint, and after it execution writes no memory at all.**
 
-> **When enabled — do not skip.** This is the entry guard for the Executando state. Memory must have been persisted at the end of `super.writing-plans`. If it wasn't, persist now before dispatching any subagent.
-
-Before dispatching the first task subagent, verify the planning artifacts are persisted:
+Verify the planning artifacts are persisted:
 
 ```bash
 pmem search "<feature-name>" --limit 3
 ```
 
-- **If results include entries for this feature** (decisions, scope, artifact paths): memory present — proceed.
-- **If no results**: memory was not persisted during planning. Run the full persistence procedure now — read `super.writing-plans/SKILL.md`, "Memory Persistence" section, and `super.writing-plans/references/memory-persistence.md` for the exact `pmem add` calls (3 entries: decisions, scope, artifact paths). Do not dispatch any task subagent until all three are written.
+- **Results for this feature** (decisions, scope, artifact paths): memory present — proceed.
+- **No results**: planning did not persist. Do it now, before any dispatch — `super.writing-plans/SKILL.md`, "Memory Persistence", and `super.writing-plans/references/memory-persistence.md` hold the exact `pmem add` calls (3 entries: decisions, scope, artifact paths). Do not dispatch until all three are written.
+- **Never per wave or per task** — no wave summaries, no review findings; the task files carry those. See `super.persistent-memory`, "Write boundary".
 
 ### Caveman Mode Activation
 
 #### Caveman State Check
 
-The "Session State Re-Entry Guard" section above has already restored `session_caveman_active`/`session_caveman_level` (and every other `session_*` variable) after any compaction, and reset `session_caveman_in_effect` to `false`. Now check session caveman state (defined in `super.using-superpowers` policy):
+> **Conditional — caveman is opt-in.** When `session_caveman_active` is false this gate is a no-op: skip to the Execution Loop. Caveman is a presentation preference; it never changes what the loop does.
 
-1. **If `session_caveman_active = false` AND `session_caveman_prompted = false`:** Ask the dynamic question (see `super.using-superpowers` Caveman Mode section) and record the result.
-2. **If `session_caveman_active = true` AND `session_caveman_in_effect = false`:** Invoke the `caveman` skill at `session_caveman_level` (e.g., `/caveman full`), then set `session_caveman_in_effect = true`. If `session_caveman_in_effect` is already `true` (activated at the gate, or re-activated post-compaction by `super.using-superpowers`), **do not re-invoke** — it is already loaded; re-invoking only wastes tokens. Caveman stays active through all tasks, spec reviews, code quality reviews, and the QA gate.
-3. **Before invoking `super.finishing-a-development-branch`:** Explicitly deactivate caveman — say "normal mode" or "stop caveman" — and set `session_caveman_in_effect = false`. Finalizando requires clear human-facing communication.
+1. **`session_caveman_active = false` AND `prompted = false`** → ask the dynamic question (`super.using-superpowers`, Caveman Mode) and record the result.
+2. **`session_caveman_active = true` AND `session_caveman_in_effect = false`** → invoke `caveman` at `session_caveman_level`, then set `session_caveman_in_effect = true`. Already `true` → **do not re-invoke**, it is loaded. Stays active through tasks, reviews and the QA gate.
+3. **Before `super.finishing-a-development-branch`** → deactivate ("normal mode") and set `session_caveman_in_effect = false`, so a later session can re-activate.
 
-**Subagent propagation (deterministic — do not hand-assemble).** Every subagent prompt (implementer, spec reviewer, code quality reviewer, QA subagents) gets its Caveman Mode block from the renderer, never from memory:
+**Subagent propagation — render both formats once per activation window, then reuse the two strings; do not re-run the renderer per dispatch, and never hand-assemble the block.** It is a pure function of `session_caveman_active` + `session_caveman_level`, so every subagent in the wave gets the same two strings — re-rendering buys an identical answer at N times the cost. Reuse means pasting the renderer's exact output you hold, never retyping it. **Re-render when, and only when, an input changes:** `session_caveman_level` changed, caveman was deactivated/re-activated, or a compaction wiped the strings (cannot reproduce them verbatim → you do not have them).
 
 ```bash
 node <super.using-superpowers-base-dir>/scripts/render-caveman-block.cjs \
   --active <session_caveman_active> --level <session_caveman_level>
-# add --format field for the code-quality reviewer's CAVEMAN: field
+node <super.using-superpowers-base-dir>/scripts/render-caveman-block.cjs \
+  --active <session_caveman_active> --level <session_caveman_level> --format field
 ```
 
-Paste the script's `block` field verbatim into the prompt. When `session_caveman_active = false` the block is the empty string — omit the section. The wording lives in one place; the controller copies it, it does not compose it (the old fill-in-the-blank placeholder was a judgment call the controller mis-filled, so dispatched subagents never activated caveman).
+Paste the `block` field verbatim; empty string when inactive → omit the section. Full mechanics and the mis-fill failure mode this replaced: `./references/session-state-and-caveman.md`.
+
+### Execution Loop
+
+> **This section is the core of the skill and is unconditional.** It is not part of the Caveman Mode Activation step above — caveman is a presentation preference; on or off changes nothing here. Run everything below on every execution.
+>
+> **Read `./references/execution-loop.md` once, before the first dispatch.** What follows is the running *order*; that file carries the mechanics each step needs — the deterministic status writes, the two silent dispatch failure modes, the review-loop caps and the opt-in passes.
 
 **If a tracker exists:**
 1. Read the tasks index (`tasks-<feature-name>.md`).
 2. Tasks marked `[x]` are completed — skip them entirely (session resume).
 3. For each remaining `[ ]` task, read the individual task file for full context.
-4. **Read PRD and Spec from each task:** before dispatching the implementer, read the `**PRD:**` and `**Spec:**` fields from the task file header and include both files' content in the subagent's context alongside the task steps. The **Spec** is always required: if missing, empty, or its path does not resolve on disk, stop and resolve it before dispatching. The **PRD** is optional — `**PRD:** N/A` is valid (pass `N/A` to the implementer); only a non-`N/A` PRD path that fails to resolve is an error. Never dispatch an implementer without its Spec context (same stop-and-resolve handling as a status `mismatch`).
-5. **Before dispatching each implementer:** physically write the change to `task-NN.md` on disk — `**Status:** PENDING` → `**Status:** IN_PROGRESS`. A real file edit, not a TodoWrite entry or mental note.
+4. **Read PRD and Spec from each task:** read the `**PRD:**` and `**Spec:**` fields from the task file header and include both files' content in the subagent's context alongside the task steps. The **Spec** is always required — missing, empty, or a path that does not resolve on disk → stop and resolve it before dispatching. The **PRD** is optional (`**PRD:** N/A` is valid; pass `N/A` through); only a non-`N/A` path that fails to resolve is an error. Never dispatch an implementer without its Spec context.
+5. **Before dispatching each implementer:** write `**Status:** PENDING` → `**Status:** IN_PROGRESS` in `task-NN.md`, on disk.
+6. When ALL gates pass (super.verification-before-completion ✅ + spec review ✅ + code quality ✅), make **two physical edits on disk**: flip the index checkbox `- [ ] N.` → `- [x] N.` in `tasks-<feature-name>.md` **and** set `**Status:** DONE` in `task-NN.md`.
 
-   > **Deterministic status edit (preferred):** the idempotent script anchors on the `**Status:**` line so it can't corrupt an adjacent field, and re-running is a safe no-op:
-   > ```bash
-   > node <super.subagent-driven-development-base-dir>/scripts/mark-task-status.cjs \
-   >   --task-file <path/to/task-NN.md> --status IN_PROGRESS
-   > ```
-   > **Fallback:** edit the `**Status:**` line manually if the script is unavailable.
-6. When ALL gates pass (super.verification-before-completion ✅ + spec review ✅ + code quality ✅), make **two physical edits on disk** (mandatory even if already marked complete in TodoWrite): flip the index checkbox `- [ ] N.` → `- [x] N.` in `tasks-<feature-name>.md` **and** set `**Status:** DONE` in `task-NN.md`.
-
-   > **Deterministic update (preferred):** one call does both edits atomically and idempotently — sets the task file Status and flips the matching index checkbox (`[x]` for DONE):
-   > ```bash
-   > node <super.subagent-driven-development-base-dir>/scripts/mark-task-status.cjs \
-   >   --task-file <path/to/task-NN.md> --status DONE \
-   >   --tasks-index <path/to/tasks-<feature-name>.md> --task-number N
-   > ```
-   > Inspect the JSON: `statusChanged` and `indexUpdated` confirm the writes; any `errors` (e.g. task number not found) require manual resolution.
-   > **Fallback:** make the two edits manually if the script is unavailable.
-
-   These edits are the authoritative audit record. `super.finishing-a-development-branch` reads the index directly to verify all tasks are `[x]` — if the files are not edited on disk, the branch cannot be finished and the history cannot be audited.
+   > Both writes go through `scripts/mark-task-status.cjs` — exact invocations, the JSON to inspect and the manual fallback are in `./references/execution-loop.md`, "Tracker writes are physical edits on disk". A real file edit, never a session task-list entry or a mental note: these edits are the authoritative audit record, and `super.finishing-a-development-branch` reads the index directly, so without them the branch cannot be finished and the history cannot be audited.
 
 **If no tracker exists:**
 Extract tasks from a plan file if one was passed directly. Note in the log: "No task tracker found; using plan file directly."
 
-**Setup:** Read plan + task tracker, extract tasks, skip completed ones, create TodoWrite.
+**Setup:** Read plan + task tracker, extract tasks, skip completed ones. Mirror them into the session task list only if a task tool is already in the toolset — never spend a tool-discovery call on it; the task files on disk are the source of truth either way.
 
 **Per task (sequential):**
 1. Dispatch implementer subagent (`./agents/implementer.md`). If it asks questions → answer/provide context → re-dispatch. **After dispatching, await its result — never poll.** The subagent runs in the background and the harness re-invokes you when it returns; simply wait. Do **not** `sleep` or schedule a wakeup/timer to "check on" a subagent you just dispatched — busy-polling harness-tracked background work is wasted (you are re-invoked automatically) and a malformed wakeup call errors out mid-flow.
+   > **A dispatch that errors at launch has NOT run its gate — re-dispatch it before advancing.** An error returned *in place of* a subagent handle is a gate that never started, not a gate that passed; it skips the stage with no failing signal. Never let a spec review, code-quality review or verification count as satisfied unless its subagent actually launched and returned a verdict. That failure mode and what "await" means on a platform that does not auto-reinvoke are in `./references/execution-loop.md`, "Dispatch failure modes".
 2. Implementer implements, tests, commits, self-reviews.
 3. Dispatch spec reviewer subagent (`./agents/spec-reviewer.md`). If code does not match spec → implementer fixes, and you MUST hand it the reviewer's verdict — every finding with its `file:line` (paste into the implementer's `## Review Findings to Address` section on a fresh dispatch, or send as the follow-up message if the same implementer subagent is still active) — so a cheap implementer knows precisely what to correct → re-review. Loop until ✅; the task is not complete while any finding is open.
 4. Dispatch code quality reviewer subagent (`./agents/code-quality-reviewer.md`). If not approved → implementer fixes, handed the reviewer's Critical/Important findings (with `file:line`) the same way → re-review. Loop until ✅.
-   > **The review loop is capped.** If a reviewer keeps rejecting the same task across ~3 rounds without converging (each fix trades one finding for another, or reintroduces a prior one), stop and treat it like a `BLOCKED` implementer — apply the "Handling Implementer Status" section (more context → more capable model → split the task → escalate to the human). A non-converging review means something deeper is wrong.
-   > **`reviewShape` scales steps 3-4.** The two-stage pair above is the `two-stage` shape. When `parse-waves.cjs` marks a task `combined`, dispatch **one** reviewer (`./agents/combined-reviewer.md`) that fuses steps 3 and 4 into a single pass; when it marks a task `none`, skip both dedicated reviewers (the implementer's own tests + the wave/batch full-suite checkpoint + the final review and `super.independent-verification` gate are the safety net). See "Review cost control" below. The findings-loop-until-✅ rule is unchanged in every shape.
+   > **The loop is capped, and its shape varies.** A reviewer rejecting the same task across ~3 rounds without converging → stop and treat it like a `BLOCKED` implementer ("Handling Implementer Status" below). The pair above is the `two-stage` shape: `parse-waves.cjs` may instead mark a task `combined` (**one** fused reviewer, `./agents/combined-reviewer.md`) or `none` (skip both dedicated reviewers). The findings-loop-until-✅ rule is unchanged in every shape. See "Review cost control" below and `./references/execution-loop.md`, "Review loop bounds".
 5. Run `super.verification-before-completion` at **per-task scope** — the tests **affected** by this task (its touched file/module + what imports it), not the whole suite (see that skill's "Scope" section). The complete suite is **not** re-run here; it runs once as the wave/batch safety net below.
 6. Update task tracker: flip `[x]` + set `Status: DONE`.
 
-> **Full-suite checkpoint — once per wave/batch, not per task.** Because per-task verification now runs only the *affected* tests, run the **complete** suite green **once** at the end of each wave/batch as a safety net against cross-task interaction (in this sequential skill: once after the last task of the batch, immediately before "After all tasks done"). You, the controller, run it and confirm exit 0 — running read-only verification is not implementing. This is a net, not the terminal gate: the authoritative full run **plus** the mutation sensor is `super.independent-verification`, which runs right after the final review and may reuse this green result as its baseline (so the suite is not re-run yet again there).
+> **Full-suite checkpoint — once per wave/batch, not per task.** Per-task verification runs only the *affected* tests, so run the **complete** suite green **once** after the last task of the batch, immediately before "After all tasks done". You, the controller, run it and confirm exit 0 — running read-only verification is not implementing. It is a net, not the terminal gate: the authoritative full run plus the mutation sensor is `super.independent-verification`, which may reuse this green result as its baseline.
 
-> **`/simplify` (opt-in, Claude Code only; additive — never a review).** If `session_simplify_enabled`, run `/simplify` on the task's changed files between step 2 and step 3 (after tests green, before the reviews; skip no-code tasks). It *applies* cleanups, so it never duplicates the spec/quality gates. The optional final review pass (`/code-review` on Claude Code, `review` on Copilot CLI) is handled at "After all tasks done" below. Off or non-matching platform → skip. See `super.using-superpowers/references/claude-code-tools.md` / `copilot-tools.md`.
+> **`/simplify` (opt-in, Claude Code only; additive — never a review).** If `session_simplify_enabled`, run `/simplify` on the task's changed files between step 2 and step 3 (after tests green, before the reviews; skip no-code tasks). Off or non-matching platform → skip. Details in `./references/execution-loop.md`.
 
-**After all tasks done:** these steps are the **finish tail** — the canonical, mode-agnostic
-version lives in `references/finish-tail.md` and is what `super.parallel-subagent-development`
-and `super.parallel-subagent-in-tree` point to (single source). The steps below are this
-sequential skill's in-context expression; keep them and `references/finish-tail.md` consistent
-in gate order and semantics.
-1. **Final code review of the entire implementation.** Always dispatch the final code reviewer subagent (broad: architecture / security / testing strategy / project principles). **Then, as an extra bug-focused pass: if `session_code_review_final_enabled` (Claude Code) → also run `/code-review <session_code_review_effort>` (default `medium`); if `session_copilot_review_final_enabled` (Copilot CLI) → also run the native `review` skill.** These are complementary layers (broad review + focused bug net), not duplicate.
+**After all tasks done — the finish tail.** Five gates, in this exact order, once per feature. Do not reorder, merge or drop one:
 
-   > **The final review does NOT re-run the test suite.** It is an architecture / security / quality *read* of the code (reviewing that tests exist and are adequate is in scope; physically re-executing the suite is not). The complete suite already ran green at the wave/batch checkpoint, and `super.independent-verification` (step 2) is the terminal gate that re-runs the full suite **plus** the mutation sensor immediately after. Re-executing the suite here would be redundant re-execution — do not ask the reviewer or the controller to do it.
+1. **Final code review** over the whole integrated implementation, plus the opt-in native pass — findings are fixed, not merely reported.
+2. **Independent verification** (`super.independent-verification`) — always-on, never asked, runs even with no PRD; the controller then re-runs `check-verification-report.cjs` itself rather than trusting the Verifier's self-report.
+3. **QA gate** (`super.user-story-verification`) — only when `session_qa_gate_enabled` is `true` **and** a PRD exists **and** the user consents; silent skip otherwise. On `FAILED` → **STOP** and report the failing user stories.
+4. **Done-state gate** — `parse-tasks.cjs --assert-all-done`, deterministic, before any handoff.
+5. **Finish the branch** — deactivate caveman, then `super.finishing-a-development-branch`.
 
-   **Findings are fixed, not just reported — same fix loop as the per-task gates.** Pool the findings from all passes that ran. For each **Critical / Important** finding, dispatch a fresh implementer subagent (`./agents/implementer.md`) to fix it, pasting the finding (verdict + `file:line`) into its `## Review Findings to Address` section — the controller orchestrates, it does not patch inline — then **re-run the review pass that raised it** on the fix. Loop until no Critical/Important findings remain — **capped**: if the same finding survives ~2 fix rounds, stop and route it to **super.systematic-debugging** (an oscillating finding is a deeper design issue, not a nit) or escalate to the human; never loop indefinitely. **Minor** findings: fix if cheap, otherwise list them for the user; they do not block. Do not proceed to the QA gate or finishing while a Critical/Important finding is open. The per-task spec + quality gates already ran and are unaffected.
-2. **Independent verification gate (always-on, never prompted).** After the final review's Critical/Important findings are resolved, dispatch a fresh Verifier subagent (`super.independent-verification`, template `agents/verifier.md`) — full gate procedure, evidence-or-zero rule, and the fix→re-verify loop (bounded ~3 rounds) are defined there. **Then run the structural check yourself, in the controller thread — do not accept the Verifier's self-report alone** (a dispatched subagent's actual prompt can drift from the template; a controller-run command does not depend on what the subagent was told):
-
-   ```bash
-   node <super.independent-verification-base-dir>/scripts/check-verification-report.cjs \
-     --report docs/superpowers/<feature>/qa/validation-<feature>.md --spec <spec-path>
-   ```
-
-   `valid:false`, or no report found at that path, is a FAIL regardless of what the Verifier claimed. Do not proceed to the QA gate unless this command reports `valid:true` **and** the Verifier verdict is PASS. Unlike the QA gate below, this gate is **unconditional** — never ask the user whether to run it, and it runs even when no PRD exists.
-3. **QA gate (preference-gated).** If `session_qa_gate_enabled` is `false` (preference `workflow.qa_gate`), skip this gate **silently** — do not mention QA at all, not even the PRD check — and go to step 5. Otherwise: PRD exists? → No PRD: go to step 5 (the done-state gate). PRD found: ask user whether to run the QA gate.
-4. If user confirmed → invoke `super.user-story-verification` (QA Gate). On `FAILED` → **STOP and report failing user stories**; on `PASSED`/`PARTIAL` → continue. If user declined → continue.
-5. **Done-state gate (deterministic — before handoff).** The QA gate verifies *features*, not bookkeeping. Run `parse-tasks.cjs` with `--assert-all-done` — it exits non-zero if any task is not `[x]`/`Status: DONE`, or if the index and a task file disagree:
-
-   ```bash
-   node <super.subagent-driven-development-base-dir>/scripts/parse-tasks.cjs \
-     --tasks-index <path> --assert-all-done
-   ```
-
-   If it exits non-zero, fix the open or inconsistent tasks with `mark-task-status.cjs` while the execution machinery is still loaded — `super.finishing-a-development-branch` re-runs this same gate as a backstop, so a skip here surfaces there anyway.
-6. Pass the tasks index path to `super.finishing-a-development-branch`, then use it.
-
-## QA Gate — User Story Verification
-
-**Preference gate first — check `session_qa_gate_enabled`.** If it is `false` (from `workflow.qa_gate`), skip this entire QA Gate **silently**: do not run `super.user-story-verification` and do **not** mention QA anywhere (not even the PRD discovery below), proceeding directly to `super.finishing-a-development-branch`. The rest of this section applies only when `session_qa_gate_enabled` is `true`. (The independent verification gate above is always-on and unaffected by this preference.)
-
-After the final code reviewer approves and the independent verification gate (`super.independent-verification`) returns PASS, and **before** invoking `super.finishing-a-development-branch`, run the QA Gate if a PRD exists.
-
-**PRD discovery order** (same logic as `super.writing-plans`):
-1. Explicit path in context (forwarded from `super.generating-prd` this session)
-2. Deterministic derivation: `docs/superpowers/<feature-name>/prd/prd-<feature-name>.md`
-3. Directory scan: files with `prd-` prefix in `docs/superpowers/<feature-name>/prd/`
-
-**If no PRD is found:** Skip the QA Gate and proceed directly to `super.finishing-a-development-branch`.
-
-**If a PRD is found:** Ask the user whether to run the QA gate before proceeding:
-
-```
-A PRD was found for this feature. Do you want to run super.user-story-verification (QA gate)
-to verify all user stories against the implementation before finishing the branch?
-This will dispatch parallel subagents to check acceptance criteria and collect evidence.
-```
-
-| User decision | Action |
-|--------------|--------|
-| **Yes / confirmed** | Invoke `super.user-story-verification`, passing the PRD path, feature name, and test runner command |
-| **No / declined** | Skip the gate — proceed directly to `super.finishing-a-development-branch` |
-
-**When QA runs and returns a result:**
-
-| QA Result | Action |
-|-----------|--------|
-| `PASSED` | Continue — invoke `super.finishing-a-development-branch` |
-| `PARTIAL` | Continue — invoke `super.finishing-a-development-branch` (note partial coverage in handoff) |
-| `FAILED` | **STOP.** Report the failing user stories. Do not invoke `super.finishing-a-development-branch` until the user resolves them and re-runs. |
-
-The QA report is saved to `docs/superpowers/<feature-name>/qa/qa-report-<feature-name>.md` by `super.user-story-verification`.
-
-**Caveman + QA Gate:** `super.user-story-verification` runs in the `Verificando` state — caveman remains active during QA. Pass the caveman block to the QA skill invocation context so its subagents also use caveman. Deactivate caveman only after QA returns and **before** invoking `super.finishing-a-development-branch`:
-
-```
-[QA Gate result received]
-→ Deactivate caveman: "normal mode"  (and set session_caveman_in_effect = false)
-→ Invoke super.finishing-a-development-branch
-```
+**STOP — read `./references/finish-tail.md` before running any of them.** It is the canonical, mode-agnostic procedure the three execution modes share, so they cannot drift apart, and it carries what this index omits: each fix loop and its round cap, the exact gate wording, PRD discovery order, the QA result table, the caveman handoff. **The list above is an index, not a substitute — running a gate from this list alone is a skipped gate.**
 
 ## Model Selection
 
@@ -307,17 +212,13 @@ Each template above embeds a condensed code-search priority ladder (LSP/Serena >
 > grep) so the dispatched subagent locates symbols, call sites, and existing tests precisely instead
 of skimming files by eye. Full guidance and examples: `references/code-analysis.md`.
 
-## Example Workflow
-
-See `references/example-workflow.md` for an end-to-end transcript (session resume, per-task dispatch + reviews, final review, QA gate, handoff).
-
 ## Suggesting Commit Messages
 
 This applies **only when `workflow.auto_commit` is false** — when it is true the implementer already committed each task (see `agents/implementer.md`), so skip this. When auto-commit is off: after a task's code quality review is approved, give the developer a ready-to-copy `git add` (explicit files — never `git add .`/`-A`) + `git commit` block, with a pt-BR imperative message `tipo(escopo): descrição`. The developer executes it. Full format, type list, and guidelines: `references/commit-messages.md`.
 
 ## Review cost control
 
-The default per-task fan-out is **implementer + 2 reviewers** (spec compliance, then code quality). This is the conservative, maximum-rigor shape, and it is what made the V11 benchmark's rate-limiter rerun cost 46min/27 subagents for 5 tasks even though every AC passed — the shape was applied uniformly instead of scaled to each task's actual risk. **Do not decide the review shape by judgment call.** `parse-waves.cjs` computes it deterministically per task — read `reviewShape` off its output, the same call already made for the parallelism check and `suggestedTier`:
+The default per-task fan-out is **implementer + 2 reviewers** (spec compliance, then code quality) — the maximum-rigor shape, and applying it uniformly is what made one benchmark rerun cost 46min/27 subagents for 5 tasks with every AC already passing. **Do not decide the review shape by judgment call** (the judgment gets made under deadline pressure by the agent that benefits from going faster). `parse-waves.cjs` computes it deterministically per task — read `reviewShape` off its output, the same call already made for the parallelism check and `suggestedTier`:
 
 ```bash
 node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index <path>
@@ -330,19 +231,11 @@ node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --ta
 | `combined` | implementer + **one** reviewer with a fused spec + code-quality lens (`./agents/combined-reviewer.md`) | `cheap`/`standard` tier, not a structural node (`fanIn === 0`), but not a fully self-contained leaf either (has its own dependency, or touches more than one file) |
 | `none` | implementer only — no dedicated reviewer subagent | `cheap`/`standard` tier, exactly one file, zero dependencies, zero fan-in, explicit spec present — a genuine leaf task (e.g. "add this literal constant", "add this README line") |
 
-The **combined** reviewer must still be a **fresh, blind subagent** — author ≠ verifier — and must still report findings with `file:line` evidence; this is what the four review invariants (fresh subagent, blind to implementer's self-assessment, evidence-with-location, findings-loop-until-clean) require, and `combined` keeps all four, it only fuses the two passes into one dispatch.
+`combined` fuses the two *passes* into one dispatch, never the four review invariants: it is still a **fresh, blind subagent** (author ≠ verifier) reporting `file:line` evidence, spec lens first. `none` does not skip verification, it **relocates** it to three reads that already happen (implementer's own tests, the wave's full-suite checkpoint, the final review + IV gate).
 
-The **none** shape does not skip verification — it relocates it. A leaf task's safety net is: the implementer's own tests (still mandatory), the once-per-wave/batch full-suite checkpoint (`super.verification-before-completion`), and the mandatory final code review + `super.independent-verification` gate after all tasks. Those three already read every file in the diff; a fourth read by a per-task reviewer on a one-file, zero-dependency, spec-explicit task is the redundant rigor the V11 benchmark flagged as cost without quality gain.
+**Never override a computed shape downward** — the script's signals are the inputs a human would use, minus the temptation to save time. **Overriding upward is always safe**: when unsure, escalate one shape. **The final code review and `super.independent-verification` are never skipped or combined**, whatever any task's `reviewShape` says.
 
-**Never override `reviewShape` upward-to-downward** (e.g. treating a `two-stage` task as `combined` because "the domain feels known") — the script's signals (fan-in, critical keywords, tier) are the same inputs a human reviewer would use, computed without the temptation to save time under deadline pressure. Overriding **downward-to-upward** (keeping two reviewers on a task the script marked `combined`/`none`) is always safe and never wrong — when genuinely unsure, escalate one shape, the same escalation-ladder principle as model tier.
-
-**The final code review and `super.independent-verification` gates are never skipped or combined** — they remain separate dispatches after all tasks, regardless of any individual task's `reviewShape`.
-
-## Trade-offs
-
-**Gains:** subagents follow TDD with fresh, curated context per task (no pollution, complete info upfront, parallel-safe); they can ask questions before and during work; the two-stage review (spec compliance prevents over/under-building, then code quality ensures it is well-built) plus self-review and review loops catch issues early.
-
-**Cost:** more invocations (implementer + up to 2 reviewers per task), more controller prep, and review iterations — paid back by catching issues earlier (cheaper than debugging later). The "Review cost control" section above provides safe levers to reduce this cost on mechanical tasks.
+> Why each shape is safe, what the V11 benchmark measured, and the full guarantee list: `./references/review-cost-control.md`.
 
 ## Red Flags
 
@@ -351,7 +244,7 @@ The **none** shape does not skip verification — it relocates it. A leaf task's
 - Start implementation on main/master without explicit user consent — the "Branch Guard" section enforces this with a deterministic check before the first dispatch; do not dispatch the first implementer until it passes (or the user consents).
 - Skip reviews (spec compliance OR code quality).
 - Proceed with unfixed issues.
-- Dispatch multiple implementation subagents in parallel in this single shared workspace **ad hoc** (conflicts). Parallelism is not forbidden in the flow — it is forbidden *here*, unguarded. To run a wave's independent tasks concurrently, use a skill built for it: `super.parallel-subagent-development` (one isolated worktree per task) or `super.parallel-subagent-in-tree` (shared tree, but only after a deterministic write-set disjointness check + write-only/no-commit implementers + a serialized integration barrier). This skill stays strictly sequential.
+- **Dispatch multiple implementation subagents in parallel in this shared workspace ad hoc** — this skill is strictly sequential; use `super.parallel-subagent-development` (worktrees) or `super.parallel-subagent-in-tree` (disjointness-checked) instead.
 - Make the subagent read the plan file (provide full text instead).
 - Skip scene-setting context (subagent needs to understand where the task fits).
 - Ignore subagent questions (answer before letting them proceed).
@@ -360,15 +253,13 @@ The **none** shape does not skip verification — it relocates it. A leaf task's
 - Let implementer self-review replace actual review (both are needed).
 - **Start code quality review before spec compliance is ✅** (wrong order).
 - Move to next task while either review has open issues.
-- **Mark task `[x]` before super.verification-before-completion confirms evidence** — reviews passing is necessary but not sufficient; fresh verification is the final gate.
-- **Skip updating the task tracker** — if a tracker exists, you must physically edit both `tasks-<feature-name>.md` (`[ ]` → `[x]`) and `task-NN.md` (`Status: IN_PROGRESS` → `Status: DONE`) on disk before the next task. TodoWrite or knowing mentally does not count.
-- **Skip super.user-story-verification without asking when a PRD exists AND `session_qa_gate_enabled` is `true`** — with the QA gate enabled, always present the consent question first; skipping after the user explicitly declines is valid, skipping silently is not. (When `session_qa_gate_enabled` is `false`, silent skip is the correct behavior — the `workflow.qa_gate` preference already decided, and QA is not mentioned at all.)
+- **Mark task `[x]` before super.verification-before-completion confirms evidence** — reviewers read code, they do not run it.
+- **Skip updating the task tracker** — physically edit both `tasks-<feature-name>.md` (`[ ]` → `[x]`) and `task-NN.md` (`Status:` → `DONE`) on disk before the next task. A session task-list entry or knowing mentally does not count.
+- **Skip super.user-story-verification without asking when a PRD exists AND `session_qa_gate_enabled` is `true`** — always present the consent question first; skipping after the user declines is valid, skipping silently is not. (When the preference is `false`, silent skip IS correct — it already decided.)
 
-**If subagent asks questions:** answer clearly and completely; provide additional context if needed; don't rush them into implementation.
+**If a reviewer finds issues (per-task or final loop):** re-dispatch the implementer with every finding + `file:line` pasted into its `## Review Findings to Address` section. Reuse the same implementer while it is still active (it holds the code in context); the **final** review loop, whose per-task subagents have already returned, uses a **fresh** implementer instead. Re-review after each fix — capped at ~3 non-converging rounds, then escalate. Never skip the re-review: an unverified fix is a claim.
 
-**If reviewer finds issues:** re-dispatch the implementer with the reviewer's verdict pasted into its `## Review Findings to Address` section — every finding + `file:line` — so it knows exactly what to fix. Reuse the same implementer subagent while it is still active (it holds the code in context); the *final* review loop, whose per-task subagents have already returned, uses a fresh implementer instead. Reviewer reviews again; repeat until approved — capped at ~3 non-converging rounds, then escalate per the "Handling Implementer Status" section. Don't skip the re-review.
-
-**If subagent fails task:** dispatch a fix subagent with specific instructions; don't fix manually (context pollution).
+**The other two procedures, and why the non-obvious prohibitions exist:** `./references/red-flag-procedures.md` (subagent asks questions / subagent fails its task).
 
 ## Integration
 

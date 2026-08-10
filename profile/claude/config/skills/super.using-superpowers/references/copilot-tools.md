@@ -8,19 +8,35 @@ Skills use Claude Code tool names. Use your platform equivalent:
 | `Write` (file creation) | `create` |
 | `Edit` (file editing) | `edit` |
 | `Bash` (run commands) | `bash` |
-| `Grep` (search file content) | `grep` |
+| file-content search | `grep` |
 | `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep` if it doesn't resolve immediately. |
-| `Glob` (search files by name) | `glob` ⚠️ see limitation below |
+| file-name search | `glob` ⚠️ see limitation below |
 | `Skill` tool (invoke a skill) | `skill` |
 | `AskUserQuestion` (structured user question) | `ask_user` |
 | `WebFetch` | `web_fetch` |
-| `Task` tool (dispatch subagent) | `task` with `agent_type: "general-purpose"` or `"explore"` |
-| Multiple `Task` calls (parallel) | Multiple `task` calls |
+| `Task` tool (dispatch subagent) | `task` with `agent_type: "general-purpose"` or `"explore"`, and **`mode: "sync"` for a sequential/blocking dispatch** — see "Dispatching subagents" below |
+| Multiple `Task` calls (parallel) | Multiple `task` calls with `mode: "background"`, then collect with `read_agent` — see "Dispatching subagents" below |
 | Task status/output | `read_agent`, `list_agents` |
-| `TodoWrite` (task tracking) | `sql` with built-in `todos` table |
+| session task list (task tracking, optional) | `sql` with built-in `todos` table |
 | `WebSearch` | No equivalent — use `web_fetch` with a search engine URL |
 | Research (`super.deep-research`) | Fan-out via `task` (`agent_type: "general-purpose"`) with `web_fetch`, `exa-web-search-free` using search-engine URLs. The `/research` slash command is user-only — it cannot be invoked by a skill. |
 | `EnterPlanMode` / `ExitPlanMode` | No equivalent — stay in the main session. Do not fall back to the platform's native plan mode; use `super.brainstorming` -> `super.generating-prd` -> `super.writing-plans`. |
+
+## Dispatching subagents with `task` (blocking mode; `ask_user` is never a wait primitive)
+
+The skills say, in many places, *"After dispatching, await its result — never poll. The subagent runs in the background and the harness re-invokes you when it returns; simply wait."* **That is Claude Code semantics.** Copilot CLI's `task` tool does **not** suspend the orchestrator and re-invoke it when a background subagent finishes: a `mode: "background"` dispatch returns immediately with an `agent_id`, and *nothing wakes you on completion*. Read those "the harness re-invokes you" sentences as an instruction to **not busy-poll**, then satisfy them with the Copilot-native mechanism below.
+
+**Translate "await its result — never poll" to `mode: "sync"`.** A `sync` dispatch blocks the `task` call until the subagent finishes and returns its full output directly — that *is* "simply wait," done natively, with no polling and no self-inserted pause. Use `mode: "sync"` for every **sequential, one-at-a-time** dispatch: the implementer, the spec reviewer, the code-quality reviewer, the combined reviewer, the final reviewer, and the independent-verification Verifier in `super.subagent-driven-development` — and any single blocking dispatch elsewhere. `mode: "background"` is only for a genuine **parallel fan-out** (a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, research investigators, QA subagents) where you launch several in one turn and then collect each with `read_agent` / `list_agents`.
+
+**`ask_user` is a consent tool, never a synchronization/wait primitive.** Do **not** call `ask_user` to "wait for" a dispatched subagent, to pause between a dispatch and reading its result, or to ask "continue?" while background work runs. A `{ continue: boolean }` prompt after a dispatch is the exact anti-pattern this note prevents — it halts the autonomous flow and forces the user to click through phases meant to run unattended. **The per-task spec review and code-quality review are fully autonomous — they never prompt the user; neither does the fix→re-review loop between them.** The only places the execution skills legitimately call `ask_user` are their explicit, named consent gates, defined in the skills themselves:
+
+- **Branch Guard** — the current branch is the repository's default (`main`/`master`): STOP and ask before the first implementer dispatch (offer a feature branch, or explicit consent to proceed on the default branch).
+- **QA gate** — a PRD exists *and* `workflow.qa_gate` is enabled: ask whether to run `super.user-story-verification`.
+- **Auto-commit suggestion** — `workflow.auto_commit: false`: present the ready-to-copy `git add`/`commit` block for the developer to run (a message + optional confirm, not a wait pause).
+
+Everything between those gates — dispatch, review, fix loop, verification — runs without a single `ask_user`. If you find yourself reaching for `ask_user` and none of the three gates above applies, you are misusing it as a wait primitive: dispatch with `mode: "sync"` instead.
+
+**The same rule governs phase handoffs, not just execution.** A `{ continue: boolean }` re-confirmation at a phase boundary — "Chegamos ao final do brainstorming… continuar com o plano?", "continue with the implementation plan?", "proceed to planning?" — is the identical anti-pattern. When the previous step already captured the user's go-ahead, do **not** re-ask it as an `ask_user` gate; invoke the next skill directly. In particular, at the **brainstorming → `super.writing-plans`** handoff, the PRD suggestion (`super.brainstorming` step 9) *is* the single go/no-go: skipping the PRD literally means "go straight to planning," and generating it ends by proceeding to planning. Once that yes/no is answered, invoke `super.writing-plans` and let it run — never insert a `{ continue_planning: boolean }` prompt before or inside it. The only legitimate user-facing gate after this handoff is the execution-mode election the execution pipeline raises later. Re-confirming a decision the user just made stalls a flow meant to proceed and forces the user to click through near-identical gates.
 
 ## ⚠️ Known Limitation: `glob` and Hidden Directories
 

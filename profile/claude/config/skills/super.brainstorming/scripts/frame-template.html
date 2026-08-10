@@ -85,6 +85,36 @@
       padding: 0.5rem 1.5rem;
       flex-shrink: 0;
       text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+    }
+    /* Submit is what COMMITS a decision. A click is exploration — the user may pick
+       the wrong panel, compare, or want several options at once — so the agent must
+       act on an explicit confirmation, not on the first click it happens to see. */
+    #companion-submit {
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.3rem 0.9rem;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    #companion-submit[hidden] { display: none; }
+    #companion-submit:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    #companion-submit.sent {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-secondary);
+      cursor: default;
     }
     .indicator-bar span {
       font-size: 0.75rem;
@@ -226,6 +256,7 @@
 
   <div class="indicator-bar">
     <span id="indicator-text">Click an option above, then return to the terminal</span>
+    <button id="companion-submit" type="button" disabled hidden>Send to agent</button>
   </div>
 
 </body>

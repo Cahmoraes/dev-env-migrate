@@ -89,6 +89,19 @@ test('FULL option set: every preferences.yml option round-trips write -> read', 
   }
 });
 
+test('communication.language round-trips write -> read -> derive (session_language)', () => {
+  for (const language of ['pt-BR', 'en-US', 'es-ES']) {
+    const root = mkRepo();
+    try {
+      write(root, { communication: { language } });
+      assert.equal(read(root).preferences.communication.language, language, `read ${language}`);
+      assert.equal(derive(root).sessionState.session_language, language, `derive ${language}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('context.has_corporate_artifacts round-trips both true and false', () => {
   for (const value of [true, false]) {
     const root = mkRepo();

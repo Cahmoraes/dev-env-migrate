@@ -88,7 +88,7 @@ function isMarkdownBlockStart(line) {
 
 // A bold "**US-NN — Título**" header with no story text of its own puts the
 // story on the very next physical line as a Markdown blockquote ("> Como ...")
-// — the real google-social-login PRD shape. isMarkdownBlockStart treats a
+// — a shape observed in real PRDs. isMarkdownBlockStart treats a
 // blockquote as a fresh block for good reason (a genuine quote must never
 // bleed into the preceding paragraph), but here the "> " is decorative
 // indentation for the header's own story, not an unrelated quote — so this
@@ -153,14 +153,14 @@ function main() {
 	// "Como" — PRDs label stories in many shapes: `- **US-01**: Como ...`,
 	// `**US-02:** Como ...`, `US-03 — Como ...`, `US-04 — **Título** Como ...`,
 	// `**US-05 — Título**\nComo ...` (ID and title sharing ONE bold span, story
-	// text on the next physical line — the real shape found in the
-	// admin-role-management PRD), `**US-006 — Título**\n> Como ...` (ID+title
-	// on its own line, story on the next line as a blockquote — the real shape
-	// found in the google-social-login PRD; merged by mergeWrappedLines), or a
+	// text on the next physical line — a real shape observed in the
+	// field), `**US-006 — Título**\n> Como ...` (ID+title
+	// on its own line, story on the next line as a blockquote — another real
+	// observed shape; merged by mergeWrappedLines), or a
 	// bare `Como ...`. The legacy `HU-NN` prefix is accepted too (normalized to
 	// US- below). "eu" before "quero" is optional — "Como X, quero Y" (no "eu")
-	// is valid Portuguese phrasing, found verbatim in the admin-user-detail-panel
-	// PRD. Named groups are used because the ID can be captured by either
+	// is valid Portuguese phrasing, found verbatim in real PRDs.
+	// Named groups are used because the ID can be captured by either
 	// alternative below.
 	// The marker is captured so the PRD's own ID is preserved for QA traceability.
 	// After the ID marker, the title (bold or not) is consumed and discarded so

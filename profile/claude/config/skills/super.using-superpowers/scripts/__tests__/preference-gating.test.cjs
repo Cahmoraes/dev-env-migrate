@@ -208,15 +208,52 @@ test('finish-tail gates the QA gate on session_qa_gate_enabled and silences QA w
     'finish-tail must suppress every QA mention (including the PRD step) when off');
 });
 
-test('subagent-driven-development gates its QA gate on session_qa_gate_enabled and silences QA when off', () => {
+test('subagent-driven-development delegates the QA gate and keeps it conditional in its index', () => {
+  // The full procedure — silent skip, the no-mention rule, PRD discovery, the verdict
+  // table — is owned by finish-tail.md and asserted on it directly by the test above.
+  // SKILL.md used to carry a second copy, 7.7 KB of it past the 20.000-char compaction
+  // window, so on resume the model had neither copy. What must survive here is narrower
+  // and load-bearing: the pointer, and enough of the condition that a controller reading
+  // only the index never treats the QA gate as unconditional or announces it when off.
   const body = readFile('super.subagent-driven-development/SKILL.md');
-  const hits = body.match(/session_qa_gate_enabled/g) || [];
-  assert.ok(hits.length >= 2,
-    'SKILL must gate BOTH the finish-tail step and the full QA Gate section on session_qa_gate_enabled');
-  assert.match(body, /skip this entire QA Gate \*\*silently\*\*/i,
-    'the full QA Gate section must skip silently when the preference is off');
-  assert.match(body, /do \*\*not\*\* mention QA anywhere/i,
-    'SKILL must suppress every QA mention when off');
+  assert.match(body, /references\/finish-tail\.md/,
+    'SKILL must point at finish-tail.md, or the QA gate has no owner the controller can reach');
+  assert.ok(body.includes('session_qa_gate_enabled'),
+    'the five-gate index must still name session_qa_gate_enabled as the QA gate condition');
+  assert.match(body, /silent skip/i,
+    'the index must say the skip is silent, or QA gets announced before the reference is read');
+});
+
+// ─── Corporate artifacts — the file on disk is NOT the consent signal ─────────
+//
+// The regression these lock out: `context.has_corporate_artifacts` was `false`, yet a
+// leftover `.superpowers/corporate-artifacts.yml` (declaring a PRD the pipeline itself had
+// written for an unrelated feature) was loaded anyway and handed corporate precedence —
+// outranking the spec under review. Presence of a file is not the user declaring anything.
+
+test('using-superpowers loads corporate artifacts only under the flag, never on file presence alone', () => {
+  const body = readFile('super.using-superpowers/SKILL.md');
+  const section = body.slice(body.indexOf('### Corporate Artifacts'));
+  assert.ok(section.length > 0, 'the Corporate Artifacts section must exist in the router');
+  assert.doesNotMatch(
+    section.split('\n').slice(0, 8).join('\n'),
+    /exists?\s+with\s+the\s+flag\s+off\)?,\s*read/i,
+    'reading the yml because it "exists with the flag off" is the bug — presence is not consent',
+  );
+  assert.match(section, /do not load it|do not load them/i,
+    'the flag-off + file-present branch must say NOT to load the artifacts');
+  assert.match(section, /warn once|warn the user once/i,
+    'the mismatch must still be surfaced — silence is the other failure mode');
+});
+
+test('reviewing-specs gates Lens 5 on consent + declaration, and reports the mismatch instead', () => {
+  const body = readFile('super.reviewing-specs/SKILL.md');
+  assert.ok(body.includes('has_corporate_artifacts'),
+    'the Lens 5 switch must name the consent flag, not just the yml');
+  assert.match(body, /not consent/i,
+    'the SKILL must state that the file being on disk is not consent');
+  assert.ok(body.includes('declaredButDisabled'),
+    'the reviewer needs the field that carries the config mismatch');
 });
 
 // ─── No coupling — one preference off does not disable another ────────────────

@@ -602,3 +602,172 @@ test('exit code is 0 even when valid: false', () => {
   const r = run(['--dispatch', p]);
   assert.equal(r.valid, false);
 });
+
+// ─── readOnly agents: making the mixed reviewer+implementer dispatch declarable ──
+// A reviewer writes nothing, so `enforceWriteSets` flagged it `unverifiable_writeset`
+// and blocked the dispatch — even though a non-writer is trivially disjoint from every
+// writer. The only way to declare a wave that reviews task N while implementing task M
+// was to fail the gate, so the gate got skipped entirely for those waves instead
+// (observed: 3 of 6 parallel waves dispatched with no disjointness proof at all).
+// `readOnly: true` states the intent, exempts the agent from the write-set proof it
+// cannot supply, and keeps it in the read∩write hazard check where it belongs.
+
+test('readOnly agent is exempt from unverifiable_writeset under enforceWriteSets', () => {
+  const dir = tmpDir();
+  const p = writeManifest(dir, {
+    enforceWriteSets: true,
+    agents: [
+      validAgent({ label: 'Implement Task 17', writeFiles: ['src/a.ts'] }),
+      validAgent({ label: 'Combined review Task 12', readOnly: true, readFiles: ['src/b.ts'] }),
+    ],
+  });
+  const r = run(['--dispatch', p]);
+  assert.equal(
+    r.errors.filter((e) => e.type === 'unverifiable_writeset').length, 0,
+    'a declared read-only agent has no write-set to prove — it must not be flagged',
+  );
+  assert.equal(r.valid, true, 'the mixed reviewer+implementer wave must be declarable');
+});
+
+test('a non-readOnly agent with no writeFiles is still flagged (the exemption is opt-in)', () => {
+  const dir = tmpDir();
+  const p = writeManifest(dir, {
+    enforceWriteSets: true,
+    agents: [
+      validAgent({ label: 'Implement Task 17', writeFiles: ['src/a.ts'] }),
+      validAgent({ label: 'Implement Task 18', writeFiles: [] }),
+    ],
+  });
+  const r = run(['--dispatch', p]);
+  assert.ok(
+    r.errors.find((e) => e.type === 'unverifiable_writeset'),
+    'silence about a write-set is still unprovable — only an explicit readOnly claim exempts',
+  );
+});
+
+test('readOnly agent still participates in the read∩write hazard check', () => {
+  // The whole point: a reviewer reading a file a concurrent implementer is rewriting
+  // reads a half-written tree. Exempting it from the write proof must not exempt it
+  // from the hazard it is actually exposed to.
+  const dir = tmpDir();
+  const p = writeManifest(dir, {
+    enforceWriteSets: true,
+    agents: [
+      validAgent({ label: 'Implement Task 19', writeFiles: ['src/shared.ts'] }),
+      validAgent({ label: 'Review Task 17', readOnly: true, readFiles: ['src/shared.ts'] }),
+    ],
+  });
+  const r = run(['--dispatch', p]);
+  const h = r.errors.find((e) => e.type === 'read_write_hazard');
+  assert.ok(h, 'expected read_write_hazard for the reviewer reading a concurrently-written file');
+  assert.equal(h.writer, 'Implement Task 19');
+  assert.equal(h.reader, 'Review Task 17');
+  assert.equal(r.valid, false);
+});
+
+test('readOnly agent declaring writeFiles is a contradiction, not a silent override', () => {
+  const dir = tmpDir();
+  const p = writeManifest(dir, {
+    enforceWriteSets: true,
+    agents: [
+      validAgent({ label: 'Implement Task 1', writeFiles: ['src/a.ts'] }),
+      validAgent({ label: 'Review Task 1', readOnly: true, writeFiles: ['src/b.ts'] }),
+    ],
+  });
+  const r = run(['--dispatch', p]);
+  assert.ok(
+    r.errors.find((e) => e.type === 'readonly_with_writeset' && e.agent === 'Review Task 1'),
+    'declaring both readOnly and a write-set must fail loudly — one of the two is wrong',
+  );
+  assert.equal(r.valid, false);
+});
+
+test('readOnly is backward compatible: absent field behaves exactly as before', () => {
+  const dir = tmpDir();
+  const p = writeManifest(dir, {
+    agents: [
+      validAgent({ label: 'A', writeFiles: ['src/a.ts'] }),
+      validAgent({ label: 'B', writeFiles: ['src/b.ts'] }),
+    ],
+  });
+  const r = run(['--dispatch', p]);
+  assert.equal(r.valid, true);
+  assert.equal(r.errors.length, 0);
+});
+
+// --- --help carries a manifest skeleton that actually validates -------------
+// The skeleton exists so a controller never has to read this script's source to
+// learn the manifest shape (measured: a dry-run spent a --help call, a grep of
+// the source, and still shipped a manifest missing a required field). A prose
+// example drifts silently; this guard executes it, so it cannot.
+
+function helpSkeleton() {
+  const help = runRaw(['--help']);
+  const lines = help.split('\n');
+  const start = lines.findIndex((l) => /Manifest skeleton/.test(l));
+  assert.ok(start !== -1, '--help must carry a "Manifest skeleton" block');
+  const body = [];
+  let depth = 0;
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (!body.length && !/\{/.test(l)) continue;
+    body.push(l);
+    depth += (l.match(/\{/g) || []).length - (l.match(/\}/g) || []).length;
+    if (depth === 0) break;
+  }
+  assert.ok(body.length && depth === 0, '--help skeleton block must be a balanced JSON object');
+  return JSON.parse(body.join('\n'));
+}
+
+test('the --help manifest skeleton is valid JSON and passes the gate as written', () => {
+  const skeleton = helpSkeleton();
+  const dir = tmpDir();
+  const p = writeManifest(dir, skeleton);
+  const r = run(['--dispatch', p]);
+  assert.equal(r.valid, true, `skeleton rejected: ${JSON.stringify(r.errors)}`);
+  assert.equal(r.errors.length, 0);
+});
+
+test('the --help skeleton still passes when grown into a real 2-agent wave', () => {
+  const skeleton = helpSkeleton();
+  const second = JSON.parse(JSON.stringify(skeleton.agents[0]));
+  second.label = 'task-02-implementer';
+  second.writeFiles = ['src/b.ts'];
+  second.readFiles = [];
+  skeleton.agents.push(second);
+  const dir = tmpDir();
+  const r = run(['--dispatch', writeManifest(dir, skeleton)]);
+  assert.equal(r.valid, true, `grown skeleton rejected: ${JSON.stringify(r.errors)}`);
+  assert.equal(r.warnings.filter((w) => w.type === 'single_agent').length, 0);
+});
+
+test('the --help skeleton names every field the gate requires', () => {
+  const help = runRaw(['--help']);
+  for (const field of ['modelTiers', 'enforceWriteSets', 'agents', 'label', 'model', 'goal', 'tier', 'escalationReason', 'writeFiles', 'readFiles', 'readOnly']) {
+    assert.match(help, new RegExp(`\\b${field}\\b`), `--help must document "${field}"`);
+  }
+});
+
+test('the --help skeleton names no concrete vendor model (tiers stay abstract)', () => {
+  const help = runRaw(['--help']);
+  const block = help.slice(help.indexOf('Manifest skeleton'));
+  // The tier->model map is per-harness and per-vendor; it comes from the consuming
+  // repo's preferences. A worked example naming one vendor's models reads as the
+  // rule and couples every consumer to that vendor.
+  for (const vendorModel of ['haiku', 'sonnet', 'opus', 'gpt-', 'gemini', 'claude-', 'kimi', 'llama', 'mistral', 'grok', 'deepseek']) {
+    assert.doesNotMatch(block, new RegExp(vendorModel, 'i'), `--help must not name the concrete model "${vendorModel}"`);
+  }
+  assert.match(block, /model_tiers/, '--help must point at the preferences model_tiers map instead');
+});
+
+test('the SKILL.md manifest example names no concrete vendor model either', () => {
+  const skill = fs.readFileSync(path.resolve(__dirname, '..', '..', 'SKILL.md'), 'utf8');
+  const fences = [...skill.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const manifest = fences.filter((f) => f.includes('modelTiers'));
+  assert.ok(manifest.length >= 1, 'SKILL.md must still carry a modelTiers manifest example');
+  for (const f of manifest) {
+    for (const vendorModel of ['haiku', 'sonnet', 'opus', 'gpt-', 'gemini', 'claude-', 'kimi', 'llama', 'mistral', 'grok', 'deepseek']) {
+      assert.doesNotMatch(f, new RegExp(vendorModel, 'i'), `the manifest example must not name "${vendorModel}" — tiers are abstract and the map is per-harness`);
+    }
+  }
+});

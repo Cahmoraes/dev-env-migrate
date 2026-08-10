@@ -3,7 +3,7 @@
 Before this mechanism, the tier (Micro/Small/Medium/Large/Complex) was judged **once**, in prose, from whatever the user's first message contained — before `super.brainstorming` ever ran. Two failure modes fell out of that:
 
 - A vague first message could lock in the wrong tier (and the wrong ceremony) for the rest of the session, with no formal re-check until the atomic-step-count tripwire in `references/medium-inline-path.md` — which only fires late, after planning, and only catches *under*-classification.
-- A request that skips the numbered Opening Triage and enters directly at "opção 2" (`super.brainstorming` invoked immediately, per `SKILL.md`'s Option table) never ran the tier check at all — `super.brainstorming` had no tier-assessment responsibility of its own.
+- A request that skips the numbered Opening Triage and enters directly at "opção 2" (`super.brainstorming` invoked immediately, per the Option table in `session-start.md`) never ran the tier check at all — `super.brainstorming` had no tier-assessment responsibility of its own.
 
 This reference formalizes a **checkpoint-based** assessment: the same deterministic function (`scripts/assess-complexity.cjs`), called at four fixed points regardless of entry path, each contributing real signal as it becomes available.
 

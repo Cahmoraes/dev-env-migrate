@@ -40,3 +40,15 @@ Problem/Fix breakdown of the mistakes the Red Flags checklist guards against.
 **No confirmation for discard**
 - **Problem:** Accidentally delete work
 - **Fix:** Require typed "discard" confirmation
+
+**Syncing memory after a discard**
+- **Problem:** Memory ends up holding the spec/PRD/QA of work the user just threw away, and recall surfaces it as if it shipped
+- **Fix:** Step 8 runs for every option except Discard
+
+**Re-syncing the whole repo at Step 8**
+- **Problem:** Ingests other developers' features the user was never asked about, and pulls every feature's artifacts into an already-long context
+- **Fix:** `compute-inventory.cjs --feature <slug>` — the feature just finished, nothing else
+
+**Running Step 8 from the feature worktree**
+- **Problem:** A worktree has no `.memory/`, so the sync either fails or forks a second database that disappears with the worktree
+- **Fix:** Resolve `MEMORY_ROOT` from `git rev-parse --git-common-dir` and pass it as `--repo-root`

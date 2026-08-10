@@ -1,6 +1,7 @@
 ---
 name: super.verification-before-completion
 description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
+user-invocable: false
 ---
 
 # Verification Before Completion
@@ -40,6 +41,8 @@ Skip any step = lying, not verifying
 ## Scope: per-task = affected tests, not the whole suite
 
 "Fresh, complete" means the command runs in full and unfaked — it does **not** mean re-running the entire suite on every task. For a **per-task** check, the required evidence is the tests **affected by the task** (the file/module the task touched, plus what imports it) at exit 0. Re-running the whole suite once per task is redundant re-execution, not extra rigor: the complete suite runs once as a wave/batch safety net (owned by `super.subagent-driven-development`), and the authoritative terminal full run belongs to `super.independent-verification`. The "evidence before claims" principle is unchanged — only the *scope* of what a per-task claim must run is narrowed to what the task can affect. When a change is genuinely cross-cutting (shared util, config, build) so "affected" is effectively the whole suite, run the whole suite.
+
+**Confirm the scoping actually applied — read the file count, not just the exit code.** A scoped command that silently loses its filter reports *everything green* and costs a full suite, so it reads as rigor while being the redundancy this section exists to prevent. Monorepo runners are the usual culprit: an extra `--` (`pnpm --filter <ws> test -- <path>`) or a path written from the repo root instead of the workspace can leave the runner with no usable filter, and a name filter with no file argument (`vitest run -t "<name>"`) still collects every file. If you named two test files and the output says 132, the filter did not apply — fix the command before treating the run as per-task evidence.
 
 **Out of scope for this gate:** this self-check never runs mutation testing and never re-derives spec coverage from the spec — those are `super.independent-verification`'s lenses, not the VBC self-check's. Do not read any wording here as asking for them.
 

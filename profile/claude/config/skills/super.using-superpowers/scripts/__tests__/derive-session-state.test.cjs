@@ -46,7 +46,7 @@ const ALL_ON =
   'copilot:\n  review_final: true\n';
 
 test('qa_gate + auto_commit derive platform-agnostically (default on, honored off)', () => {
-  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     // Defaults (no file) → both on.
     let root = mkRepo();
     try {
@@ -64,8 +64,23 @@ test('qa_gate + auto_commit derive platform-agnostically (default on, honored of
   }
 });
 
+test('language derives from communication.language, platform-agnostic, default pt-BR', () => {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
+    // Default (no file) → pt-BR on every platform.
+    let root = mkRepo();
+    try {
+      assert.equal(derive(root, platform).sessionState.session_language, 'pt-BR', `default pt-BR on ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    // Explicit value → surfaced verbatim on every platform (no platform gating).
+    root = mkRepo('communication:\n  language: en-US\n');
+    try {
+      assert.equal(derive(root, platform).sessionState.session_language, 'en-US', `en-US honored on ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 test('caveman + memory derive from preferences on every platform', () => {
-  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     const root = mkRepo(ALL_ON);
     try {
       const { sessionState } = derive(root, platform);
@@ -79,7 +94,7 @@ test('caveman + memory derive from preferences on every platform', () => {
 });
 
 test('model tiers default to null ("auto") on every platform when unset', () => {
-  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     const root = mkRepo(ALL_ON); // ALL_ON does not set model_tiers
     try {
       const { sessionState } = derive(root, platform);
@@ -94,7 +109,7 @@ test('model tiers default to null ("auto") on every platform when unset', () => 
 
 test('configured model tiers are surfaced verbatim and are platform-agnostic', () => {
   const yaml = 'model_tiers:\n  cheap: fast-model\n  standard: mid-model\n  capable: top-model\n';
-  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'other']) {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     const root = mkRepo(yaml);
     try {
       const { sessionState } = derive(root, platform);
@@ -127,7 +142,7 @@ test('Claude Code native vars derive only on Claude Code', () => {
     assert.equal(cc.session_code_review_final_enabled, true);
     assert.equal(cc.session_code_review_effort, 'high');
 
-    for (const off of ['copilot', 'codex', 'gemini', 'other']) {
+    for (const off of ['copilot', 'codex', 'gemini', 'opencode', 'other']) {
       const s = derive(root, off).sessionState;
       assert.equal(s.session_simplify_enabled, false, `simplify off on ${off}`);
       assert.equal(s.session_code_review_final_enabled, false, `code_review off on ${off}`);
@@ -142,7 +157,7 @@ test('Copilot native review var derives only on Copilot CLI', () => {
   const root = mkRepo(ALL_ON);
   try {
     assert.equal(derive(root, 'copilot').sessionState.session_copilot_review_final_enabled, true);
-    for (const off of ['claude-code', 'codex', 'gemini', 'other']) {
+    for (const off of ['claude-code', 'codex', 'gemini', 'opencode', 'other']) {
       assert.equal(
         derive(root, off).sessionState.session_copilot_review_final_enabled,
         false,
@@ -243,10 +258,88 @@ test('controller latches are NOT emitted (they are runtime bookkeeping)', () => 
   }
 });
 
+// ─── One-call session start ──────────────────────────────────────────────────
+// The entry point used to spend a second tool call on read-preferences.cjs purely
+// for `found`, `malformed` and `context.has_corporate_artifacts`. Everything else it
+// read was already in sessionState. These lock the three that close the gap, so the
+// router can drop that call without losing a single signal.
+
+test('session_has_corporate_artifacts derives on EVERY platform (no gating)', () => {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
+    for (const value of [true, false]) {
+      const root = mkRepo(`context:\n  has_corporate_artifacts: ${value}\n`);
+      try {
+        assert.equal(
+          derive(root, platform).sessionState.session_has_corporate_artifacts,
+          value,
+          `corporate=${value} on ${platform}`,
+        );
+      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    }
+  }
+});
+
+test('session_has_corporate_artifacts defaults to false when the file is absent', () => {
+  const root = mkRepo();
+  try {
+    assert.equal(derive(root, 'claude-code').sessionState.session_has_corporate_artifacts, false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('malformed + preferencesPath ride along, so the router needs no second read', () => {
+  // Sound file: malformed false, path resolved.
+  let root = mkRepo(ALL_ON);
+  try {
+    const r = derive(root, 'claude-code');
+    assert.equal(r.malformed, false, 'a sound file is not malformed');
+    assert.equal(
+      r.preferencesPath,
+      path.join(root, '.superpowers', 'preferences.yml'),
+      'preferencesPath must resolve to the real file',
+    );
+    assert.equal(r.preferencesFound, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+
+  // Malformed file: the flag must surface, exactly as read-preferences.cjs reports it.
+  root = mkRepo('optimization:\n\tcaveman: true\n  - stray\n');
+  try {
+    assert.equal(derive(root, 'claude-code').malformed, true, 'malformed YAML must be reported');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('absent file still reports preferencesFound:false (defaults are not consent)', () => {
+  const root = mkRepo();
+  try {
+    const r = derive(root, 'claude-code');
+    assert.equal(r.preferencesFound, false, 'a populated sessionState must not imply the file exists');
+    assert.equal(r.malformed, false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('unknown platform fails loudly (exit 1) rather than leaking wrong gating', () => {
   const root = mkRepo(ALL_ON);
   try {
     assert.throws(() => derive(root, 'windows'), /exited with code 1|Command failed/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('opencode is an accepted platform and resolves every native-review var off', () => {
+  // opencode ships no equivalent of /simplify, /code-review or Copilot's `review`,
+  // so BOTH platform sections must resolve to their safe defaults there. This is the
+  // same "a session can never try to run a native skill the platform lacks" guarantee
+  // the Claude Code / Copilot tests assert from their own side.
+  const root = mkRepo(ALL_ON);
+  try {
+    const s = derive(root, 'opencode').sessionState;
+    assert.equal(s.session_simplify_enabled, false, 'claude_code.simplify must not leak into opencode');
+    assert.equal(s.session_code_review_final_enabled, false, 'claude_code.code_review_final must not leak into opencode');
+    assert.equal(s.session_code_review_effort, 'medium', 'effort must fall back to the default off Claude Code');
+    assert.equal(s.session_copilot_review_final_enabled, false, 'copilot.review_final must not leak into opencode');
+    // ...while the platform-agnostic vars still derive normally.
+    assert.equal(s.session_caveman_active, true);
+    assert.equal(s.session_memory_enabled, true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

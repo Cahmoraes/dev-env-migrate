@@ -15,11 +15,6 @@
       "repo": "JuliusBrussee/caveman"
     },
     {
-      "name": "context-mode",
-      "source": "github",
-      "repo": "mksglu/context-mode"
-    },
-    {
       "name": "claude-code-warp",
       "source": "github",
       "repo": "warpdotdev/claude-code-warp"
@@ -33,6 +28,11 @@
       "name": "chrome-devtools-plugins",
       "source": "github",
       "repo": "ChromeDevTools/chrome-devtools-mcp"
+    },
+    {
+      "name": "context-mode",
+      "source": "github",
+      "repo": "mksglu/context-mode"
     }
   ],
   "plugins": [
@@ -41,12 +41,6 @@
       "enabled": true,
       "version": "655b7d9c5431",
       "gitCommitSha": "655b7d9c5431f822264b7732e9901c5578ac84cf"
-    },
-    {
-      "name": "context-mode@context-mode",
-      "enabled": true,
-      "version": "1.0.169",
-      "gitCommitSha": "ee78b02aac136a521dda721447cdbefc489bc067"
     },
     {
       "name": "frontend-design@claude-plugins-official",
@@ -62,7 +56,7 @@
     },
     {
       "name": "explanatory-output-style@claude-plugins-official",
-      "enabled": true,
+      "enabled": false,
       "version": "1.0.0",
       "gitCommitSha": null
     },
@@ -115,41 +109,19 @@
       "gitCommitSha": "6e56c028cf80ac977c501a94d0958568dea901c2"
     },
     {
-      "name": "typescript-lsp@claude-plugins-official",
+      "name": "exa@claude-plugins-official",
       "enabled": true,
-      "version": "1.0.0",
-      "gitCommitSha": null
+      "version": "3.4.0",
+      "gitCommitSha": "685aaa990c120a1e009fbbb8bc809128cedc957a"
+    },
+    {
+      "name": "context-mode@context-mode",
+      "enabled": true,
+      "version": "1.0.169",
+      "gitCommitSha": "da14dc1c6e33b5b9bad20c06bd26c6fee8e0429e"
     }
   ],
   "language_servers": [
-    {
-      "language_server": "typescript-language-server",
-      "binary": "typescript-language-server",
-      "for_plugins": [
-        "typescript-lsp@claude-plugins-official"
-      ],
-      "describe": "LSP de TypeScript/JavaScript (precisa do pacote 'typescript' junto)",
-      "installed_on_source": true,
-      "source_path": "/home/cahmoraes/.local/share/pnpm/typescript-language-server",
-      "install": {
-        "pnpm": "pnpm add -g typescript-language-server typescript",
-        "npm": "npm install -g typescript-language-server typescript"
-      }
-    },
-    {
-      "language_server": "vtsls",
-      "binary": "vtsls",
-      "for_plugins": [
-        "typescript-lsp@claude-plugins-official"
-      ],
-      "describe": "LSP de TypeScript alternativo (vtsls), baseado no tsserver do VS Code",
-      "installed_on_source": true,
-      "source_path": "/home/cahmoraes/.local/share/pnpm/vtsls",
-      "install": {
-        "pnpm": "pnpm add -g @vtsls/language-server",
-        "npm": "npm install -g @vtsls/language-server"
-      }
-    },
     {
       "language_server": "pyright",
       "binary": "pyright-langserver",
@@ -197,9 +169,7 @@
     "wsl-screenshot-cli",
     "~/bin/claude-notify"
   ],
-  "secrets_removed_from_settings": [
-    "env.ANTHROPIC_BASE_URL"
-  ],
+  "secrets_removed_from_settings": [],
   "config_files_copied": [
     "settings.json",
     "keybindings.json",
@@ -220,6 +190,7 @@
       "caveman-stats.js",
       "caveman-statusline.ps1",
       "caveman-statusline.sh",
+      "context-mode-cache-heal.mjs",
       "package.json"
     ],
     "agents": [

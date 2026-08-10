@@ -37,7 +37,14 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 const FINISH_TAIL = fs
   .readFileSync(path.join(SKILLS, 'super.subagent-driven-development', 'references', 'finish-tail.md'), 'utf8')
   .replace(/\s+/g, ' ');
-const DELEGATES_FINISH_TAIL = new Set(['super.parallel-subagent-in-tree', 'super.parallel-subagent-development']);
+// All three delegate now — the sequential skill's inline copy of the tail lived past the
+// 20.000-char compaction window and was dropped on resume, so it was replaced by a pointer
+// to the same canonical file the parallel skills already used.
+const DELEGATES_FINISH_TAIL = new Set([
+  'super.subagent-driven-development',
+  'super.parallel-subagent-in-tree',
+  'super.parallel-subagent-development',
+]);
 
 const EXECUTION_SKILLS = [
   'super.subagent-driven-development',

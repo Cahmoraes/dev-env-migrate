@@ -4,11 +4,12 @@ Use this prompt template for each read-only research subagent dispatched from th
 super.writing-plans **Research Phase**. One subagent per independent domain or file
 cluster; demand a report complete enough that you never reopen a file it covered.
 
-**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob`, `Bash` (no
-`Edit`/`Write`/`Task`). It only reads the codebase (files, symbols, test config) and returns a
-report. `Bash` (`rg`/`find`/`git log`) and `Grep` are the default way to locate a definition, read
-whole-file context, scan many files for a pattern, and check literal strings and non-code files;
-never mutation. If the platform's symbol-lookup tool (`LSP`, or Serena's `find_symbol` /
+**Dispatch as a read-only subagent** — give it file-reading, searching and shell, and withhold
+edit/write/dispatch. It only reads the codebase (files, symbols, test config) and returns a report.
+**The shell is the default search mechanism** (`rg`/`grep`/`find`/`git log`): it locates a definition,
+reads whole-file context, scans many files for a pattern, and checks literal strings and non-code
+files, and it needs no tool discovery. Name a dedicated search tool only if the platform is known to
+expose one under that name — a miss costs a discovery call that returns nothing. If the platform's symbol-lookup tool (`LSP`, or Serena's `find_symbol` /
 `get_symbols_overview`) is already loaded, one opportunistic attempt for a named symbol is fine —
 but don't chase it with retries or extra tool-loading calls; fall back to `grep` immediately if it
 doesn't resolve. Withholding write/dispatch tools keeps those schemas out of its context window.
@@ -35,6 +36,21 @@ Return a structured markdown report covering:
 8. Existence confirmation: explicitly confirm each file/symbol the plan will
    reference actually exists, or flag it as missing
 
-Read-only. Do not create or edit any files. Return verbatim signatures and config
-values, not summaries that would force a re-read.
+Read-only. Do not create or edit any files.
+
+Budget: **5.000 characters.** This report lands in a controller that may be holding
+several of them from the same turn, so the budget is the deliverable, not a target
+to exceed. Spend it in this order and let the tail absorb the squeeze:
+  - items 1, 2 and 8 are what the plan cannot be written without — keep them complete
+    and verbatim, always
+  - item 3: real values only (command, paths, environment names). No prose about them
+  - item 4: an excerpt of at most 15 lines, not a whole test file
+  - items 5, 6, 7: one line each unless something is genuinely surprising
+Verbatim where it says verbatim — a summary of a signature forces the re-read this
+subagent exists to prevent. Everywhere else, compress.
+
+Check the length before you return, and cut if you are over. Take it out of items 5,
+6 and 7 (one line each) and item 4's excerpt — never out of 1, 2 or 8. Measured in a
+real run: all five research reports came back 4-24% over, because a budget with no
+closing check reads as a suggestion. It is not one.
 ```

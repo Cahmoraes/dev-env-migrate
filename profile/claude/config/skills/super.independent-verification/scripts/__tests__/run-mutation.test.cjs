@@ -9,9 +9,11 @@ const { execFileSync } = require('child_process');
 
 const SCRIPT = path.join(__dirname, '..', 'run-mutation.cjs');
 
-function run(args) {
+function run(args, env) {
+  const opts = { encoding: 'utf8' };
+  if (env) opts.env = { ...process.env, ...env };
   try {
-    const out = execFileSync('node', [SCRIPT, ...args], { encoding: 'utf8' });
+    const out = execFileSync('node', [SCRIPT, ...args], opts);
     return { code: 0, json: JSON.parse(out.trim().split('\n').pop()) };
   } catch (e) {
     const out = (e.stdout || '').toString().trim();
@@ -86,6 +88,59 @@ test('exit 2 when --find is not present', () => {
 test('exit 2 when a required arg is missing', () => {
   const r = run(['--file', '/tmp/whatever', '--find', 'a', '--replace', 'b']); // no --test
   assert.strictEqual(r.code, 2);
+});
+
+// --- NODE_TEST_CONTEXT must not leak into the project's test command ---------------
+//
+// `node --test` reads NODE_TEST_CONTEXT: when set, it reports to a parent runner over
+// IPC and exits 0 EVEN WHEN TESTS FAIL. A project whose test command is `node --test`
+// would then have EVERY mutant reported as surviving - the sensor calling a healthy
+// suite blind. The variable is set by any node test runner in the ancestry, which is
+// exactly where run-mutation.cjs gets invoked from during an e2e or a nested harness.
+
+function nodeTestProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mut-ntc-'));
+  fs.writeFileSync(path.join(dir, 'subject.cjs'),
+    'module.exports = { bigger: (a, b) => (a > b ? a : b) };\n');
+  fs.writeFileSync(path.join(dir, 'subject.test.cjs'),
+    "const t = require('node:test');\n" +
+    "const a = require('node:assert');\n" +
+    "const { bigger } = require('./subject.cjs');\n" +
+    "t.test('bigger', () => { a.equal(bigger(3, 1), 3); a.equal(bigger(1, 3), 3); });\n");
+  return dir;
+}
+
+test('NODE_TEST_CONTEXT in the ancestry does not turn a killed mutant into a survivor', () => {
+  const dir = nodeTestProject();
+  const subject = path.join(dir, 'subject.cjs');
+  const cmd = `node --test ${JSON.stringify(path.join(dir, 'subject.test.cjs'))}`;
+
+  // Baseline: the raw command really does distinguish. Without this the test could
+  // pass because the suite is broken for some unrelated reason.
+  let bareStatus = 0;
+  try {
+    execFileSync('bash', ['-c', cmd], { cwd: dir, stdio: 'ignore', env: { ...process.env, NODE_TEST_CONTEXT: undefined } });
+  } catch (e) { bareStatus = e.status; }
+  assert.strictEqual(bareStatus, 0, 'the unmutated project must be green');
+
+  // And the poisoned environment really does mask failure, or there is nothing to fix.
+  let maskedStatus = null;
+  fs.writeFileSync(subject, 'module.exports = { bigger: (a, b) => (a < b ? a : b) };\n');
+  try {
+    execFileSync('bash', ['-c', cmd], { cwd: dir, stdio: 'ignore', env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' } });
+    maskedStatus = 0;
+  } catch (e) { maskedStatus = e.status; }
+  fs.writeFileSync(subject, 'module.exports = { bigger: (a, b) => (a > b ? a : b) };\n');
+  assert.strictEqual(maskedStatus, 0, 'premise: NODE_TEST_CONTEXT masks the failure');
+
+  // The actual claim: run-mutation scrubs it, so the mutant still dies.
+  const r = run(
+    ['--file', subject, '--find', 'a > b', '--replace', 'a < b', '--test', cmd],
+    { NODE_TEST_CONTEXT: 'child-v8' },
+  );
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.json.killed, true, 'mutant must die despite the inherited test context');
+  assert.strictEqual(r.json.restored, true);
 });
 
 test('unit: mutate() replaces only the first occurrence in file mode', () => {

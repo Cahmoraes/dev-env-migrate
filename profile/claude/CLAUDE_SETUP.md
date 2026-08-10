@@ -32,12 +32,12 @@
 Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `claude-plugins-official` → `anthropics/claude-plugins-official` (`claude plugin marketplace add anthropics/claude-plugins-official`)
 - `caveman` → `JuliusBrussee/caveman` (`claude plugin marketplace add JuliusBrussee/caveman`)
-- `context-mode` → `mksglu/context-mode` (`claude plugin marketplace add mksglu/context-mode`)
 - `claude-code-warp` → `warpdotdev/claude-code-warp` (`claude plugin marketplace add warpdotdev/claude-code-warp`)
 - `headroom-marketplace` → `chopratejas/headroom` (`claude plugin marketplace add chopratejas/headroom`)
 - `chrome-devtools-plugins` → `ChromeDevTools/chrome-devtools-mcp` (`claude plugin marketplace add ChromeDevTools/chrome-devtools-mcp`)
+- `context-mode` → `mksglu/context-mode` (`claude plugin marketplace add mksglu/context-mode`)
 
-## Fase 2 — Plugins (8 habilitados)
+## Fase 2 — Plugins (7 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).
@@ -59,8 +59,6 @@ no PATH. Regras:
 
 | Language server | Plugins | Binário | Gerenciadores | Estava na origem? |
 |---|---|---|---|---|
-| `typescript-language-server` | typescript-lsp@claude-plugins-official | `typescript-language-server` | pnpm, npm | sim |
-| `vtsls` | typescript-lsp@claude-plugins-official | `vtsls` | pnpm, npm | sim |
 | `pyright` | pyright-lsp@claude-plugins-official | `pyright-langserver` | pnpm, npm, pip | sim |
 
 A coluna "Gerenciadores" lista as chaves disponíveis em
@@ -200,16 +198,40 @@ no Codex de uma vez, ativando as ferramentas `mcp__headroom__headroom_compress`,
 headroom mcp install   # idempotente: já registrado → "already registered"
 ```
 
-> **Serena não precisa de registro manual.** O plugin `serena@claude-plugins-official`
-> (instalado na Fase 2) já embute seu próprio `.mcp.json` e sobe o servidor sozinho.
-> Rodar `claude mcp add serena ...` por cima cria uma SEGUNDA conexão duplicada
-> (`serena` solto + `plugin:serena:serena`) — mesmo servidor, dobro de ferramentas
-> registradas, contexto inicial inflado. Se `claude mcp list` mostrar as duas,
-> remova a solta: `claude mcp remove serena -s user`.
-
 > **Nota:** `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` é gerenciado pelo
 > `headroom init claude` e **não viaja no profile** — cada destino configura via
 > sua própria instalação do headroom. Não o adicione manualmente.
+
+### 6e — Registrar Serena manualmente (startup acelerado)
+Nesta origem o Serena **deixou de ser o plugin** `serena@claude-plugins-official`
+— foi desinstalado e registrado como MCP standalone com flags que aceleram o
+startup. Replique aqui:
+
+1. **Instale o binário** (idempotente — pule se `command -v serena` já resolver):
+   ```bash
+   uv tool install --python 3.13 --from "git+https://github.com/oraios/serena" serena-agent
+   ```
+   Use o branch `main` do GitHub, **não** o pacote do PyPI — o PyPI fica atrás do
+   schema de `.serena/project.yml` usado aqui e falha com `KeyError` ao reconectar
+   ("Failed to reconnect to serena").
+2. **Se o plugin serena ainda estiver instalado** (roteiro antigo), remova-o para
+   não duplicar a conexão (`serena` solto + `plugin:serena:serena`):
+   `claude plugin list | grep serena` → se aparecer,
+   `claude plugin uninstall serena@claude-plugins-official`.
+3. **Registre o MCP** (idempotente — pule se `claude mcp get serena` já retornar
+   uma conexão):
+   ```bash
+   claude mcp add serena -s user -- serena start-mcp-server --project-from-cwd      --context claude-code --open-web-dashboard False
+   ```
+   `--open-web-dashboard False` é a própria flag que `serena start-mcp-server --help`
+   recomenda para acelerar o startup (evita subir o dashboard web).
+
+`--code-memory none` nos aliases `hclaudya`/`hclaudey` do `.zshrc` (Fase 4, já
+viaja no profile) tira a pré-indexação do projeto das mãos do `headroom wrap`
+— sem isso, `headroom wrap claude` pode travar em silêncio num diretório sem
+`.serena/project.yml` (o Serena faz uma pergunta interativa "Enable <lang>?
+[y/N]" com stdin herdado do terminal, mas capturado — a pergunta fica
+invisível). Se isso acontecer, apertar Enter destrava (responde "N").
 
 ## Fase 7 — Verificação final
 1. `claude plugin list` mostra os plugins esperados (habilitados/desabilitados).
@@ -217,5 +239,8 @@ headroom mcp install   # idempotente: já registrado → "already registered"
    `pyright-langserver --version`, `gopls version`, `rust-analyzer --version`.
 3. A statusline aparece ao abrir o Claude Code (sem erro de path).
 4. `/context` em nova sessão: MCP tools como **on-demand (0 tokens)**, baseline < 30k.
-5. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
+5. `claude mcp get serena` mostra uma única conexão (sem `plugin:serena:serena`
+   duplicado) com os args `--project-from-cwd --context claude-code
+   --open-web-dashboard False`.
+6. Relatório final: plugins `instalado`/`já presente`/`pulado`, language servers
    `ok`/`FALHOU`, e o que exigiu decisão manual (security flags, hooks WSL).

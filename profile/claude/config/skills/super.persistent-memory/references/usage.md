@@ -28,7 +28,7 @@
 # prune only notes within a source that carry ALL of the given tags
 # (used by artifact-sync to scope a prune to a single feature, avoiding a
 #  destructive global prune of the whole source)
-<super.persistent-memory-base-dir>/scripts/pmem prune --source "artifact-sync" --tags "login-security-lockout"
+<super.persistent-memory-base-dir>/scripts/pmem prune --source "artifact-sync" --tags "auth-attempt-lockout"
 ```
 
 ## Store Durable Memory

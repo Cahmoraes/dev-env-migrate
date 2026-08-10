@@ -84,7 +84,14 @@ PRD-discovery step below — go straight to gate 4. The rest of this gate applie
 never affected by this preference.)
 
 PRD exists? → **No PRD:** skip this gate, go to gate 4. **PRD found:** ask the user whether to
-run the QA gate.
+run the QA gate. Ask it like this (render it in `session_language` — the wording is a template,
+not a literal):
+
+```
+A PRD was found for this feature. Do you want to run super.user-story-verification (QA gate)
+to verify all user stories against the implementation before finishing the branch?
+This will dispatch parallel subagents to check acceptance criteria and collect evidence.
+```
 
 **PRD discovery order** (same logic as `super.writing-plans`):
 1. Explicit path in context (forwarded from `super.generating-prd` this session).
@@ -109,7 +116,13 @@ The QA report is saved to `docs/superpowers/<feature-name>/qa/qa-report-<feature
 
 **Caveman + QA gate:** `super.user-story-verification` runs in the `Verificando` state —
 caveman remains active during QA; pass the caveman block into its invocation context so its
-subagents also use caveman. Deactivate caveman only after QA returns and **before** gate 5.
+subagents also use caveman. Deactivate caveman only after QA returns and **before** gate 5:
+
+```
+[QA Gate result received]
+→ Deactivate caveman: "normal mode"  (and set session_caveman_in_effect = false)
+→ Invoke super.finishing-a-development-branch
+```
 
 ### 4. Done-state gate (deterministic — before handoff)
 

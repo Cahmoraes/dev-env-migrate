@@ -1,6 +1,7 @@
 ---
 name: super.using-git-worktrees
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+user-invocable: false
 ---
 
 # Using Git Worktrees
@@ -107,7 +108,7 @@ UNTRACKED_NON_IGNORED=$(git ls-files --others --exclude-standard --directory | s
 ```
 
 - If step 1 fails: the base branch has uncommitted changes. Commit, stash, or reset them before creating the worktree.
-- If step 3 lists untracked non-ignored directories (e.g. leftover `notification-broadcast-fanout/`, `dist/`, `coverage/`): remove them or add them to `.gitignore` and commit the ignore change. Do not create a worktree on top of stray artifacts.
+- If step 3 lists untracked non-ignored directories (e.g. leftover `stale-feature/`, `dist/`, `coverage/`): remove them or add them to `.gitignore` and commit the ignore change. Do not create a worktree on top of stray artifacts.
 - For **benchmark / regression worktrees** where absolute cleanliness matters, prefer creating from a detached commit rather than a dirty branch:
   ```bash
   git worktree add "$path" "$(git rev-parse HEAD)"
@@ -148,6 +149,45 @@ if [ -f pyproject.toml ]; then poetry install; fi
 if [ -f go.mod ]; then go mod download; fi
 ```
 
+## Step 3.5: Runtime Isolation (Ports)
+
+A worktree isolates files, not the runtime — two worktrees share one loopback interface, so a
+dev server, database container, broker or Playwright `webServer` started in both collides on
+the same hard-coded port and fails with `EADDRINUSE`, which reads as a broken implementation
+rather than a missing environment. Run the allocator **before the baseline** (integration
+tests bind ports too):
+
+```bash
+node <super.using-git-worktrees-base-dir>/scripts/allocate-ports.cjs --worktree "$(pwd)"
+```
+
+By this step your cwd is the **worktree**, not this skill's directory — so use the base
+directory from your header here, not a path relative to `scripts/`.
+
+Read the JSON, not the exit code:
+
+- `enabled: false` — no `.superpowers/ports.yml` in the repo. If nothing here binds a port,
+  that is correct; move on. If the project *does* run services, run the same script with
+  `--detect`, show the user the proposed config and let them confirm before it is written.
+  **Never write `ports.yml` yourself from a guess** — detection proposes, a human decides.
+- `conflicts` non-empty — **no block was granted and no env file was written.** Do not start
+  services. Report it; the message names the fix (widen `range`, or reclaim stale leases).
+- Otherwise — `.superpowers/ports.env` now holds this worktree's `<SERVICE>_PORT` variables
+  plus `COMPOSE_PROJECT_NAME`. Every command in this worktree that starts a service must load
+  it (`set -a; . .superpowers/ports.env; set +a`), and any subagent pinned to this worktree
+  must be told to do the same. Hard-coding a port here defeats the whole mechanism.
+
+Release the block when the worktree is torn down: `allocate-ports.cjs --release --worktree <path>`.
+
+**If the script itself fails to run** (not a JSON verdict — an IO or interpreter error),
+apply the same rule the rest of the pipeline uses: a gate that will not run is a STOP, not a
+skipped gate. Say so and stop rather than dispatching work that will collide. The exception
+is a repo with no `.superpowers/ports.yml`, where there is nothing to protect.
+
+**Full model — configuration, the lease ledger, Compose/database collisions, and how a
+consumer adapts its app — is in `references/port-isolation.md`.** Read it when a repo is
+adopting port isolation for the first time or when an allocation reports conflicts.
+
 ## Step 4: Verify Clean Baseline
 
 Run tests to ensure the workspace starts clean:
@@ -179,9 +219,11 @@ Situation → action cheat-sheet (one row per decision, each mapping to a step a
 - Use `git worktree add` when you have a native worktree tool (e.g. `EnterWorktree`) — **the #1 mistake**; if you have it, use it. Don't skip Step 1a by jumping straight to 1b's git commands.
 - Create a project-local worktree without verifying it's ignored via `git check-ignore` (untracked-ignore prevents polluting git status).
 - Skip baseline test verification, or proceed with failing tests without asking (otherwise new bugs are indistinguishable from pre-existing ones).
+- Start a service in a worktree on a hard-coded port when `ports.env` exists (Step 3.5) — the collision it causes surfaces as a fake implementation bug.
+- Write `.superpowers/ports.yml` from your own inference of the project's services; `--detect` proposes, the user confirms.
 
 **Always:**
 - Run Step 0 detection first; prefer native tools over the git fallback.
 - Follow directory priority: existing > global legacy > instruction file > default (`.worktrees/`).
 - Verify the directory is ignored for project-local worktrees.
-- Auto-detect and run project setup, then verify a clean test baseline.
+- Auto-detect and run project setup, allocate the worktree's ports (Step 3.5), then verify a clean test baseline.

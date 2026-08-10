@@ -24,7 +24,7 @@ Every step offers a small set of fixed answers. **Present them with your platfor
 - **One question per call.** The wizard branches on answers (caveman → level, code review → effort), so ask sequentially — never batch steps into one dialog, never bundle an onboarding step with the memory re-sync question or the opening triage.
 - **Respect the option cap: at most 4 options per question.** Claude Code's `AskUserQuestion` rejects more than 4 with a `too_big` error; other platforms are similarly limited. Every onboarding step fits. Questions with more options — e.g. the seven-option opening triage in `SKILL.md` — use the prose list instead, never the tool.
 - The bullet options under each step are the choices: **bold label** is the option, trailing dash text is its description, default stays marked.
-- **Fallback:** if the tool is unavailable (Codex `exec`/non-interactive, or any platform lacking it), present the same options as a prose list and wait for a typed reply. See `references/copilot-tools.md`, `references/gemini-tools.md`, `references/codex-tools.md` for the per-platform mapping.
+- **Fallback:** if the tool is unavailable (Codex `exec`/non-interactive, or any platform lacking it), present the same options as a prose list and wait for a typed reply. See `references/copilot-tools.md`, `references/gemini-tools.md`, `references/codex-tools.md`, `references/opencode-tools.md` for the per-platform mapping.
 
 ### Step 1 — Inform
 
@@ -188,7 +188,7 @@ Immediately after saving preferences, decide whether to ask the opening question
 - If the session started with a greeting, a generic request for help, or no concrete task yet, ask the opening question in the chosen language.
 - If the user's message already maps cleanly to a single superpowers flow, skip it and hand off directly using `super.using-superpowers` routing rules.
 
-Use the canonical numbered opening question defined in `SKILL.md`, "Opening Triage" section (⚙️ Preferences · 🔍 Research · 🧠 Brainstorming · 🐛 Debugging · 📋 Planning · ⚡ Execution · 🔎 Spec review · ✅ Review/QA). The user may reply with a number (`0`–`7`) or describe what they need. Do not paraphrase it here — `SKILL.md` is the single source of truth so the wording never drifts.
+Use the canonical numbered opening question defined in `session-start.md`, "Opening Triage — the numbered question" (⚙️ Preferences · 🔍 Research · 🧠 Brainstorming · 🐛 Debugging · 📋 Planning · ⚡ Execution · 🔎 Spec review · ✅ Review/QA). The user may reply with a number (`0`–`7`) or describe what they need. Do not paraphrase it here — that file is the single source of truth so the wording never drifts.
 
 ## Generated YAML Structure
 
@@ -254,7 +254,7 @@ Record the answer as `copilot.rubber_duck` (true/false) in the generated YAML.
 
 Record the answer as `copilot.review_final` (true/false).
 
-Agents on any platform other than Copilot CLI — Claude Code, Codex, Gemini CLI, and any unrecognized harness resolved as `other` — **must skip these steps silently** (no asking, no mentioning them) — they lack the Rubber Duck Agent and the `review` skill. For correct-checkpoint usage, see `copilot-tools.md`.
+Agents on any platform other than Copilot CLI — Claude Code, Codex, Gemini CLI, opencode, and any unrecognized harness resolved as `other` — **must skip these steps silently** (no asking, no mentioning them) — they lack the Rubber Duck Agent and the `review` skill. For correct-checkpoint usage, see `copilot-tools.md`.
 
 ## Claude Code: Native Skills Additional Steps
 
@@ -285,7 +285,7 @@ Record the answer as `claude_code.code_review_final` (true/false). **If — and 
 
 Record the answer as `claude_code.code_review_effort` (default `medium` if skipped).
 
-Agents on any platform other than Claude Code — Copilot CLI, Codex, Gemini CLI, and any unrecognized harness resolved as `other` — **must skip these steps silently** (no asking, no mentioning them) — they lack these skills. For correct-checkpoint usage of `/simplify` and `/code-review`, see `claude-code-tools.md`.
+Agents on any platform other than Claude Code — Copilot CLI, Codex, Gemini CLI, opencode, and any unrecognized harness resolved as `other` — **must skip these steps silently** (no asking, no mentioning them) — they lack these skills. For correct-checkpoint usage of `/simplify` and `/code-review`, see `claude-code-tools.md`.
 
 ## Update Preferences (option 0)
 
@@ -311,3 +311,11 @@ if the flag is `false` but `.superpowers/corporate-artifacts.yml` exists and lis
 artifacts, do not silently skip the company's source of truth: warn the user once that
 the file is present while the flag is off (so the artifacts are being ignored) and ask
 whether to enable `has_corporate_artifacts`, then proceed per their answer.
+
+**Until they answer, the artifacts stay unloaded.** The flag is the user's declaration;
+the file is only a leftover of one. Loading it "because it is there" is how a document
+the pipeline itself wrote for an unrelated feature ends up outranking the current spec —
+corporate precedence is exactly what makes an unconsented artifact dangerous rather than
+merely noisy. Same rule downstream: `super.reviewing-specs` runs its corporate lens only
+when consent AND a declaration are both present (`resolve-review-targets.cjs` returns
+`declaredButDisabled` for the mismatch, which is reported as a config observation).

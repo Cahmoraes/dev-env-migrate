@@ -408,32 +408,45 @@ stateDiagram-v2
         state "📬 Pull Request" as PullRequest
         state "📌 Manter Branch" as Manter
         state "🗑️ Descartar" as Descartar
+        state "🧠💾 Re-Sync Final (feature)" as ResyncFinal
         TestesVerificados --> ApresentandoOpcoes
         ApresentandoOpcoes --> Merge
         ApresentandoOpcoes --> PullRequest
         ApresentandoOpcoes --> Manter
         ApresentandoOpcoes --> Descartar
+        Merge --> ResyncFinal : session_memory_enabled
+        PullRequest --> ResyncFinal : session_memory_enabled
+        Manter --> ResyncFinal : session_memory_enabled
     }
+    note right of Finalizando
+        ▪ Step 8 (ResyncFinal): automatico, escopo = SO a feature concluida
+          (compute-inventory.cjs --feature <slug> a partir do repo principal)
+        ▪ nao pergunta: a preferencia memory.persistent_memory ja e o consentimento;
+          o Gate Re-Sync de entrada continua perguntando (pode trazer feature de terceiros)
+        ▪ Descartar NUNCA sincroniza, e este gate nunca faz prune
+        ▪ nao bloqueante: falha vira 1 linha; o gate de entrada re-detecta na proxima sessao
+    end note
 
-    Merge --> [*]
-    PullRequest --> [*]
-    Manter --> [*]
+    Merge --> [*] : memoria desativada
+    PullRequest --> [*] : memoria desativada
+    Manter --> [*] : memoria desativada
     Descartar --> [*]
+    ResyncFinal --> [*]
 
     %% ===================== ESTILO / CATEGORIAS =====================
-    classDef legendClass fill:#FFFFFF,stroke:#999,stroke-width:1px,stroke-dasharray:4 3,color:#333
-    classDef gate fill:#FFD700,stroke:#333,stroke-width:2px,color:black
-    classDef hub fill:#FFA500,stroke:#333,stroke-width:2px,color:black
-    classDef nominal fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
-    classDef optional fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
-    classDef execSeq fill:#4DD0E1,stroke:#006064,stroke-width:2px,color:#00363a
-    classDef execIT fill:#9575CD,stroke:#311B92,stroke-width:2px,color:#ffffff
-    classDef execWT fill:#FF8A65,stroke:#BF360C,stroke-width:2px,color:#3e0f00
-    classDef execInline fill:#A5D6A7,stroke:#1B5E20,stroke-width:2px,color:#0b3d0b
-    classDef debug fill:#FFB6C1,stroke:#DC143C,stroke-width:2px,color:black
-    classDef terminal fill:#D3D3D3,stroke:#333,stroke-width:2px,color:black
+    classDef legendClass fill:#1F2937,stroke:#6B7280,stroke-width:1px,stroke-dasharray:4 3,color:#E5E7EB
+    classDef gate fill:#B45309,stroke:#FCD34D,stroke-width:2px,color:#FEF3C7
+    classDef hub fill:#C2410C,stroke:#FDBA74,stroke-width:2px,color:#FFF7ED
+    classDef nominal fill:#14532D,stroke:#4ADE80,stroke-width:2px,color:#DCFCE7
+    classDef optional fill:#0C4A6E,stroke:#38BDF8,stroke-width:2px,color:#E0F2FE
+    classDef execSeq fill:#155E75,stroke:#67E8F9,stroke-width:2px,color:#ECFEFF
+    classDef execIT fill:#4C1D95,stroke:#A78BFA,stroke-width:2px,color:#F5F3FF
+    classDef execWT fill:#9A3412,stroke:#FDBA74,stroke-width:2px,color:#FFF7ED
+    classDef execInline fill:#166534,stroke:#86EFAC,stroke-width:2px,color:#F0FDF4
+    classDef debug fill:#9F1239,stroke:#FDA4AF,stroke-width:2px,color:#FFF1F2
+    classDef terminal fill:#374151,stroke:#9CA3AF,stroke-width:2px,color:#F9FAFB
 
-    class ChecandoPreferencias,GateResync,GateQA,GateDisjuncao,VerificacaoIndependente,RegistrandoLicao gate
+    class ChecandoPreferencias,GateResync,ResyncFinal,GateQA,GateDisjuncao,VerificacaoIndependente,RegistrandoLicao gate
     class Triagem,PerguntaDeAbertura,EscolhendoModo,ApresentandoOpcoes,DecideCorrecao hub
     class Pesquisando,Explorando,Formalizando,Planejando,Executando,Finalizando nominal
     class RevisandoSpec,Onboarding optional

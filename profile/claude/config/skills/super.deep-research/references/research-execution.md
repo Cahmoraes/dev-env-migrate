@@ -12,15 +12,16 @@ Canonical mapping. Use exactly the mechanism for your platform.
 | Copilot CLI | No skill-invocable harness (`/research` is user-only). Subagent fan-out via `task` (agent_type general-purpose) using `web_fetch`, `exa-web-search-free`, `context7` with search-engine URLs. Mention the user may run `/research` manually. |
 | Gemini CLI | Subagent fan-out via `@generalist` using `google_web_search` + `web_fetch`. |
 | Codex | Subagent fan-out via `spawn_agent` + collection with `wait_agent`, using native web access. |
+| opencode | Subagent fan-out via `task` (`subagent_type: "general"`) using `webfetch`; `websearch` only when the session's model exposes it, else fetch search-engine URLs. |
 
-For exact tool names per platform, see `super.using-superpowers/references/copilot-tools.md`, `codex-tools.md`, `gemini-tools.md`.
+For exact tool names per platform, see `super.using-superpowers/references/copilot-tools.md`, `codex-tools.md`, `gemini-tools.md`, `opencode-tools.md`.
 
 ## Central question
 
 **"Can native research be invoked from inside a skill?"**
 
 - **Claude Code — YES.** A running skill can invoke the `deep-research` skill via the `Skill` tool (only the `/deep-research` *slash command* is user-only), giving the full native harness in-flow.
-- **Copilot CLI, Gemini CLI, Codex — NO.** No skill-invocable engine; fall back to the **subagent fan-out** in the table. The fallback equals the harness in capability — only the orchestration differs.
+- **Copilot CLI, Gemini CLI, Codex, opencode — NO.** No skill-invocable engine; fall back to the **subagent fan-out** in the table. The fallback equals the harness in capability — only the orchestration differs.
 
 ## Parallel fan-out + adversarial verification protocol
 

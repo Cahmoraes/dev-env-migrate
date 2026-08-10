@@ -57,12 +57,33 @@ for (const skill of SKILLS) {
       'SKILL.md must name the "auto-commit conflict gate" so the passive callout can point at it',
     );
 
-    // It must read the preference deterministically, not rely on session_* vars
-    // (derive-session-state.cjs does NOT emit auto_commit) or on memory.
+    // It must read the preference deterministically from a script, never from
+    // recollection. derive-session-state.cjs is that script: it loads the same YAML
+    // through read-preferences.cjs's in-process loader and emits `preferencesFound`
+    // (= `found`) and `session_auto_commit` (= `workflow.auto_commit`). The gate reads
+    // THOSE, so the Step 2 re-entry guard's single call covers it.
     assert.match(
       src,
-      /read-preferences\.cjs/,
-      'the gate must read the preference via read-preferences.cjs (auto_commit is not a session_* var)',
+      /derive-session-state\.cjs/,
+      'the gate must read the preference via derive-session-state.cjs (the deterministic loader)',
+    );
+    for (const field of ['preferencesFound', 'session_auto_commit']) {
+      assert.match(
+        src,
+        new RegExp(`\\b${field}\\b`),
+        `the gate must name ${field} — the field it actually branches on`,
+      );
+    }
+
+    // Anti-regression for the token-optimization pass: the gate must NOT re-introduce
+    // a second, redundant read-preferences.cjs INVOCATION. Naming the script in prose
+    // (to state the field equivalence) is fine; ordering a `scripts/read-preferences.cjs`
+    // run is the duplicate call that was removed — derive-session-state.cjs already
+    // parsed that exact file moments earlier in the same step.
+    assert.doesNotMatch(
+      src,
+      /scripts\/read-preferences\.cjs/,
+      'the gate must not invoke read-preferences.cjs again — derive-session-state.cjs already returned found/auto_commit/language',
     );
 
     // It must be an active STOP, not a passive note.
@@ -113,14 +134,19 @@ for (const skill of SKILLS) {
     const src = fs.readFileSync(skill.skillMd, 'utf8');
 
     // The whole thread may be non-English (e.g. pt-BR). A consent gate surfaced
-    // verbatim in English is the drift this locks. The gate already reads
-    // read-preferences.cjs, which returns communication.language — the fix reuses
-    // that same value to render the conflict + options in the session language.
+    // verbatim in English is the drift this locks. The gate reads the language off the
+    // same derive-session-state.cjs output as the rest of Step 2 — `session_language`
+    // IS `communication.language` — and renders the conflict + options in it.
     // The English prose stays as the gate's *structure*, never printed verbatim.
     assert.match(
       src,
+      /session_language/,
+      'the gate must render its conflict and options in session_language, not hard-coded English',
+    );
+    assert.match(
+      src,
       /communication\.language/,
-      'the gate must render its conflict and options in the session communication.language, not hard-coded English',
+      'the gate must anchor session_language to the communication.language preference it derives from',
     );
   });
 }

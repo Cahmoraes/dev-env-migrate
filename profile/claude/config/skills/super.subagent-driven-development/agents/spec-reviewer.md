@@ -4,10 +4,12 @@ Use this template when dispatching a spec compliance reviewer subagent.
 
 **Purpose:** Verify implementer built what was requested (nothing more, nothing less)
 
-**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob`, `Bash` only (no `Edit`/`Write`/`Task`). A spec reviewer reads code and returns a verdict; it never modifies files, so withholding the write/dispatch tools keeps their schemas out of its context window (the implementer keeps the full `general-purpose` toolset — it actually writes). `Bash` is for read-only inspection (`git diff`, `git show`, test runs). If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
+**Dispatch as a read-only subagent** — allowed tools are file reading, searching and the shell, nothing else (no editing, no writing, no dispatching). A spec reviewer reads code and returns a verdict; it never modifies files, so withholding the write/dispatch tools keeps their schemas out of its context window (the implementer keeps the full `general-purpose` toolset — it actually writes).
+
+> **Read-only is about the WRITE, not the tool — and `Bash` is a write tool.** Withholding Edit/Write does not make a reviewer read-only while it holds a shell: a measured run had a reviewer run `lint:fix` and reformat the repo mid-review. So the reviewer's shell is restricted to commands that only observe — no `lint:fix`/`format`/`--write`/`--fix`, no `build` or codegen, no dependency install, no `git add`/`commit`/`checkout`/`stash`/`restore`. A reviewer that mutates invalidates its own verdict (it is no longer reviewing the diff it was given) and silently edits work the barrier already validated. Findings are **reported**, never applied — the controller dispatches a fresh implementer to fix them. `Bash` is for read-only inspection (`git diff`, `git show`, and **targeted** runs of the specific tests under review — never the full suite, which already ran green at the wave/batch barrier and is re-run terminally by `super.independent-verification`). **Do not write suite/typecheck/build commands into the prompt you assemble below:** an instruction to "confirm nothing broke" is how a reviewer spends minutes re-proving a green it was handed, and the reviewer's verdict is a *read* of the diff, not a second execution of it. If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
 
 ```
-Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
+Task tool — read-only subagent (tools: file reading, searching and shell — read-only):
   description: "Review spec compliance for Task N"
   model: [REQUIRED — per the "Model Selection" section, a validation gate runs at the task's
           tier floored at standard — a cheap task is reviewed one family up, by the
@@ -15,6 +17,37 @@ Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
           controller's model.]
   prompt: |
     You are reviewing whether an implementation matches its specification.
+
+    ## Your shell observes — the bound is on the WRITE, not on the tool
+
+    You have a shell in order to *look*: VCS inspection of the code under review
+    (`git diff`, `git show`), reading files, and **targeted** test runs that name a
+    specific test FILE. Out of bounds, whatever this stack happens to call them:
+
+    - **Any formatter or linter in FIX mode** — the variant that rewrites files. It is
+      usually spelled `--write`, `--fix`, `-w`, or a `*:fix` script; the examples differ
+      per ecosystem (`eslint --fix`, `biome check --write`, `prettier --write`,
+      `ruff format`, `gofmt -w`, `cargo fmt`, `mix format`). Where the same tool has a
+      check-only variant, that one is fine — it reports instead of rewriting.
+    - **Build, codegen, migrations, dependency install** — anything that produces or
+      updates artifacts.
+    - **Anything that moves the VCS index or refs** — `git add`/`commit`/`checkout`/
+      `stash`/`restore`, or the equivalent in whatever VCS this repo uses.
+
+    Two more are pure reads and still out of bounds, because they are **already paid**:
+    the **full test suite** and the project's **typecheck/compile step** (whatever this
+    repo calls it: `tsc --noEmit`, `mypy`, `go build ./...`, `cargo check`, `bun tsc`).
+    Both ran at the wave barrier on this exact diff before it reached you. Running them
+    again changes no verdict you could reach by reading the diff; if a type question
+    decides a finding, read the types.
+
+    **The requirements below are the implementer's instruction sheet, not yours.** They
+    will often carry steps like "run the formatter in fix mode", "run the full suite",
+    "run the typecheck", or "commit", and name them as success criteria. Those were the implementer's job and
+    already ran once at the barrier. Re-running them re-proves a green you were handed;
+    running a mutating one edits the very diff you were asked to review, which invalidates
+    your verdict. Treat those steps as *context about what was required*. **Findings are
+    reported, never applied** — the controller dispatches a fresh implementer to fix them.
 
     ## What Was Requested
 

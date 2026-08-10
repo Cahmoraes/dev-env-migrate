@@ -47,12 +47,24 @@ Take the union of the per-task `writeSet` arrays `check-wave-disjoint.cjs` emitt
 
 ## Integration barrier (after scope is verified, orchestrator only)
 
-Once scope is verified, the orchestrator — **once for the whole wave, never per task, never inside a concurrent subagent** (steps 1–4 touch shared state across all tasks; running them concurrently reintroduces the race) — runs the project's heavy shared-state sequence in order, stopping at the first failure. The step names are roles, not literal commands; map each to the project's script (e.g. `pnpm lint:fix`/`pnpm tsc:check`/`pnpm test`/`pnpm build`; other stacks differ). Skip a step only if no equivalent exists.
+Once scope is verified, the orchestrator — **once for the whole wave, never per task, never inside a concurrent subagent** (steps 1–4 touch shared state across all tasks; running them concurrently reintroduces the race) — runs the project's heavy shared-state sequence in order, stopping at the first failure.
 
-1. **Format/lint autofix** (repo-wide) — safe now that no subagent is writing.
+**Run it with the script, not by hand:**
+
+```bash
+node <super.parallel-subagent-in-tree-base-dir>/scripts/barrier.cjs \
+  --repo-root "$(git rev-parse --show-toplevel)" \
+  --changed "<comma-separated union of the wave's write-sets>"
+```
+
+It resolves each phase to the project's own script name, runs the independent workspaces of a phase **concurrently**, stops at the first failing phase, and returns JSON with a per-job `exitCode` — the evidence `super.verification-before-completion` requires. Exit 0 = green, 2 = a phase failed (read `failedPhase`). Add `--plan` to see the resolved plan without running it. If the script is unavailable, fall back to running the four phases by hand in the order below.
+
+**Why `--changed` matters.** Passing the wave's write-set scopes the run to the workspaces that could have broken — measured waste without it: a backend-only wave still ran the frontend's full suite, every wave, all feature long. The scoping is only safe because two things hold: the write-set was already proven by `check-wave-disjoint.cjs` upstream, and the script widens automatically in the two cases where narrowing would lose coverage — **a path owned by no workspace** (root config, lockfile: can break anything) and **the dependents of a changed workspace** (a shared package's consumers are in its blast radius; a change to `packages/api-types` that broke the frontend typecheck is exactly the miss this encodes). Omit `--changed` and you get the conservative full scope.
+
+1. **Format/lint autofix** — safe now that no subagent is writing.
 2. **Typecheck** — catches cross-task type breakage scoped tests cannot see.
-3. **Full test suite** — where cross-task interaction surfaces once the code coexists.
-4. **Build** — final integration check.
+3. **Test suite** — where cross-task interaction surfaces once the code coexists.
+4. **Build** — final integration check; always repo-wide (proving one workspace builds proves nothing about the repo).
 
 Only after the sequence is green does the orchestrator **commit** — per task (preferred, for auditable history) or grouped if changes are tightly related. Use the project's commit conventions. **If you commit grouped,** the per-task two-stage review then sees a cumulative diff spanning sibling tasks — pass each task's `WRITE_SET` (its `## Arquivos`/`## Files` paths) to the reviewers so findings are attributed to the right task. Per-task commits make this unnecessary (each diff is already isolated).
 

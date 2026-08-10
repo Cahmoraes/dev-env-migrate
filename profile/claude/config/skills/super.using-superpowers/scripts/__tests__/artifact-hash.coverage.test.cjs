@@ -207,7 +207,7 @@ test('bareDigest: strips prefix, passes through bare, maps nullish to null', () 
 // ─── normalizeManifestEntry ─────────────────────────────────────────────────
 
 test('normalizeManifestEntry: non-object inputs → all-null shape (lines 110-112)', () => {
-  const allNull = { spec_hash: null, prd_hash: null, qa_hash: null, adr_hash: null }
+  const allNull = { spec_hash: null, prd_hash: null, qa_hash: null, iv_hash: null, adr_hash: null }
   assert.deepEqual(lib.normalizeManifestEntry(null), allNull)
   assert.deepEqual(lib.normalizeManifestEntry(undefined), allNull)
   assert.deepEqual(lib.normalizeManifestEntry('a-string'), allNull)
@@ -219,6 +219,7 @@ test('normalizeManifestEntry: object fills missing fields with null', () => {
     spec_hash: 'x',
     prd_hash: null,
     qa_hash: null,
+    iv_hash: null,
     adr_hash: null,
   })
 })

@@ -10,22 +10,31 @@ Only dispatch if `session_memory_enabled = true`. Skip this template entirely wh
 
 This subagent uses the `super.persistent-memory` CLI to check for prior knowledge relevant to the topic: it ensures the database exists, then runs targeted searches.
 
+**`pmem` is a shell CLI, not a tool in the toolset.** Every `pmem` line below runs through the platform's shell tool. Neither the main thread nor the subagent should search the toolset for a "pmem tool" — that search returns nothing and costs a full prompt re-charge in the harness's context accounting.
+
+**Budget: at most 3 `pmem search` calls.** Each takes ~15-20 seconds, and issuing them in one turn barely helps: the embedding model reloads per call, so three at once still cost **~40s of wall clock** against ~17s for one (measured). Three is the whole budget, and this subagent sits on the critical path of the fan-out — the codebase-exploration subagent beside it returns in about a minute.
+
 ```
 Retrieve prior decisions, specs, and constraints relevant to: [feature-topic].
+
+Every command below runs through your shell tool. `pmem` is a CLI on PATH — never search your toolset for a pmem tool.
 
 Steps:
 1. Run: pmem sync
    - If it fails with "database not found" or similar, run: pmem init
    - If pmem is not installed or completely unavailable, return: "Memory unavailable — skip."
-2. Run 2-3 targeted searches (adapt queries to the specific domain):
+2. Run AT MOST 3 pmem search calls, total, issued in one turn (adapt queries to the specific domain):
    - pmem search "[feature-name or domain noun]" --limit 5
    - pmem search "[bounded-context or component name] architecture decision" --limit 5
    - pmem search "[feature-name] spec PRD constraint" --limit 3
+   Three is the whole budget. Thin or empty results are a finished answer, not a reason for a fourth query with different wording.
 3. Deduplicate results and return (max 8 bullets):
    - Key architectural decisions or rules that constrain this domain
    - Paths to existing artifacts (specs, PRDs, ADRs) — just paths, not full content
    - Established scope boundaries or out-of-scope items
    - Any relevant constraints or patterns previously decided
+
+Your scope is memory, and only memory. Do not read, find, or grep the codebase — a codebase-exploration subagent is running in parallel right now and owns that ground. Reporting that memory holds nothing is a complete answer; going to look for the answer elsewhere is not.
 
 If all searches return empty, return: "No prior memory found for this topic."
 Do not return raw pmem output — synthesize into actionable bullets.

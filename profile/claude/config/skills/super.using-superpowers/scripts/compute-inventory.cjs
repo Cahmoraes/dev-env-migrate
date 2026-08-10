@@ -38,17 +38,23 @@ const HELP = `
 compute-inventory.cjs — Scan docs/superpowers/ and diff artifacts against sync manifest.
 
 Usage:
-  node scripts/compute-inventory.cjs [--repo-root <path>] [--manifest-path <path>]
+  node scripts/compute-inventory.cjs [--repo-root <path>] [--manifest-path <path>] [--feature <slug>]
 
 Options:
   --repo-root      <path>  Explicit repository root (overrides git detection)
   --manifest-path  <path>  Explicit manifest path (overrides default .memory/resync-manifest.json)
+  --feature        <slug>  Report ONLY this feature (same classification, whole-repo treeHash).
+                           Used by the end-of-flow re-sync gate in
+                           super.finishing-a-development-branch, which syncs the one feature
+                           it just finished and must not pull every other feature's entry
+                           into the controller's context. Unknown slug → features: [].
   --help                   Show this help text and exit 0
 
 Artifact paths per feature (slug = directory name):
   spec:  docs/superpowers/<slug>/specs/<slug>-design.md
   prd:   docs/superpowers/<slug>/prd/prd-<slug>.md
-  qa:    docs/superpowers/<slug>/qa/qa-report-<slug>.md
+  qa:    docs/superpowers/<slug>/qa/qa-report-<slug>.md      (only exists when a PRD does)
+  iv:    docs/superpowers/<slug>/qa/validation-<slug>.md     (always-on verification gate)
   adrs:  docs/superpowers/<slug>/adrs/*.md  (combined hash of all ADR files, sorted by name)
 
 Output (JSON to stdout):
@@ -57,6 +63,7 @@ Output (JSON to stdout):
     "hashMethod": "artifact-content" | "none",
     "docsPath": string,
     "repoRoot": string,
+    "feature": string | null,  // the --feature slug the report was narrowed to (null = whole repo)
     "features": Feature[],
     "errors": Error[],
     "driftedSlugs": string[]  // features whose content is unchanged but which had no
@@ -72,6 +79,7 @@ Output (JSON to stdout):
       "spec":  ArtifactResult,
       "prd":   ArtifactResult,
       "qa":    ArtifactResult,
+      "iv":    ArtifactResult,
       "adrs":  AdrsResult
     }
   }
@@ -98,13 +106,16 @@ Output (JSON to stdout):
   Error:
   {
     "slug": string,
-    "artifact": "spec" | "prd" | "qa" | "adrs",
+    "artifact": "spec" | "prd" | "qa" | "iv" | "adrs",
     "error": string
   }
 
 Status semantics:
   "new"       — slug not in manifest's synced_features
-  "changed"   — slug in manifest but at least one hash differs (including new adr_hash),
+  "changed"   — slug in manifest but at least one hash differs (including a first-time
+                adr_hash or iv_hash: a manifest predating the IV report's inventory has
+                iv_hash absent → null, so a feature carrying validation-<slug>.md is
+                reclassified once and re-ingested with its delivery on record),
                 OR content is unchanged but the slug has no note in memory.db (presence
                 drift — reclassified so the sync loop re-adds it; see driftedSlugs)
   "unchanged" — slug in manifest, all hashes match, AND a note exists in memory.db
@@ -125,12 +136,15 @@ if (args.includes('--help') || args.includes('-h')) {
 
 let repoRoot = null;
 let manifestPathOverride = null;
+let featureFilter = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo-root' && args[i + 1]) {
     repoRoot = path.resolve(args[++i]);
   } else if (args[i] === '--manifest-path' && args[i + 1]) {
     manifestPathOverride = path.resolve(args[++i]);
+  } else if (args[i] === '--feature' && args[i + 1]) {
+    featureFilter = args[++i];
   }
 }
 
@@ -151,9 +165,10 @@ function classifyFeature(slug, artifacts, manifestEntry) {
   const specChanged = bareDigest(artifacts.spec.hash) !== bareDigest(norm.spec_hash);
   const prdChanged = bareDigest(artifacts.prd.hash) !== bareDigest(norm.prd_hash);
   const qaChanged = bareDigest(artifacts.qa.hash) !== bareDigest(norm.qa_hash);
+  const ivChanged = bareDigest(artifacts.iv.hash) !== bareDigest(norm.iv_hash);
   const adrsChanged = bareDigest(artifacts.adrs.hash) !== bareDigest(norm.adr_hash);
 
-  return specChanged || prdChanged || qaChanged || adrsChanged ? 'changed' : 'unchanged';
+  return specChanged || prdChanged || qaChanged || ivChanged || adrsChanged ? 'changed' : 'unchanged';
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -176,6 +191,7 @@ if (!fs.existsSync(docsPath)) {
     hashMethod: 'none',
     docsPath,
     repoRoot,
+    feature: featureFilter,
     features: [],
     errors: [],
   };
@@ -228,11 +244,13 @@ for (const slug of slugDirs) {
   const specPath = path.join(slugDir, 'specs', `${slug}-design.md`);
   const prdPath = path.join(slugDir, 'prd', `prd-${slug}.md`);
   const qaPath = path.join(slugDir, 'qa', `qa-report-${slug}.md`);
+  const ivPath = path.join(slugDir, 'qa', `validation-${slug}.md`);
   const adrsDir = path.join(slugDir, 'adrs');
 
   const specResult = hashFile(specPath);
   const prdResult = hashFile(prdPath);
   const qaResult = hashFile(qaPath);
+  const ivResult = hashFile(ivPath);
   const adrsResult = hashAdrs(adrsDir);
 
   // Collect read errors for reporting
@@ -245,6 +263,9 @@ for (const slug of slugDirs) {
   if (!qaResult.readable && qaResult.exists) {
     errors.push({ slug, artifact: 'qa', error: qaResult.error });
   }
+  if (!ivResult.readable && ivResult.exists) {
+    errors.push({ slug, artifact: 'iv', error: ivResult.error });
+  }
   if (!adrsResult.readable && adrsResult.exists) {
     errors.push({ slug, artifact: 'adrs', error: adrsResult.error });
   }
@@ -253,6 +274,7 @@ for (const slug of slugDirs) {
     spec: { path: specPath, ...specResult },
     prd: { path: prdPath, ...prdResult },
     qa: { path: qaPath, ...qaResult },
+    iv: { path: ivPath, ...ivResult },
     adrs: { path: adrsDir, ...adrsResult },
   };
 
@@ -283,20 +305,31 @@ for (const slug of Object.keys(synced)) {
         spec: { path: path.join(docsPath, slug, 'specs', `${slug}-design.md`), hash: null, exists: false, readable: false, error: null },
         prd: { path: path.join(docsPath, slug, 'prd', `prd-${slug}.md`), hash: null, exists: false, readable: false, error: null },
         qa: { path: path.join(docsPath, slug, 'qa', `qa-report-${slug}.md`), hash: null, exists: false, readable: false, error: null },
+        iv: { path: path.join(docsPath, slug, 'qa', `validation-${slug}.md`), hash: null, exists: false, readable: false, error: null },
         adrs: { path: path.join(docsPath, slug, 'adrs'), hash: null, exists: false, readable: false, files: [], error: null },
       },
     });
   }
 }
 
+// `--feature <slug>` narrows the REPORT, never the computation: classification, presence
+// drift and the whole-repo treeHash above are identical with and without the flag, so the
+// end-of-flow gate writes the same manifest values the entry gate would. Filtering last is
+// what guarantees that — narrowing the scan earlier would change `deleted` detection and
+// the fingerprint, and the two gates would then disagree about the same repo.
+const reported = featureFilter
+  ? features.filter((f) => f.slug === featureFilter)
+  : features;
+
 const result = {
   treeHash,
   hashMethod,
   docsPath,
   repoRoot,
-  features,
-  errors,
-  driftedSlugs, // features reclassified unchanged→changed because the DB lacked a note
+  feature: featureFilter,
+  features: reported,
+  errors: featureFilter ? errors.filter((e) => e.slug === featureFilter) : errors,
+  driftedSlugs: featureFilter ? driftedSlugs.filter((s) => s === featureFilter) : driftedSlugs,
 };
 
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');

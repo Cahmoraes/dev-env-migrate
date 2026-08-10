@@ -118,10 +118,10 @@ test('legacy-tagged notes (feature:<slug>,type:<t>) count as present, not missin
   const root = mkRepo();
   try {
     buildDb(root, [
-      { source: 'artifact-sync', tags: 'feature:ui-pagination-select-polish,type:spec', content: 'legacy A' },
-      { source: 'artifact-sync', tags: 'feature:sidebar-collapse-toggle,type:spec,type:prd', content: 'legacy B' },
+      { source: 'artifact-sync', tags: 'feature:table-page-size-picker,type:spec', content: 'legacy A' },
+      { source: 'artifact-sync', tags: 'feature:nav-drawer-pin,type:spec,type:prd', content: 'legacy B' },
     ]);
-    writeManifest(root, ['ui-pagination-select-polish', 'sidebar-collapse-toggle']);
+    writeManifest(root, ['table-page-size-picker', 'nav-drawer-pin']);
     const r = run(root);
     assert.equal(r.code, 0, 'legacy tags must not be read as drift');
     assert.equal(r.json.allPresent, true);

@@ -99,7 +99,7 @@ Tell the user the artifact path and offer the next step:
 
 ## Platform Adaptation
 
-Whether native research is skill-invocable per platform (yes on Claude Code via `Skill`; subagent fan-out elsewhere) and the per-platform table are in [references/research-execution.md](references/research-execution.md#central-question). Concrete subagent/web-fetch tool names per platform: `super.using-superpowers/references/{copilot,codex,gemini}-tools.md`.
+Whether native research is skill-invocable per platform (yes on Claude Code via `Skill`; subagent fan-out elsewhere) and the per-platform table are in [references/research-execution.md](references/research-execution.md#central-question). Concrete subagent/web-fetch tool names per platform: `super.using-superpowers/references/{copilot,codex,gemini,opencode}-tools.md`.
 
 ## Key Principles
 

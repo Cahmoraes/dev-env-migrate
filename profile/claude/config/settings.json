@@ -1,7 +1,4 @@
 {
-  "env": {
-    "ENABLE_TOOL_SEARCH": "true"
-  },
   "attribution": {
     "commit": "",
     "pr": ""
@@ -47,16 +44,6 @@
             "command": "rtk hook claude"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${HOME}/.local/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
-            "timeout": 15
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -69,12 +56,10 @@
         ]
       },
       {
-        "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
-            "command": "${HOME}/.local/bin/headroom init hook ensure --profile init-user --marker headroom-init-claude",
-            "timeout": 15
+            "command": "\"${HOME}/.claude/hooks/context-mode-cache-heal.mjs\""
           }
         ]
       }
@@ -95,6 +80,7 @@
     "baseRef": "fresh"
   },
   "disableWorkflows": true,
+  "enableArtifact": false,
   "enableWorkflows": false,
   "workflowKeywordTriggerEnabled": false,
   "statusLine": {
@@ -103,17 +89,18 @@
   },
   "enabledPlugins": {
     "caveman@caveman": true,
-    "frontend-design@claude-plugins-official": false,
-    "claude-md-management@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": false,
-    "rust-analyzer-lsp@claude-plugins-official": false,
-    "commit-commands@claude-plugins-official": false,
     "chrome-devtools-mcp@chrome-devtools-plugins": false,
-    "security-guidance@claude-plugins-official": true,
     "chrome-devtools-mcp@claude-plugins-official": false,
-    "typescript-lsp@claude-plugins-official": true
+    "claude-md-management@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": false,
+    "context-mode@context-mode": true,
+    "exa@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": false,
+    "gopls-lsp@claude-plugins-official": false,
+    "pyright-lsp@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -122,10 +109,10 @@
         "repo": "JuliusBrussee/caveman"
       }
     },
-    "context-mode": {
+    "chrome-devtools-plugins": {
       "source": {
         "source": "github",
-        "repo": "mksglu/context-mode"
+        "repo": "ChromeDevTools/chrome-devtools-mcp"
       }
     },
     "claude-code-warp": {
@@ -134,21 +121,16 @@
         "repo": "warpdotdev/claude-code-warp"
       }
     },
-    "headroom-marketplace": {
+    "context-mode": {
       "source": {
         "source": "github",
-        "repo": "chopratejas/headroom"
-      }
-    },
-    "chrome-devtools-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "ChromeDevTools/chrome-devtools-mcp"
+        "repo": "mksglu/context-mode"
       }
     }
   },
   "language": "português pt-br",
-  "effortLevel": "medium",
+  "effortLevel": "high",
+  "autoMemoryEnabled": true,
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "editorMode": "normal",

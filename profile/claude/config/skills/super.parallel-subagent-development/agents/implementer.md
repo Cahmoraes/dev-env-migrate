@@ -11,11 +11,19 @@ You are one of several implementers running concurrently, each isolated in your 
 - **Your worktree path:** `<absolute-worktree-path>`
 - **Your task branch:** `wt/<feature-name>-task-NN`
 - **Base branch (do not touch):** `<base-branch>`
+- **Your ports:** `<worktree>/.superpowers/ports.env` — or "none allocated" when this repo has no port isolation configured.
 
 Rules:
 1. Do all work inside your worktree path. Every file you read, create, edit, test, or commit lives under that path. Do not `cd` out of it, and do not touch any other worktree or the base branch checkout.
 2. You own this task only. Do not implement, fix, or refactor anything belonging to another task — sibling tasks are being implemented in parallel by other subagents and your changes there would conflict.
 3. Commit your work on your task branch before returning. Run the task's tests inside the worktree and confirm they pass; include the commit SHA(s) and the list of changed files in your report so the coordinator can review your worktree's diff and integrate it.
 4. If you discover you need a file or symbol that another task is supposed to produce, **stop and report it** with status `BLOCKED` (or `NEEDS_CONTEXT`) — do not create that dependency's code yourself. Needing another wave task's output means this task was mis-classified as independent; the coordinator must serialize it, not let you duplicate work.
+5. **Load your ports before starting anything that listens.** Your siblings run at the same time on the same machine, so the canonical ports are already taken by one of them; a hard-coded port here fails with `EADDRINUSE` and looks like a bug in your task. Before any dev server, container, or test that binds a port:
+
+   ```bash
+   set -a; . .superpowers/ports.env; set +a
+   ```
+
+   Use those variables (`<SERVICE>_PORT`, `COMPOSE_PROJECT_NAME`) and never a literal port number — not in a command, a config file, or a test helper. If the code you are writing needs a port, read it from the environment with the canonical value as a fallback. When no `ports.env` exists, this repo has no port isolation configured: say so in your report if you needed one, rather than picking a number yourself.
 
 Your report must still use one of the standard statuses (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) and list changed files plus commit SHAs — the coordinator integrates worktrees by reviewing and merging your task branch.

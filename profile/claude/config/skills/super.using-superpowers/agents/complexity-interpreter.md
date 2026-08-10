@@ -18,8 +18,8 @@ actually intend?); `assess-complexity.cjs` does the *arithmetic* (Math.max of th
 signals, escalate-only via `--prior-tier`). Never let this agent emit a final
 tier — it emits signals; the script decides the tier.
 
-**Dispatch as a read-only subagent** — allowed tools `Read`, `Grep`, `Glob`,
-`Bash` only (no `Edit`/`Write`/`Task`). It reads the request/codebase and returns
+**Dispatch as a read-only subagent** — allowed tools are file reading, searching and the shell,
+nothing else (no editing, no writing, no dispatching). It reads the request/codebase and returns
 a structured verdict; it never modifies files. `Bash` is for read-only inspection
 of the repo (is this greenfield? does the named module already exist?). If the
 platform can't scope tools per dispatch, fall back to the default subagent —
@@ -27,7 +27,7 @@ behavior is unchanged. Per-platform tool names:
 `super.using-superpowers/references/*-tools.md`.
 
 ```
-Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
+Task tool — read-only subagent (tools: file reading, searching and shell — read-only):
   description: "Derive complexity signals for checkpoint N"
   model: [REQUIRED — semantic interpretation of an under-specified request is a
           `capable`-tier job (judgment, no spec, high fan-in). Resolve per
@@ -57,7 +57,7 @@ Task tool — read-only subagent (tools: Read, Grep, Glob, Bash):
     [State whether this is greenfield or an existing codebase, and paste any facts
     already known: does a named module/service already exist? is the change scoped
     to one file the user named? "Unknown — not yet inspected" is valid; if so, and
-    it changes the fileScope reading, inspect with Read/Grep/Glob before deciding.]
+    it changes the fileScope reading, inspect with file reading and searching before deciding.]
 
     ## Your Job
 

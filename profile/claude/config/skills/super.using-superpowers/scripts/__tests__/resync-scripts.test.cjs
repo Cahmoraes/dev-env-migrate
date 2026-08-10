@@ -307,7 +307,7 @@ test('memory-resync.md disambiguates check-resync.cjs from super.persistent-memo
 })
 
 test('memory-resync.md tells the orchestrator to await sync-worker receipts, not poll', () => {
-  // Real session (estudo-clean-arch-solid-ddd): after dispatching the parallel sync
+  // Real session: after dispatching the parallel sync
   // workers the orchestrator busy-polled with a ScheduleWakeup and emitted a malformed
   // call (`prompt` required when `stop` is not true), erroring mid-sync. The reference
   // must explicitly forbid polling background workers you just launched.

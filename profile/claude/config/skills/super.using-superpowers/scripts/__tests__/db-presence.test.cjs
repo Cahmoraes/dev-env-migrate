@@ -16,22 +16,22 @@ const {
 
 test('slugsFromTags: current convention <source>,<slug>,<type> → the slug only', () => {
   assert.deepStrictEqual(
-    slugsFromTags('artifact-sync,home-planos-contato,spec', 'artifact-sync'),
-    ['home-planos-contato'],
+    slugsFromTags('artifact-sync,landing-hero-copy,spec', 'artifact-sync'),
+    ['landing-hero-copy'],
   );
 });
 
 test('slugsFromTags: legacy convention feature:<slug>,type:<type> → the slug only', () => {
   assert.deepStrictEqual(
-    slugsFromTags('feature:ui-pagination-select-polish,type:spec', 'artifact-sync'),
-    ['ui-pagination-select-polish'],
+    slugsFromTags('feature:table-page-size-picker,type:spec', 'artifact-sync'),
+    ['table-page-size-picker'],
   );
 });
 
 test('slugsFromTags: legacy note with two type: tags still yields one slug', () => {
   assert.deepStrictEqual(
-    slugsFromTags('feature:sidebar-collapse-toggle,type:spec,type:prd', 'artifact-sync'),
-    ['sidebar-collapse-toggle'],
+    slugsFromTags('feature:nav-drawer-pin,type:spec,type:prd', 'artifact-sync'),
+    ['nav-drawer-pin'],
   );
 });
 
@@ -90,15 +90,15 @@ function makeDb(dir, rows) {
 test('queryPresentSlugs: current + legacy tagged notes are both recognized', { skip: !DatabaseSync }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbpres-'));
   const dbPath = makeDb(dir, [
-    { source: 'artifact-sync', tags: 'artifact-sync,home-planos-contato,spec' },
-    { source: 'artifact-sync', tags: 'feature:ui-pagination-select-polish,type:spec' },
+    { source: 'artifact-sync', tags: 'artifact-sync,landing-hero-copy,spec' },
+    { source: 'artifact-sync', tags: 'feature:table-page-size-picker,type:spec' },
     { source: 'assistant', tags: 'something-else' }, // different source → ignored
   ]);
 
   const res = queryPresentSlugs({ dbPath, source: 'artifact-sync' });
   assert.strictEqual(res.available, true);
-  assert.ok(res.presentSlugs.has('home-planos-contato'));
-  assert.ok(res.presentSlugs.has('ui-pagination-select-polish'), 'legacy-tagged slug must be present');
+  assert.ok(res.presentSlugs.has('landing-hero-copy'));
+  assert.ok(res.presentSlugs.has('table-page-size-picker'), 'legacy-tagged slug must be present');
   assert.ok(!res.presentSlugs.has('something-else'), 'other sources are excluded');
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -112,8 +112,8 @@ test('driftedSlugs: returns manifest slugs absent from the DB', () => {
 });
 
 test('driftedSlugs: comparison is case-insensitive', () => {
-  const presence = { available: true, presentSlugs: new Set(['home-planos-contato']) };
-  assert.deepStrictEqual(driftedSlugs(['Home-Planos-Contato'], presence), []);
+  const presence = { available: true, presentSlugs: new Set(['landing-hero-copy']) };
+  assert.deepStrictEqual(driftedSlugs(['Landing-Hero-Copy'], presence), []);
 });
 
 test('driftedSlugs: unavailable presence → null (unknown, never [])', () => {

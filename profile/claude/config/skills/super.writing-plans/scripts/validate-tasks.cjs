@@ -3,12 +3,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { validateReach } = require('./reach-checks.cjs');
 
 const HELP = `
 validate-tasks.cjs — Validate a super.writing-plans tasks index AND its task files.
 
 Usage:
-  node scripts/validate-tasks.cjs --tasks-index <path> [--index-only] [--prd <path>] [--mockups <dir>] [--keep-briefing]
+  node scripts/validate-tasks.cjs --tasks-index <path> [--index-only] [--prd <path>] [--mockups <dir>] [--repo-root <dir>] [--keep-briefing]
 
 Options:
   --tasks-index <path>  Path to tasks index markdown file
@@ -26,9 +27,20 @@ Options:
                         curated artifact, at least one task must reference it via a
                         "### Fidelidade Visual" subsection — otherwise the durable visual
                         decision is silently dropped. Mirrors --prd; omit for non-visual plans.
+  --repo-root <dir>     Repository root to cross-check the plan's *reach* against the real
+                        codebase. Disjointness proves tasks do not collide; reach proves they
+                        cover what the change touches. Enables three checks (see
+                        reach-checks.cjs): importers of a modified file that are in no
+                        write-set, enrollment/registry files that list the siblings of a
+                        created file, and the repo's full test-suite inventory (ERROR when a
+                        declared test file matches no runner config). Omit to keep the
+                        plan-only behaviour.
   --help                Show usage and exit 0
 
-Index checks: sequential numbering, line format, .md references, duplicates, titles.
+Index checks: sequential numbering, line format, .md references, duplicates, titles, and —
+when a ## Execution Waves / ## Ondas de Execução section exists — that the wave list is a
+coherent partition: no task in two waves, none in zero waves, no wave naming a task the index
+does not have (dependency ordering needs the task files, so it is a per-file check below).
 Per-file checks (default, unless --index-only):
   - each referenced task-NN.md physically exists
   - each task file declares the required headers: **Status:** **PRD:** **Spec:** **Depends on:**
@@ -38,6 +50,8 @@ Per-file checks (default, unless --index-only):
     parallel-wave task with no verifiable write-set) — same check as
     super.parallel-subagent-in-tree's check-wave-disjoint.cjs, run here at plan-validation
     time so an unsafe wave never reaches dispatch
+  - every task's **Depends on:** entries sit in a STRICTLY earlier wave (ERROR otherwise —
+    same rule parse-waves.cjs enforces, but at plan time instead of first dispatch)
 `.trimStart();
 
 function usage(message) {
@@ -55,6 +69,7 @@ function parseArgs(argv) {
   let indexOnly = false;
   let prdPath = null;
   let mockupsPath = null;
+  let repoRoot = null;
   let keepBriefing = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -84,6 +99,12 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--repo-root') {
+      if (!args[index + 1]) usage('--repo-root <dir> is required');
+      repoRoot = args[index + 1];
+      index += 1;
+      continue;
+    }
     usage(`Unknown argument: ${arg}`);
   }
   if (!tasksIndexPath) usage('--tasks-index <path> is required');
@@ -92,6 +113,7 @@ function parseArgs(argv) {
     indexOnly,
     prdPath: prdPath ? path.resolve(prdPath) : null,
     mockupsPath: mockupsPath ? path.resolve(mockupsPath) : null,
+    repoRoot: repoRoot ? path.resolve(repoRoot) : null,
     keepBriefing,
   };
 }
@@ -565,6 +587,128 @@ function validateSharedResourceConsistency(parsedTasks, bodies, warnings) {
   return { ok: conflicts.length === 0, conflicts };
 }
 
+// ─── Task step scope: no barrier-owned commands, no de-scoping test command ───
+//
+// A task file's `## Passos` is pasted VERBATIM into the implementer's prompt, and
+// the same text reaches the reviewer as `{PLAN_OR_REQUIREMENTS}`. So a step that
+// says "run the full suite" is not advice the execution skill can override — it is
+// an instruction competing with the skill's prohibition, and it usually wins,
+// because it arrives labelled as a Critério de Sucesso.
+//
+// Measured on a real 12-task plan: 12/12 task files carried a "run the whole
+// backend suite + typecheck" step, and the in-tree session hand-rolled 40 unscoped
+// test runs, 17 typechecks and 10 formatter-in-fix-mode runs while never once
+// invoking barrier.cjs, which exists to do all four ONCE per wave.
+//
+// The prose rule lives in references/required-task-step-pattern.md. This is the
+// mechanism, because a prohibition in prose loses to an instruction in prose.
+//
+// Deliberately stack-neutral: matched by ROLE (test runner, typecheck/compile,
+// build, formatter in fix mode) with per-ecosystem spellings as alternatives, so
+// the check still has a referent in a Python, Go or Rust repo.
+const STEPS_SECTION = /^##\s+(?:Passos|Steps)\s*$/imu;
+const CRITERIA_SECTION = /^##\s+(?:Critérios de Sucesso|Criterios de Sucesso|Success Criteria)\s*$/imu;
+
+const PKG_MANAGER = String.raw`(?:pnpm|npm|yarn|bun|npx|turbo)`;
+const TEST_RUNNER = /\b(?:pytest|vitest|jest|mocha|rspec|phpunit|go test|cargo test|mix test|dotnet test|gradle test|mvn test)\b/u;
+const TEST_SCRIPT = new RegExp(String.raw`\b${PKG_MANAGER}\b[^|;&]*?\btest(?::[\w-]+)?\b`, 'u');
+/** A file/node-id argument — the narrowest target most runners accept. */
+const FILE_TOKEN = /(?:\S+\.(?:py|ts|tsx|js|jsx|mjs|cjs|rb|go|rs|java|kt|php|ex|exs|cs|swift|scala)\b|::\S+)/u;
+/**
+ * Not every ecosystem narrows by FILE. Go's scoped form is a package path
+ * (`go test ./internal/user`), and requiring a file extension would flag the only
+ * correct spelling it has. So the real signal is "names a target at all" — with
+ * two exclusions, or the check would pass commands that are the whole suite:
+ *   - the whole-tree wildcard (`./...`), which is Go's spelling for every package;
+ *   - the value of a WORKSPACE selector, which picks a project, not a test target
+ *     (`pnpm --filter ./apps/frontend test` runs that workspace's entire suite).
+ */
+const WHOLE_TREE = /(?:^|\s)\.{0,2}\/?\.\.\.(?:\s|$)/u;
+const WORKSPACE_FLAG = /\s(?:--filter|-F|--project|--prefix|--cwd|--dir|-C)(?:=|\s+)\S+/gu;
+const PATH_TOKEN = /(?:^|\s)[.\w@-]*\/\S*/u;
+const NAME_ONLY_FILTER = /(?:\s-t\s|--testNamePattern\b|\s-k\s|--test-name-pattern\b)/u;
+/** `<pm> test -- <path>`: the package script can drop the path before the runner sees it. */
+const DASH_DASH_WRAPPER = /\s--\s/u;
+
+const FIX_MODE = /(?:--write\b|--fix\b|\b[\w:-]*:fix\b|\bgofmt\s+-w\b|\bcargo\s+fmt\b|\bmix\s+format\b|\bruff\s+format\b|\brubocop\s+-a\b|\bblack\s+\S)/u;
+const TYPECHECK = /(?:\btsc\b[^|;&]*--noEmit\b|\b[\w-]*tsc:check\b|\btype-?check\b|\bmypy\b|\bpyright\b|\bcargo\s+check\b|\bgo\s+vet\b|\bgo\s+build\b)/u;
+const BUILD = new RegExp(String.raw`(?:\b${PKG_MANAGER}\b[^|;&]*?\bbuild\b|\btsup\b|\bnext\s+build\b|\bcargo\s+build\b|\bgradle\s+build\b|\bmvn\s+package\b)`, 'u');
+
+/** The text of one `## <Header>` section, up to the next `##` at the same level. */
+function sectionText(body, headerPattern) {
+  const m = body.match(headerPattern);
+  if (!m) return '';
+  const start = m.index + m[0].length;
+  const rest = body.slice(start);
+  const next = rest.search(/^##\s+/mu);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/**
+ * Command-looking spans: lines of fenced shell blocks plus inline backtick spans.
+ * Scanning only Passos/Critérios keeps prose that merely *mentions* a command (a
+ * Visão Geral naming a generated-artifact prerequisite, say) out of the check.
+ */
+function extractCommandCandidates(text) {
+  const out = [];
+  const fence = /```(?:bash|sh|shell|console|zsh)\n([\s\S]*?)```/giu;
+  let m;
+  while ((m = fence.exec(text)) !== null) {
+    for (const line of m[1].split('\n')) {
+      const t = line.trim();
+      if (t && !t.startsWith('#')) out.push(t);
+    }
+  }
+  for (const inline of text.matchAll(/`([^`\n]+)`/gu)) out.push(inline[1].trim());
+  return out;
+}
+
+function classifyCommand(cmd) {
+  if (FIX_MODE.test(cmd)) return 'formatter/linter in fix mode';
+  if (BUILD.test(cmd)) return 'build';
+  if (TYPECHECK.test(cmd)) return 'typecheck/compile step';
+  const isTest = TEST_RUNNER.test(cmd) || TEST_SCRIPT.test(cmd);
+  if (!isTest) return null;
+  const selectable = cmd.replace(WORKSPACE_FLAG, ' ');
+  const narrows = FILE_TOKEN.test(selectable) || (PATH_TOKEN.test(selectable) && !WHOLE_TREE.test(selectable));
+  if (narrows) {
+    // Names a target AND routes it through a package script's `--`: looks scoped,
+    // measured at 130 collected files against 1 for the direct runner form.
+    return DASH_DASH_WRAPPER.test(cmd) ? 'test command whose path is swallowed by `--`' : null;
+  }
+  if (NAME_ONLY_FILTER.test(cmd)) return 'test command filtered by name with no test target';
+  return 'full test suite';
+}
+
+/**
+ * Flags barrier-owned commands and de-scoping test commands inside task steps and
+ * success criteria. Errors, not warnings: every one of these reaches an implementer
+ * as an instruction, and the cost is paid on every task of every wave.
+ */
+function validateTaskStepScope(parsedTasks, bodies, errors) {
+  const findings = [];
+  for (const task of parsedTasks) {
+    const entry = bodies.get(task.taskNumber);
+    if (!entry || !entry.exists || entry.readError) continue;
+    const scanned = `${sectionText(entry.body, STEPS_SECTION)}\n${sectionText(entry.body, CRITERIA_SECTION)}`;
+    const seen = new Set();
+    for (const cmd of extractCommandCandidates(scanned)) {
+      const kind = classifyCommand(cmd);
+      if (!kind || seen.has(kind)) continue;
+      seen.add(kind);
+      findings.push({ taskNumber: task.taskNumber, file: task.taskFile, kind, command: cmd });
+      errors.push({
+        line: task.lineNumber,
+        message: `${task.taskFile} prescribes the ${kind} (\`${cmd}\`). `
+          + 'Task steps are pasted verbatim into the implementer prompt, so this becomes an instruction '
+          + 'that outranks the execution skill. The integration barrier runs lint/typecheck/test/build '
+          + 'once per wave — see references/required-task-step-pattern.md, "Steps you must never write".',
+      });
+    }
+  }
+  return { checked: parsedTasks.length, findings, clean: findings.length === 0 };
+}
+
 // ─── Wave write-set disjointness (parallel waves only) ────────────────────────
 //
 // A parallel wave (2+ tasks) whose task files declare overlapping ## Arquivos
@@ -645,6 +789,31 @@ function parseArquivosWriteSet(body) {
   return { present, writeSet: [...writes].sort() };
 }
 
+const TEST_VERB = /^(?:test|tests|teste|testes)$/iu;
+
+/**
+ * The `Test:`/`Teste:` entries of a task's `## Arquivos` manifest. Kept separate
+ * from the write-set because reach's suite check asks a different question of
+ * them: not "who else writes this file" but "which runner would ever select it".
+ */
+function parseArquivosTestSet(body) {
+  const lines = body.split(/\r?\n/u);
+  let inSection = false;
+  const tests = new Set();
+  for (const line of lines) {
+    if (FILES_SECTION.test(line)) { inSection = true; continue; }
+    if (inSection && /^#{2,}\s+/u.test(line)) break;
+    if (!inSection) continue;
+    const verbMatch = line.match(/^\s*[-*]\s*([A-Za-zÀ-ÿ]+)\s*:/u);
+    if (!verbMatch || !TEST_VERB.test(verbMatch[1])) continue;
+    for (const pathMatch of line.matchAll(/`([^`]+)`/gu)) {
+      const candidate = pathMatch[1].trim();
+      if (candidate.includes('/') || /\.[a-z0-9]+$/iu.test(candidate)) tests.add(candidate);
+    }
+  }
+  return [...tests].sort();
+}
+
 /**
  * Cross-check every declared parallel wave (2+ tasks) for write-set
  * disjointness. Pushes an ERROR (not a warning) for any overlap or
@@ -702,8 +871,119 @@ function validateWaveDisjointness(content, bodies, errors) {
   });
 }
 
+// ─── Wave structure (membership + dependency ordering) ────────────────────────
+//
+// The disjointness check above asks "can these tasks run side by side?". It never
+// asks whether the wave *partition itself* is coherent, and a plan can be handed
+// off with an incoherent one: a task listed in two waves, a task listed in none,
+// a wave naming a task the index does not have, or a task scheduled at or before
+// a task it depends on. parse-waves.cjs already reports exactly these — but only
+// when an execution skill runs it, i.e. after the plan shipped. Measured cost of
+// that gap (session 303caf93): the plan reached execution with SEVEN tasks in two
+// waves each and five dependency-order violations; parse-waves emitted 13 errors
+// on the first call of the run, and the waves had to be rewritten and re-committed
+// mid-execution. Same checks, moved to the mandatory plan self-review.
+const DEPENDS_FIELD = /^\*\*Depends on:\*\*\s*(.+?)\s*$/imu;
+
+/** Read a task body's `**Depends on:**` → number[]; null when the field is absent. */
+function parseDependsOn(body) {
+  const m = body.match(DEPENDS_FIELD);
+  if (!m) return null;
+  const raw = m[1].trim().replace(/[`*]/gu, '');
+  if (raw === '' || /^(?:n\/a|none|nenhuma?|nenhum)$/iu.test(raw)) return [];
+  return extractTaskNumbersFromText(raw);
+}
+
+/**
+ * Validate the `## Execution Waves` partition itself. Membership checks need only
+ * the index, so they run under `--index-only` too; dependency ordering needs the
+ * task bodies (`**Depends on:**` lives there), so it is skipped when `bodies` is
+ * null and the caller gets `dependencyOrderChecked: false` rather than a silent
+ * pass. Returns null when the plan declares no waves — nothing to partition.
+ */
+function validateWaveStructure(content, taskNumbers, bodies, errors) {
+  const waves = parseExecutionWaves(content);
+  if (waves.length === 0) return null;
+
+  const waveOf = new Map();
+  const known = new Set(taskNumbers);
+  const duplicated = [];
+  const unknown = [];
+  const missing = [];
+  const dependencyViolations = [];
+
+  waves.forEach((wave, idx) => {
+    const position = idx + 1;
+    for (const n of wave.tasks) {
+      // First placement wins. With a duplicate the choice is arbitrary for the
+      // membership error, but not for the ordering one: scoring against the LAST
+      // mention would call `[[1,2],[3],[2]]` well-ordered while wave 1 actually
+      // runs task 2 next to its own dependency. First-wins also matches the fix
+      // the duplicate error asks for — keep the earliest mention.
+      if (waveOf.has(n)) duplicated.push({ task: n, waves: [waveOf.get(n), position] });
+      else waveOf.set(n, position);
+      if (!known.has(n)) unknown.push(n);
+    }
+  });
+  for (const n of taskNumbers) if (!waveOf.has(n)) missing.push(n);
+
+  for (const d of duplicated) {
+    errors.push({
+      line: 0,
+      message: `Task ${d.task} appears in more than one wave (positions ${d.waves.join(' and ')}) — a wave list is a partition, so a task placed twice would be dispatched twice. Keep it in the EARLIEST wave whose dependencies are all satisfied and delete the other mention.`,
+    });
+  }
+  for (const n of [...new Set(unknown)].sort((a, b) => a - b)) {
+    errors.push({
+      line: 0,
+      message: `Execution Waves references task ${n}, which is not in the index task list — either the task line is missing from the index or the wave names the wrong number.`,
+    });
+  }
+  for (const n of missing) {
+    errors.push({
+      line: 0,
+      message: `Task ${n} is in the index but in no wave — every task must be placed exactly once, or execution silently skips it. Add it to the earliest wave whose dependencies are satisfied.`,
+    });
+  }
+
+  let dependencyOrderChecked = false;
+  if (bodies) {
+    dependencyOrderChecked = true;
+    for (const n of taskNumbers) {
+      const entry = bodies.get(n);
+      if (!entry || !entry.body) continue;
+      const deps = parseDependsOn(entry.body);
+      if (!deps || deps.length === 0) continue;
+      const own = waveOf.get(n);
+      if (own == null) continue;
+      for (const d of deps) {
+        const dep = waveOf.get(d);
+        if (dep == null || dep < own) continue;
+        dependencyViolations.push({ task: n, wave: own, dependsOn: d, dependencyWave: dep });
+        errors.push({
+          line: 0,
+          message: `Task ${n} (wave ${own}) depends on task ${d} (wave ${dep}) — a dependency must be in a STRICTLY earlier wave, otherwise task ${n} reads a file task ${d} has not written yet. Move task ${n} to a wave after ${dep}, or drop the dependency if it is not real.`,
+        });
+      }
+    }
+  }
+
+  return {
+    waveCount: waves.length,
+    duplicated,
+    unknown: [...new Set(unknown)].sort((a, b) => a - b),
+    missing,
+    dependencyViolations,
+    dependencyOrderChecked,
+    coherent: duplicated.length === 0 && unknown.length === 0 && missing.length === 0
+      && dependencyViolations.length === 0,
+  };
+}
+
 function main() {
-  const { tasksIndexPath, indexOnly, prdPath, mockupsPath, keepBriefing } = parseArgs(process.argv);
+  const {
+    tasksIndexPath, indexOnly, prdPath, mockupsPath, repoRoot, keepBriefing,
+  } = parseArgs(process.argv);
   if (!fs.existsSync(tasksIndexPath)) {
     process.stdout.write(`${JSON.stringify(buildNotFoundResult(tasksIndexPath), null, 2)}\n`);
     process.exit(0);
@@ -743,10 +1023,36 @@ function main() {
     sharedResourceConsistency = validateSharedResourceConsistency(parsedTasks, taskBodies, warnings);
   }
 
+  // Barrier-owned commands and de-scoping test commands inside task steps. Needs the
+  // task bodies, so it is a full-run-only check.
+  let stepScope = null;
+  if (!indexOnly) {
+    stepScope = validateTaskStepScope(parsedTasks, taskBodies, errors);
+  }
+
+  // Wave partition coherence. Membership needs only the index, so this runs under
+  // --index-only too; dependency ordering degrades explicitly via dependencyOrderChecked.
+  const waveStructure = validateWaveStructure(content, taskNumbers, taskBodies, errors);
+
   // Parallel-wave write-set disjointness (errors, not warnings — see function docstring).
   let waveDisjointness = null;
   if (!indexOnly) {
     waveDisjointness = validateWaveDisjointness(content, taskBodies, errors);
+  }
+
+  // Plan reach against the real codebase — the coverage half of the partition whose
+  // disjointness half the wave check above already proves.
+  let reach = null;
+  if (!indexOnly && repoRoot) {
+    const writeSetsByTask = new Map();
+    const testPathsByTask = new Map();
+    for (const task of parsedTasks) {
+      const entry = taskBodies.get(task.taskNumber);
+      if (!entry || !entry.body) continue;
+      writeSetsByTask.set(task.taskNumber, parseArquivosWriteSet(entry.body).writeSet);
+      testPathsByTask.set(task.taskNumber, parseArquivosTestSet(entry.body));
+    }
+    reach = validateReach({ repoRoot, writeSetsByTask, testPathsByTask }, errors, warnings);
   }
 
   // Verdict must be settled before cleanup: the briefing is removed only on a clean full run.
@@ -774,7 +1080,10 @@ function main() {
     prdCoverage,
     mockupCoverage,
     sharedResourceConsistency,
+    stepScope,
+    waveStructure,
     waveDisjointness,
+    reach,
     briefingCleanup,
   };
   // Intentional: exit 0 even when `valid` is false. The validation verdict is the

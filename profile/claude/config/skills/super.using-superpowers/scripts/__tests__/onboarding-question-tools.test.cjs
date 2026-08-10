@@ -26,7 +26,12 @@ function read(rel) {
 const PLATFORM_TOOLS = [
   { file: 'super.using-superpowers/references/copilot-tools.md', tool: 'ask_user' },
   { file: 'super.using-superpowers/references/gemini-tools.md', tool: 'ask_user' },
-  { file: 'super.using-superpowers/references/codex-tools.md', tool: 'ask_user_question' },
+  // Codex has NO `ask_user_question` tool — that name does not exist. The real tool is
+  // `request_user_input`. Asserting the wrong name let a stale mapping pass for years.
+  { file: 'super.using-superpowers/references/codex-tools.md', tool: 'request_user_input' },
+  // opencode's tool is literally named `question`, which is too generic to assert bare —
+  // match the mapping-table cell so a passing test means the ROW exists, not the word.
+  { file: 'super.using-superpowers/references/opencode-tools.md', tool: '`question` (`questions[]`)' },
 ];
 
 for (const { file, tool } of PLATFORM_TOOLS) {
@@ -71,6 +76,52 @@ test('onboarding documents the 4-option cap for the structured-question tool', (
   assert.match(body, /at most 4 options per question/i, 'onboarding must state the option cap');
 });
 
+test('the summary block is platform-invariant except the native-review row', () => {
+  // Regression, 2026-08-01: the worked example is labelled "(Claude Code, …)", and on
+  // Copilot the model treated the WHOLE block as Claude-Code-specific — it rebuilt a
+  // shortened version, dropping "Modelos por tier" and printing the Claude flag name
+  // (`code-review final`) instead of the Copilot one. The reference must say which rows
+  // are fixed and give the per-platform row verbatim, or "adapt to your platform" reads
+  // as "drop what looks foreign".
+  const ref = read('super.using-superpowers/references/session-start.md');
+
+  assert.match(ref, /seven rows, in this order, on every platform/i,
+    'the reference must fix the row count and order across platforms');
+  assert.match(ref, /"Modelos por tier", which is\s*\n?\s*cross-platform/i,
+    'the tier row must be called out as cross-platform — it is the row that got dropped');
+  // The per-platform row has to be spelled out for BOTH harnesses, not described.
+  assert.match(ref, /\| Claude Code \| .*simplify.*code-review final/,
+    'the Claude Code native-review row must be given verbatim');
+  assert.match(ref, /\| Copilot CLI \| .*Copilot review final/,
+    'the Copilot CLI native-review row must be given verbatim');
+});
+
+test('the activation orders the bootstrap BEFORE any printed block', () => {
+  // Regression, 2026-08-01: the router was reworded to say the reference was
+  // "already in context from the bootstrap cat". That asserts, in the present tense,
+  // a state that only becomes true AFTER the call runs — so the model believed it
+  // already held the data and printed from memory instead of executing. Both harnesses
+  // (Claude Code effort=medium, Copilot effort=null) then emitted an invented triage
+  // list AND default preference values, with zero tool calls in the turn.
+  const body = read('super.using-superpowers/SKILL.md');
+  const activation = body.slice(body.indexOf('<ACTIVATION>'), body.indexOf('</ACTIVATION>'));
+
+  assert.ok(activation.length > 0, 'the ACTIVATION block must exist');
+  assert.match(activation, /first act is the bootstrap call, never printed text/i,
+    'the activation must order the call before any printed text');
+  assert.match(activation, /[Nn]othing in this file is a value you may report/,
+    'the activation must deny that the file itself carries reportable values');
+  assert.match(activation, /wrong every time/i,
+    'the activation must name printing from memory as the failure');
+
+  // The load-bearing negative: no phrasing may claim the deferred content is on hand
+  // before the call that fetches it. A model that believes it has the data skips the call.
+  for (const claim of [/already in context/i, /printed verbatim from that file/i]) {
+    assert.ok(!claim.test(body),
+      `SKILL.md must not assert deferred content is already available (${claim}) — it reads as "no call needed"`);
+  }
+});
+
 test('SKILL.md prints a platform-filtered session-variable summary before the triage', () => {
   const body = read('super.using-superpowers/SKILL.md');
   // The opening triage must be preceded by a read-only summary of the
@@ -111,6 +162,67 @@ test('SKILL.md prints a platform-filtered session-variable summary before the tr
     'the Session Summary example must not list session_caveman_in_effect');
 });
 
+test('the bootstrap prints at most one plain line before the Session Summary', () => {
+  // Four real transcripts. Pure suppression was tried three times and never held —
+  // the lead-in shrank each round ("Ambos os probes vieram limpos (dirty: false,
+  // stale_count: 0), então não há perguntas pendentes." → "Both probes vieram limpos,
+  // então nada para perguntar.") but always survived, and each rewrite was already in
+  // context when the next one was produced. Two lessons are locked here:
+  //   1. POSITION — the first two fixes lived at the END of the Memory Re-Sync Gate
+  //      subsection, too late: the first preamble is emitted during the *preference
+  //      load*, before that section is ever read.
+  //   2. PRESCRIBE, don't forbid — the rule now budgets one short jargon-free line
+  //      instead of banning the sentence, which also stops the anti-narration prose
+  //      from growing on every failed round.
+  const body = read('super.using-superpowers/SKILL.md');
+  // Scope to the rule itself: matching the whole file lets a deleted clause "pass"
+  // because the same word appears further down — a mutation run caught exactly that.
+  const rule = body.slice(body.indexOf('**Silent bootstrap'), body.indexOf('## Session Summary'));
+
+  assert.match(body, /Silent bootstrap/, 'SKILL.md must carry the Silent bootstrap rule');
+  assert.match(rule, /at most one short line/i,
+    'the rule must budget one line, not attempt a total ban (tried, did not hold)');
+  assert.match(rule, /Memória em dia/,
+    'the rule must give the canonical wording of that line');
+  assert.match(rule, /session language/i,
+    'that line must be rendered in the session language, never hardcoded');
+  // The point of the rewrite the user asked for: "Both probes" means nothing to a reader.
+  assert.match(rule, /jargon/i,
+    'the rule must forbid internal jargon in the user-facing line');
+  for (const term of ['probes', '`dirty`', '`stale_count`']) {
+    assert.ok(rule.includes(term),
+      `the rule must name ${term} as jargon to keep out of the printed line`);
+  }
+  // Narrating the commands themselves stays banned — that part of the fix DID work
+  // (the preamble and between-probes lines disappeared once it was in the entry flow).
+  assert.match(rule, /[Nn]ever narrate the commands/,
+    'narrating the commands must stay forbidden');
+  // The gate must keep speaking where it has to ask, or "be brief" swallows the questions.
+  assert.match(rule, /ask the user something/i,
+    'branches that must ask the user something have to speak');
+  for (const branch of ['dirty: true', 'stale_count > 0']) {
+    assert.ok(rule.includes(branch),
+      `the rule must name the ${branch} branch so the gate still speaks when it asks`);
+  }
+
+  // POSITION is the other half of the fix: the rule sits in the entry flow, not in the
+  // Session State & Gates reference below, which is where the first two attempts failed.
+  const at = body.indexOf('Silent bootstrap');
+  const summarySection = body.indexOf('## Session Summary');
+  const gatesSection = body.indexOf('## Session State & Gates');
+  assert.ok(at >= 0 && summarySection >= 0 && gatesSection >= 0, 'all three anchors must exist');
+  assert.ok(at < summarySection && at < gatesSection,
+    'the rule must sit in the entry flow, not buried in the gates reference');
+
+  // The summary block still owns its own opening, and no longer duplicates the gate
+  // outcome now that the one-line opener carries it.
+  const summary = body.slice(summarySection, body.indexOf('## Opening Triage'));
+  assert.match(summary, /block opens the turn/i,
+    'the Session Summary section must state that the block opens the turn');
+  assert.match(summary, /\*\*Memória persistente\*\*: ativa$/m,
+    'the memory line must be plain again — the opener reports the gate, not this line');
+});
+
 test('brainstorming stays platform-agnostic (no platform tool name leaks in)', () => {
   const body = read('super.brainstorming/SKILL.md');
   // Platform normalization lives in super.using-superpowers + the *-tools.md
@@ -123,27 +235,36 @@ test('brainstorming stays platform-agnostic (no platform tool name leaks in)', (
     'brainstorming should still prefer selectable multiple-choice questions');
 });
 
-test('router gates onboarding on `found`, not on a populated preferences object', () => {
-  // Regression guard for the missing-preferences onboarding bug: read-preferences.cjs
-  // ALWAYS returns a fully populated `preferences` (built-in defaults when the file is
-  // absent), so the router must trigger onboarding off the `found` flag — never assume
-  // the file exists just because `preferences` is populated. If this canary fails, the
-  // router can silently run with defaults and skip onboarding (the reported bug).
+test('router gates onboarding on the presence flag, not on a populated object', () => {
+  // Regression guard for the missing-preferences onboarding bug: both loaders
+  // ALWAYS return fully populated values (built-in defaults when the file is absent),
+  // so the router must trigger onboarding off the presence flag — never assume the file
+  // exists just because the values are populated. If this canary fails, the router can
+  // silently run with defaults and skip onboarding (the reported bug).
+  //
+  // The flag is name-agnostic on purpose: the router reads the session state via
+  // derive-session-state.cjs (`preferencesFound`) in ONE call, and read-preferences.cjs
+  // (`found`) remains the documented fallback/raw-object path. The invariant is
+  // "gate on the flag", not "gate on a particular spelling of the flag".
   const body = read('super.using-superpowers/SKILL.md');
-  // Must instruct checking `found` first.
-  assert.match(body, /[Cc]heck `found` (?:first|FIRST)/,
-    'the router must tell the agent to check `found` first');
-  // Must warn that a populated preferences object does NOT mean the file exists.
-  assert.match(body, /populated `preferences`[^.]*does \*\*not\*\* mean the file exists|not consent/i,
-    'the router must warn that defaults-populated preferences is not proof the file exists');
-  // Must bind onboarding to found:false explicitly.
-  assert.match(body, /`found: false`/,
-    'the router must name the found:false case explicitly');
-  assert.match(body, /found: false[\s\S]{0,400}onboarding wizard/i,
-    'the found:false case must run the onboarding wizard');
-  // Must treat derive-session-state.cjs preferencesFound:false identically.
-  assert.match(body, /preferencesFound: false/,
-    'the router must map derive-session-state preferencesFound:false to the same onboarding trigger');
+  // Must instruct checking the presence flag first.
+  assert.match(body, /[Cc]heck `(?:found|preferencesFound)` (?:first|FIRST)/,
+    'the router must tell the agent to check the presence flag first');
+  // Must warn that a populated defaults object does NOT mean the file exists.
+  assert.match(body, /populated (?:`preferences`|values)[^.]*do(?:es)? \*\*not\*\* mean the file exists|not consent/i,
+    'the router must warn that defaults-populated values are not proof the file exists');
+  // Must bind onboarding to the false case explicitly.
+  assert.match(body, /`(?:found|preferencesFound): false`/,
+    'the router must name the flag:false case explicitly');
+  assert.match(body, /(?:found|preferencesFound): false[\s\S]{0,400}onboarding wizard/i,
+    'the flag:false case must run the onboarding wizard');
+  // BOTH spellings must appear, so whichever loader the agent ends up on maps to the
+  // same onboarding trigger — the equivalence note is what stops a half-migrated router
+  // from treating one loader's absent-file signal as "nothing to do".
+  for (const flag of ['found: false', 'preferencesFound: false']) {
+    assert.ok(body.includes(flag),
+      `the router must state the ${flag} case so both loaders map to the same trigger`);
+  }
 });
 
 test('onboarding asks model tiers as a REQUIRED step with suggestions + cost warnings', () => {

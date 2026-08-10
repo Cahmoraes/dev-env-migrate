@@ -1,6 +1,7 @@
 ---
 name: super.finishing-a-development-branch
 description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
+user-invocable: false
 ---
 
 # Finishing a Development Branch
@@ -9,7 +10,7 @@ description: Use when implementation is complete, all tests pass, and you need t
 
 Guide completion of dev work: present clear options, handle the chosen workflow.
 
-**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up.
+**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up → sync memory.
 
 **Announce at start:** "I'm using the super.finishing-a-development-branch skill to complete this work."
 
@@ -18,6 +19,8 @@ Guide completion of dev work: present clear options, handle the chosen workflow.
 ### Step 1: Verify Task Completion
 
 **If a tasks index path was provided** (from subagent-driven or parallel execution), verify deterministically — don't eyeball checkboxes. Run `parse-tasks.cjs --assert-all-done`; it exits non-zero unless every task is `[x]` **and** every task file reads `Status: DONE`, catching index/file mismatches a visual scan misses:
+
+> **Resolving `<super.X-base-dir>`:** the skills are siblings — parent of your header's base directory + `/super.X`. Never `glob` for one (`glob` misses dotdirs); a gate script that will not run is a **STOP**, never a skipped gate.
 
 ```bash
 node <super.subagent-driven-development-base-dir>/scripts/parse-tasks.cjs \
@@ -30,7 +33,10 @@ node <super.subagent-driven-development-base-dir>/scripts/parse-tasks.cjs \
 
 **If no tasks index was provided:** Skip this check — proceed to test verification.
 
-### Step 2: Verify Tests
+### Step 2: Verify Tests, Clean Tree, and the Verification Gate
+
+> Three preconditions, not one — a green suite satisfies only the first. Do not advance to
+> Step 3 until all three pass (the third is exempt only for a branch with no feature tree).
 
 **Before presenting options, verify tests pass:**
 
@@ -70,9 +76,9 @@ your call), or tell me how you'd like to handle it.
 
   Resolve this (commit the work, or get an explicit user override) before proceeding to Step 3.
 
-**Independent verification gate (precondition):** This precondition applies to a **feature-delivery branch** — one where a `docs/superpowers/<feature>/` tree with a spec (and usually plans/tasks) exists. A standalone debugging session (triage option 3) or an ad-hoc fix that produced no such feature tree has no feature to independently verify — the gate runs *once per feature* and none exists — so skip this precondition and let the tests-pass gate in Step 2 govern it. **When a feature tree exists**, before presenting any integration option (merge/PR/handoff), confirm the always-on `super.independent-verification` gate passed for it. A fresh Verifier (author != verifier) runs it once per feature, after final code review and before the QA gate, writing `docs/superpowers/<feature>/qa/validation-<feature>.md` with a PASS/FAIL verdict.
+**Independent verification gate (precondition):** Applies to a **feature-delivery branch** — one with a `docs/superpowers/<feature>/` tree. A standalone debugging session (triage option 3) or an ad-hoc fix produced no such tree, so there is no feature to verify *once per feature*: skip this precondition and let the tests-pass gate govern. **When a feature tree exists**, before presenting any integration option (merge/PR/handoff), confirm the always-on `super.independent-verification` gate passed for it: a fresh Verifier (author != verifier) runs it once per feature, after final code review and before the QA gate, writing `docs/superpowers/<feature>/qa/validation-<feature>.md` with a PASS/FAIL verdict.
 
-Run the deterministic structural check instead of eyeballing or grepping the file — a bare substring match for "PASS" cannot tell a genuine Verifier report from a thin, self-authored one written only to satisfy this precondition (it also never matches the real template, since `## Verdict` and `**PASS ✅**` sit on separate lines):
+Run the deterministic structural check instead of eyeballing or grepping — a substring match for "PASS" cannot tell a genuine Verifier report from a thin self-authored one, and never matches the real template anyway (`## Verdict` and `**PASS ✅**` sit on separate lines):
 
 ```bash
 node <super.independent-verification-base-dir>/scripts/check-verification-report.cjs \
@@ -81,7 +87,7 @@ node <super.independent-verification-base-dir>/scripts/check-verification-report
 ```
 
 - **`valid:true` (exit 0)** → proceed to Step 3.
-- **`valid:true` is false, or the script exits non-zero** → STOP. Do not merge/PR/handoff. The JSON `errors` array names exactly what's missing (file absent, no Diff range, empty AC or Discrimination Sensor table, unfilled template placeholders, FAIL verdict, or a self-contradictory PASS header). Instruct the user to run (or re-run) the `super.independent-verification` gate with a genuine, fresh Verifier dispatch — not a self-review — and land a real PASS before finishing.
+- **`valid:true` is false, or the script exits non-zero** → STOP. Do not merge/PR/handoff. The JSON `errors` array names what's missing (file absent, no Diff range, empty AC or Discrimination Sensor table, unfilled placeholders, FAIL verdict, self-contradictory PASS header). Have the user re-run `super.independent-verification` with a genuine, fresh Verifier dispatch — not a self-review — and land a real PASS before finishing.
 
 ### Step 3: Detect Environment
 
@@ -327,7 +333,7 @@ gh pr create --title "<title>" --body "<summary + test plan>" || echo "Branch pu
 
 **Only runs for Options 1 and 4.** Options 2 and 3 always preserve the worktree.
 
-**Reuse `GIT_DIR`, `GIT_COMMON`, and `WORKTREE_PATH` captured in Step 3 — do NOT recompute them here.** Option 1 and Option 4 already `cd`'d into `MAIN_ROOT`, so recomputing from the current directory would resolve `WORKTREE_PATH` to the main repo and make `GIT_DIR == GIT_COMMON` — falsely reporting "no worktree to clean up" for a real feature worktree, orphaning it and then failing `git branch -d` (the branch is still checked out in the un-removed worktree). The Step 3 values describe the tree finishing was invoked from, which is the one to clean up.
+**Reuse `GIT_DIR`, `GIT_COMMON`, and `WORKTREE_PATH` captured in Step 3 — do NOT recompute them here.** Options 1 and 4 already `cd`'d into `MAIN_ROOT`, where recomputing resolves `WORKTREE_PATH` to the main repo and makes `GIT_DIR == GIT_COMMON` — falsely reporting "no worktree to clean up" for a real feature worktree, orphaning it and then failing `git branch -d`. The Step 3 values describe the tree finishing was invoked from, which is the one to clean up.
 
 **If `GIT_DIR == GIT_COMMON`:** Normal repo (finishing was invoked from the main working tree), no worktree to clean up. Done.
 
@@ -346,13 +352,21 @@ git worktree prune  # clean up any stale registrations
 
 **Otherwise:** The harness owns this workspace. Do NOT remove it. Use your platform's workspace-exit tool if it has one; otherwise leave the workspace in place.
 
-## Memory & Re-Sync
+### Step 8: Memory Re-Sync (feature-scoped, automatic)
 
-This skill does **not** persist to memory itself. When `session_memory_enabled` is on, the feature's final artifacts — including the QA report — are picked up by the **next session's Memory Re-Sync Gate** in `super.using-superpowers`, which content-hashes the canonical `spec/prd/qa/adrs` set and has a dedicated QA-report synthesis rule (persisted under `source="artifact-sync"`). This is the designed, delta-based catch-up, **not a silent gap**: nothing is lost — the sync is simply deferred to the next session that opens this repo with memory enabled, which then sees the feature as `new`/`changed` and ingests it. Detail: `super.using-superpowers/references/memory-resync.md`.
+The work is integrated, so the feature is final — ingest it now rather than leaving it for the next session's entry gate. **Skip silently** when `session_memory_enabled` is `false`, when no `docs/superpowers/<feature>/` tree exists, or when the choice was **Discard**. Otherwise run, from the main repo root (`.memory/` never lives in a worktree):
+
+```bash
+MEMORY_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+node <super.using-superpowers-base-dir>/scripts/compute-inventory.cjs \
+  --repo-root "$MEMORY_ROOT" --feature <feature>
+```
+
+`features[0].status` decides: `new`/`changed` → dispatch **one** sync-worker subagent for this feature (never read its artifacts yourself), then update the manifest for that slug and run `verify-sync.cjs`. Anything else — `unchanged`, `deleted`, no feature reported — is nothing to do, and says nothing. Preconditions, dispatch prompt and the one-line report: `super.using-superpowers/references/memory-resync.md`, "End-of-Flow Re-Sync". Non-blocking: the integration already happened, so a failure is one reported line, never a rollback — the entry gate retries next session.
 
 ## Reference Card
 
-Option recap table + Problem/Fix breakdown of common mistakes: `references/common-mistakes.md`. The Red Flags below are the enforceable summary.
+Option recap table + Problem/Fix breakdown of common mistakes: `references/common-mistakes.md`.
 
 ## Red Flags
 
@@ -370,3 +384,4 @@ Option recap table + Problem/Fix breakdown of common mistakes: `references/commo
 - Present the menu matching the detected environment — standard 4 options on a feature branch, the on-base-branch 4 options when committed straight to `main`/`master`, or 3 options on a detached HEAD
 - Clean up worktree for Options 1 & 4 only
 - Run `git worktree prune` after removal
+- Run Step 8 after the choice is executed — every option except Discard, whenever memory is enabled

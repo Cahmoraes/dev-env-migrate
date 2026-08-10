@@ -22,15 +22,23 @@ Exit codes: 0 success, 2 usage/validation error (e.g. missing grounding).
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX: the lock degrades to a no-op, writes stay atomic
+    fcntl = None
 
 STATE_DIRNAME = ".superpowers"
 STORE_FILENAME = "lessons.json"
 RENDER_FILENAME = "LESSONS.md"
+LOCK_FILENAME = "lessons.lock"
 
 VALID_SIGNALS = (
     "ac_gap",
@@ -79,6 +87,57 @@ def _render_path(root):
     return os.path.join(_state_dir(root), RENDER_FILENAME)
 
 
+def _lock_path(root):
+    return os.path.join(_state_dir(root), LOCK_FILENAME)
+
+
+@contextlib.contextmanager
+def store_lock(root):
+    """Serialize the whole read-modify-write cycle, not just the write.
+
+    The Verifier records one lesson per grounded signal, so several `add` calls are
+    naturally issued at once. Without this, each process loads the store, appends to
+    its own copy and writes it back: lost updates at best, a torn file at worst.
+    Measured 2026-08-03: six concurrent `add` calls corrupted lessons.json in 5 of 5
+    trials, and the session then spent ~2.5 minutes and 15 tool calls hand-repairing
+    it. Locking the cycle is what makes concurrent `add` safe rather than forbidden.
+    """
+    os.makedirs(_state_dir(root), exist_ok=True)
+    if fcntl is None:
+        yield
+        return
+    handle = open(_lock_path(root), "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def _write_atomic(path, text):
+    """Write via temp file + rename. A reader never observes a half-written file:
+    os.replace is atomic on POSIX, so the store is either the old one or the new one.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=directory, prefix=".tmp-", delete=False)
+    try:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+        handle.close()
+        os.replace(handle.name, path)
+    except BaseException:
+        handle.close()
+        with contextlib.suppress(OSError):
+            os.unlink(handle.name)
+        raise
+
+
 def _empty_store():
     return {"version": 1, "next_id": 1, "lessons": []}
 
@@ -97,9 +156,7 @@ def load_store(root):
 
 def save_store(root, store):
     os.makedirs(_state_dir(root), exist_ok=True)
-    with open(_store_path(root), "w", encoding="utf-8") as handle:
-        json.dump(store, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    _write_atomic(_store_path(root), json.dumps(store, indent=2, ensure_ascii=False) + "\n")
     write_render(root, store)
 
 
@@ -306,8 +363,7 @@ def write_render(root, store):
     section("Candidates", STATUS_CANDIDATE)
     section("Quarantined", STATUS_QUARANTINED)
 
-    with open(_render_path(root), "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines).rstrip() + "\n")
+    _write_atomic(_render_path(root), "\n".join(lines).rstrip() + "\n")
 
 
 def build_parser():
@@ -352,9 +408,17 @@ DISPATCH = {
 }
 
 
+# Commands that read the store, change it, and write it back. Only these need the
+# lock; `list`/`status` read a single atomically-replaced file and cannot tear.
+MUTATING = ("init", "add", "penalize", "prune")
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     root = args.root
+    if args.command in MUTATING:
+        with store_lock(root):
+            return DISPATCH[args.command](root, args)
     return DISPATCH[args.command](root, args)
 
 

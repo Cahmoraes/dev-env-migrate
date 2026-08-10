@@ -2,7 +2,7 @@
 
 /**
  * artifact-hash.cjs — Single source of truth for hashing the canonical superpowers
- * artifact set (spec / prd / qa / adrs) under docs/superpowers/<slug>/.
+ * artifact set (spec / prd / qa / iv / adrs) under docs/superpowers/<slug>/.
  *
  * Both check-resync.cjs (dirty detection) and compute-inventory.cjs (per-feature
  * diff) import from here so they can NEVER drift apart. Drift between those two
@@ -19,7 +19,16 @@
  *   spec:  docs/superpowers/<slug>/specs/<slug>-design.md
  *   prd:   docs/superpowers/<slug>/prd/prd-<slug>.md
  *   qa:    docs/superpowers/<slug>/qa/qa-report-<slug>.md
+ *   iv:    docs/superpowers/<slug>/qa/validation-<slug>.md
  *   adrs:  docs/superpowers/<slug>/adrs/*.md  (combined, sorted by filename)
+ *
+ * `qa` and `iv` are different artifacts written by different gates, and the
+ * distinction is why `iv` had to be inventoried: the QA report only exists when a
+ * PRD does (super.user-story-verification skips gracefully without user stories),
+ * while the IV report is written by the always-on super.independent-verification
+ * gate and is what super.finishing-a-development-branch requires a PASS in before
+ * merging. Leaving it out made every PRD-less feature look like it had never
+ * progressed past its spec, no matter how it actually ended.
  */
 
 const fs = require('fs');
@@ -104,16 +113,22 @@ function bareDigest(hash) {
   return String(hash).replace(/^sha256:/, '');
 }
 
-// Older manifests may lack adr_hash. Normalize missing fields to null so a feature
-// with no ADRs and no adr_hash entry does NOT get classified as changed.
+// Older manifests may lack adr_hash or iv_hash. Normalize missing fields to null so a
+// feature with no ADRs and no adr_hash entry does NOT get classified as changed.
+//
+// The asymmetry is deliberate for iv_hash: a manifest written before the IV report was
+// inventoried normalizes to null, so a feature that HAS a validation-<slug>.md on disk
+// classifies as `changed` on the next gate and gets re-ingested. That one-time re-sync
+// is the self-healing path for every feature whose delivery was never recorded.
 function normalizeManifestEntry(entry) {
   if (!entry || typeof entry !== 'object') {
-    return { spec_hash: null, prd_hash: null, qa_hash: null, adr_hash: null };
+    return { spec_hash: null, prd_hash: null, qa_hash: null, iv_hash: null, adr_hash: null };
   }
   return {
     spec_hash: entry.spec_hash ?? null,
     prd_hash: entry.prd_hash ?? null,
     qa_hash: entry.qa_hash ?? null,
+    iv_hash: entry.iv_hash ?? null,
     adr_hash: entry.adr_hash ?? null,
   };
 }
@@ -121,8 +136,8 @@ function normalizeManifestEntry(entry) {
 // ─── Feature artifact hashing ─────────────────────────────────────────────────
 
 /**
- * Hash all four canonical artifacts for a single feature slug.
- * Returns { spec, prd, qa, adrs } ArtifactResult objects (same shape both
+ * Hash all five canonical artifacts for a single feature slug.
+ * Returns { spec, prd, qa, iv, adrs } ArtifactResult objects (same shape both
  * consumers expect).
  */
 function hashFeatureArtifacts(docsPath, slug) {
@@ -130,12 +145,14 @@ function hashFeatureArtifacts(docsPath, slug) {
   const specPath = path.join(slugDir, 'specs', `${slug}-design.md`);
   const prdPath = path.join(slugDir, 'prd', `prd-${slug}.md`);
   const qaPath = path.join(slugDir, 'qa', `qa-report-${slug}.md`);
+  const ivPath = path.join(slugDir, 'qa', `validation-${slug}.md`);
   const adrsDir = path.join(slugDir, 'adrs');
 
   return {
     spec: { path: specPath, ...hashFile(specPath) },
     prd: { path: prdPath, ...hashFile(prdPath) },
     qa: { path: qaPath, ...hashFile(qaPath) },
+    iv: { path: ivPath, ...hashFile(ivPath) },
     adrs: { path: adrsDir, ...hashAdrs(adrsDir) },
   };
 }
@@ -161,7 +178,7 @@ function listFeatureSlugs(docsPath) {
 
 // ─── Content maps for dirty detection ──────────────────────────────────────────
 //
-// A "content map" is { <slug>: { spec, prd, qa, adr } } using bare digests
+// A "content map" is { <slug>: { spec, prd, qa, iv, adr } } using bare digests
 // (prefix-stripped). Comparing the disk map against the manifest-derived map is
 // exactly the union of new/changed/deleted features — i.e. precisely when a
 // re-sync is needed. There is no separate top-level hash to drift or to
@@ -177,6 +194,7 @@ function computeDiskMap(docsPath) {
       spec: bareDigest(a.spec.hash),
       prd: bareDigest(a.prd.hash),
       qa: bareDigest(a.qa.hash),
+      iv: bareDigest(a.iv.hash),
       adr: bareDigest(a.adrs.hash),
     };
   }
@@ -193,6 +211,7 @@ function deriveManifestMap(manifest) {
       spec: bareDigest(norm.spec_hash),
       prd: bareDigest(norm.prd_hash),
       qa: bareDigest(norm.qa_hash),
+      iv: bareDigest(norm.iv_hash),
       adr: bareDigest(norm.adr_hash),
     };
   }
@@ -206,6 +225,7 @@ function entryEqual(a, b) {
     (ea.spec ?? null) === (eb.spec ?? null) &&
     (ea.prd ?? null) === (eb.prd ?? null) &&
     (ea.qa ?? null) === (eb.qa ?? null) &&
+    (ea.iv ?? null) === (eb.iv ?? null) &&
     (ea.adr ?? null) === (eb.adr ?? null)
   );
 }
@@ -220,16 +240,18 @@ function mapsEqual(a, b) {
 }
 
 /**
- * Stable string fingerprint of a content map — sorted `slug|spec|prd|qa|adr`
+ * Stable string fingerprint of a content map — sorted `slug|spec|prd|qa|iv|adr`
  * lines hashed with SHA-256. Stored in the manifest for observability; dirty
- * detection itself uses mapsEqual (no reliance on a stored aggregate).
+ * detection itself uses mapsEqual (no reliance on a stored aggregate), which is
+ * why adding a column here shifts every stored treeHash once without changing a
+ * single feature's classification.
  */
 function fingerprintOfMap(map) {
   const slugs = Object.keys(map).sort();
   if (slugs.length === 0) return null;
   const lines = slugs.map((slug) => {
     const e = map[slug] || {};
-    return `${slug}|${e.spec ?? ''}|${e.prd ?? ''}|${e.qa ?? ''}|${e.adr ?? ''}`;
+    return `${slug}|${e.spec ?? ''}|${e.prd ?? ''}|${e.qa ?? ''}|${e.iv ?? ''}|${e.adr ?? ''}`;
   });
   return 'sha256:' + crypto.createHash('sha256').update(lines.join('\n'), 'utf8').digest('hex');
 }

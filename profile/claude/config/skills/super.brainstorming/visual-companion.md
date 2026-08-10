@@ -2,8 +2,13 @@
 
 Browser-based companion for showing mockups, diagrams, and visual options during
 brainstorming. A zero-dependency local HTTP+WebSocket server: you write HTML files to a
-watched directory, the server serves the newest one, the user clicks in the browser, and
-selections come back to you on your next turn.
+watched directory, the server serves the newest one, and the user clicks in the browser.
+
+The companion is **bidirectional**: a click can reach you *while you wait* (step 4 below),
+so the browser is an input device, not just a display. It also still shows up in the next
+turn's state call (`pendingAnswer`), so a user who clicks and then types in the terminal
+loses nothing — as long as you read it **before** writing the next screen, which truncates
+the journal.
 
 This Quick Start is everything you need to operate the companion. For the full CSS class
 catalog, per-platform launch notes, remote/containerized binding, the browser-events JSON
@@ -41,6 +46,11 @@ it has two mutually exclusive answers:
 > text cards cannot answer a visual question, and defaulting to it because it is cheaper in
 > tokens is the single most common failure of this skill. When in doubt about whether a
 > question is visual, render the mockup.
+>
+> **This is checkable, not a matter of taste.** `check-visual-state.cjs` reports
+> `newestScreenKind`: `generated` means text cards are on screen. If that says `generated`
+> while the open question is about layout, you are violating this gate right now — replace
+> it with a bespoke mockup before handing back.
 
 ## Launch
 
@@ -66,6 +76,10 @@ Save `screen_dir` and `state_dir`. Tell the user to open the `url`. Passing
 `--project-dir` keeps mockups under `.superpowers/brainstorm/` (persist across restarts);
 remind the user to add `.superpowers/` to `.gitignore` if it isn't already.
 
+> **Launching is not rendering.** Write the first real screen in the **same turn** — ending
+> the turn on a clarifying question right after the launch hands the user an empty browser.
+> See SKILL.md, "Settle the render debt".
+
 If you backgrounded the launch and didn't capture stdout, read `<state_dir>/server-info`
 to recover the URL and port. The server auto-exits after 30 minutes idle, or when the
 owner process dies. **Platform differences** (Windows/Codex/Gemini foreground behavior,
@@ -74,34 +88,96 @@ platform" section.
 
 ## The loop
 
-1. **Check the server is alive, then write a fragment.** Before each write, confirm
-   `<state_dir>/server-info` exists and `<state_dir>/server-stopped` does not. If the
-   server is gone, relaunch it. Write a **new** file to `screen_dir` with the Write tool
-   (never `cat`/heredoc — that dumps noise into the terminal). Use semantic, never-reused
+1. **Open the turn with one state call** — server alive? where to write? what did they
+   click? do I owe a render?
+
+   ```bash
+   node <super.brainstorming-base-dir>/scripts/check-visual-state.cjs --project-dir "$(git rev-parse --show-toplevel)" --with-events
+   ```
+
+   `companionActive: false` → relaunch (see "Launch"). `screenDir` → where to write.
+   `renderDebt: true` → you owe a screen this turn. `pendingAnswer: true` → they confirmed
+   something you have not acted on; answer it before writing anything new, because **every
+   new screen truncates the journal** and takes the unread answer with it.
+   `events.finalSelection` → the current
+   selection; use it, **never** the last `choice`, because clicking a selected option
+   deselects it, so the last `choice` can name what they just turned off. `events.path`
+   keeps the click sequence, which is diagnostics only — never a question;
+   `events.present: false` = they never touched the browser.
+
+2. **Write a fragment.** Write a **new** file to `screenDir` with the Write tool (never
+   `cat`/heredoc — that dumps noise into the terminal). Use semantic, never-reused
    filenames: `layout.html`, `visual-style.html`; for iterations `layout-v2.html`. The
    server serves the newest file by mtime.
 
-2. **Hand back to the user and end your turn.** Remind them of the URL (every step), give
-   a one-line summary of what's on screen, and ask them to respond in the terminal:
-   "Take a look and let me know what you think — click to select an option if you'd like."
+3. **Hand back to the user — never with nothing on screen.** Re-run the step-1 command
+   (drop `--with-events`) to confirm what the companion is serving: `renderDebt: true`
+   means you owe a render — write it first; `pendingAnswer: true` means an answer arrived
+   while you were busy — read it (`--with-events`) and act on it first. Then remind them of
+   the URL (every step) and summarize what's on screen in one line.
 
-3. **On your next turn**, read `<state_dir>/events` if it exists (one JSON object per
-   line: clicks/selections) and merge it with the user's terminal reply. The terminal
-   message is the primary signal; events add structured detail. If the file is absent, the
-   user didn't interact in the browser — use their text only.
+4. **Wait for the confirmation when the screen IS the question.** If the screen you just
+   wrote carries `data-choice` options and answering it is all that's left this turn,
+   block on the browser instead of ending the turn:
 
-4. **Iterate or advance.** If feedback changes the current screen, write a new version.
-   Move on only when the current step is validated.
+   ```bash
+   node <super.brainstorming-base-dir>/scripts/wait-for-user.cjs --project-dir "$(git rev-parse --show-toplevel)"
+   ```
 
-5. **Unload when returning to the terminal.** When the next question doesn't need the
-   browser, push a waiting screen so the user isn't staring at a resolved choice:
+   **Claude Code / Copilot: run this as a background task** and let the harness notify
+   you when it exits — never block the shell. It prints one JSON line and exits: `type`
+   is `selection`, `timeout`, `server-stopped`, or `no-server`, and every answer carries
+   `finalSelection`, `screenDir`, `renderDebt`, and an `_instructions` field that is the
+   authoritative next step for that exact outcome — **follow `_instructions` when it
+   conflicts with your recollection of this file.**
+
+   **A click is exploration; only the Send button is an answer.** The user can misclick,
+   compare two options, then change their mind — so the wait ends on an explicit
+   confirmation, not on the first click. The injected helper renders Send for you; you
+   never write it. One consequence worth designing for: `finalSelection` can hold
+   **several** choices (add `data-multiselect` to an ancestor and the user answers more
+   than one question on one screen — treat every entry as the answer, not just the
+   first). When `submitted` is `false`, they have not answered yet.
+
+   **A screen answers exactly once.** Send locks on commit and only a new screen unlocks
+   it, so a decision you want revised needs a new file (`layout-v2.html`) — telling the
+   user to press Send again hands them a dead button.
+
+   **Read `finalSelection` and move on — the click trail is not an answer.** Comparing
+   options, changing their mind, and taking their time is how the screen is *meant* to be
+   used; the Send button exists precisely so that exploration costs nothing. Treat
+   `path` as diagnostics: never quote it back, never turn it into a follow-up question,
+   never write it into the spec. A user who clicked eight times and one who clicked once
+   gave you the **same** answer.
+
+   Ask them to answer **in the terminal** instead when the question needs words the
+   browser cannot capture (a "why", a name, a number), when the screen is informational
+   with nothing clickable, or when you still have other work to do this turn. On
+   `timeout`, hand back to the conversation — do not immediately wait again.
+
+   Full protocol, flags, and the fallback for older servers: `visual-companion-reference.md`,
+   "Waiting for the browser" section.
+
+5. **Iterate or advance.** A `selection` from step 4 and the user's terminal message are
+   both first-class answers. If feedback changes the current screen, write a new
+   version. Move on only when the current step is validated.
+
+6. **Unload when returning to the terminal — but drain their answer first.** The park is a
+   new screen like any other, so it **truncates the journal**: parking on top of an unread
+   Send destroys a decision the user believes they gave you. Check `pendingAnswer` (step 3)
+   before writing the placeholder; if it is `true`, read `events` and answer it first.
+   Then push a waiting screen so the user isn't staring at a resolved choice:
 
    ```html
    <!-- filename: waiting.html -->
-   <div style="display:flex;align-items:center;justify-content:center;min-height:60vh">
+   <div data-companion-placeholder
+        style="display:flex;align-items:center;justify-content:center;min-height:60vh">
      <p class="subtitle">Continuing in terminal…</p>
    </div>
    ```
+
+   Keep the `data-companion-placeholder` attribute — `check-visual-state.cjs` uses it (and the
+   `waiting*` filename convention) so a park never counts as having shown the user anything.
 
 ## Writing content
 
@@ -118,16 +194,22 @@ have to memorize the CSS classes. These kinds render **text cards**, never a lay
 
 ```bash
 node <super.brainstorming-base-dir>/scripts/render-screen.cjs \
-  --screen-dir "<screen_dir>" --name layout.html --spec '{
-    "title": "Which layout works better?",
-    "subtitle": "Consider readability and visual hierarchy",
+  --screen-dir "<screen_dir>" --name scope-options.html --spec '{
+    "title": "Which scope for the first release?",
+    "subtitle": "You can always expand later",
     "kind": "options",
     "items": [
-      {"choice": "a", "heading": "Single Column", "body": "Clean, focused reading"},
-      {"choice": "b", "heading": "Two Column", "body": "Sidebar plus main content"}
+      {"choice": "a", "heading": "Core flow only", "body": "Ship the happy path, defer edge cases"},
+      {"choice": "b", "heading": "Core + recovery", "body": "Include error and retry handling now"}
     ]
   }'
 ```
+
+The question above is a **conceptual scope choice**, not a layout one — that is the *only*
+category this generator is for. Do **not** copy this shape for a "which layout / where does
+X go / which visual style" question: the Layout gate above forbids `render-screen.cjs` there
+because it emits text cards, never a drawn layout, so the user would see the options listed
+but no actual layout to compare. For those, write a bespoke visual mockup (below) instead.
 
 It prints `{"written":true,"path":...}` and the server serves it on the next reload.
 `kind` is `options` or `cards` (clickable, emit selection events) or `pros-cons`
@@ -165,7 +247,7 @@ files (`tailwind.config.*`, `globals.css`, full page/component sources) flood th
 context with raw bytes you only need long enough to derive a handful of tokens; the subagent
 reads them in its own context and hands back just the distilled report.
 
-**Dispatch (read-only subagent — tools: `Read`, `Grep`, `Glob`, `Bash` read-only):**
+**Dispatch (read-only subagent — tools: file reading, searching and the shell, read-only):**
 > Discover this project's design system and the target screen so a faithful HTML mockup can be
 > built. Follow the "Project-aware design tokens" section of `super.brainstorming/visual-companion-reference.md`
 > (discovery playbook). Return **only** the distilled report shape defined there —
@@ -225,9 +307,25 @@ untouched and still cleaned up normally by Stop below.
 
 ## Stop
 
+**Trigger: the spec is written and committed.** That is the moment every decision the
+browser could inform has been made, so the companion stops being useful and becomes only
+an input surface — a tab left open still delivers a click through the whole path and it
+arrives as fresh user intent about something already decided. `super.brainstorming`
+owns this as a STOP step in `references/after-the-design.md`; run it there:
+
+```bash
+node <super.brainstorming-base-dir>/scripts/stop-companion.cjs --project-dir "$(git rev-parse --show-toplevel)"
+```
+
+It resolves the live session itself, so you never have to recover the `session_dir` from
+a launch several turns back, and it is idempotent — safe to run when no companion exists.
+
+To stop one session by path (debugging, or a session this project did not launch):
+
 ```bash
 bash <super.brainstorming-base-dir>/scripts/stop-server.sh <session_dir>
 ```
 
 `/tmp` sessions are deleted on stop; `--project-dir` sessions persist under
-`.superpowers/brainstorm/` for later reference.
+`.superpowers/brainstorm/` for later reference — so stopping loses nothing, and
+revisiting a mockup later just means relaunching explicitly.

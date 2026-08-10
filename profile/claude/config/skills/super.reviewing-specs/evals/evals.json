@@ -61,7 +61,7 @@
       "expected_output": "The declared corporate artifact is a policy about ADMIN ROLE MANAGEMENT — an entirely different, unrelated feature — while the spec under review is a personal avatar-upload feature. The avatar spec is otherwise sound. The correct output is an honest, essentially clean review that treats the mismatched corporate artifact as an OUT-OF-SCOPE OBSERVATION (a config problem: corporate-artifacts.yml points at another feature's document), NOT as a Lens 5 fidelity conflict — it must not fabricate a Critical/Important finding by comparing two documents about different features, and it must not stay silent about the mismatch either.",
       "files": [
         "evals/files/avatar-upload-unrelated-corporate/specs/avatar-upload-design.md",
-        "evals/files/avatar-upload-unrelated-corporate/corporate/admin-role-management-policy.md",
+        "evals/files/avatar-upload-unrelated-corporate/corporate/access-policy.md",
         "evals/files/avatar-upload-unrelated-corporate/.superpowers/corporate-artifacts.yml"
       ],
       "expectations": [

@@ -12,7 +12,6 @@ reaches them.
 - [Caveman Mode](#caveman-mode)
 - [Native Review Skills](#native-review-skills)
 - [Execution Mode Election (option 5)](#execution-mode-election-option-5)
-- [Session Snapshot (STATE.md)](#session-snapshot-statemd)
 
 ## Session State variables
 
@@ -28,7 +27,7 @@ node <super.using-superpowers-base-dir>/scripts/derive-session-state.cjs \
 `preferences.X.Y → session_*` mapping and for platform gating: the Claude Code
 variables resolve `false` off Claude Code, and `session_copilot_review_final_enabled`
 resolves `false` off Copilot CLI, so no skill carries per-platform rules. Pass
-`--platform` matching where you run (`claude-code`; `copilot`/`codex`/`gemini`
+`--platform` matching where you run (`claude-code`; `copilot`/`codex`/`gemini`/`opencode`
 elsewhere). Track these session-only variables in context (never written back to
 `preferences.yml`); the prefs-derived ones come from the script's `sessionState`, the
 latches start `false`:
@@ -42,6 +41,7 @@ latches start `false`:
 | `session_caveman_in_effect` | latch | **Liveness** — whether `/caveman` is currently loaded. Set `true` right after invoking, `false` on deactivation or after a compaction (which wipes live skill state). Idempotency guard — see the "Caveman Mode" section. |
 | `session_caveman_prompted` | latch | Whether the dynamic question was already asked this session. |
 | `session_memory_enabled` | sessionState | Whether persistent memory recall/persist is active. |
+| `session_language` | sessionState | Platform-agnostic — the human language every skill authors user-facing prose in: validation/QA report prose, spec/PRD text, subagent-authored notes (from `communication.language`, default `pt-BR`). The **structural skeleton** of machine-validated artifacts (report section headings, field labels, status tokens like `PASS ✅`/`FAIL ❌`, and FR/AC/US identifiers) stays canonical regardless — only prose follows this. |
 | `session_resync_completed` | latch | Whether the re-sync gate was already processed this session. |
 | `session_simplify_enabled` | sessionState | Claude Code only — whether `/simplify` runs at the per-task checkpoint. |
 | `session_code_review_final_enabled` | sessionState | Claude Code only — whether `/code-review` runs once at the **final** review as an extra bug pass (the default final reviewer always runs). |
@@ -128,88 +128,3 @@ Steps:
 2. **Derive the recommendation:** `node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md` → read `executionRecommendation` and the wave summary (`waveCount`, `waveKinds`, `maxParallelWave`). (`parse-waves.cjs` lives in the sibling skill: swap the final `super.using-superpowers` segment of this skill's base dir for `super.parallel-subagent-development` — superpowers skills are siblings in one `skills/` directory.)
 3. **Present the three options:** render via `<super.writing-plans-base-dir>/references/execution-handoff-message.md` (Steps 1–3) — Subagent-Driven, Parallel in-tree, Parallel worktrees, with `(recommended)` elected by the rubric. Never hardcode the recommendation on option 1. Open with the triage variant: _"Found existing tasks index `tasks-<feature-name>.md` with N tasks (M pending)."_ That same Step 3 message also leads with option 0 (optional spec review via `super.reviewing-specs`) — if the user picks it, follow that reference's Step 4, which covers resolving the spec path from the `featureName` you already located here (rather than from `find-feature-files.cjs` at the start of `super.writing-plans`, which is not how you arrived).
 4. **Wait for the user's choice,** then invoke the chosen skill (`super.subagent-driven-development` / `super.parallel-subagent-in-tree` / `super.parallel-subagent-development`) with the tasks index path.
-
-## Session Snapshot (STATE.md)
-
-A per-feature, **plain-markdown** snapshot for cheap pause/resume. It is ordinary
-markdown, so it is **independent of persistent memory** — it works even when `pmem` is
-unavailable or degraded. STATE.md and `pmem` play different roles and are **not
-substitutes**:
-
-- **STATE.md** = intra-feature *position* recovery — cheap, deterministic, "where was I".
-- **`pmem`** (persistent memory) = *semantic recall across features* — heavier,
-  embeddings-based, "what did we learn / decide elsewhere".
-
-On resume the Handoff snapshot replaces re-reading the full task history and replaces
-loading `pmem` just to relocate position.
-
-### Path (exact)
-
-```
-docs/superpowers/<feature>/STATE.md
-```
-
-One file per feature, alongside its other artifacts (`plans/`, design doc, PRD). If it
-does not exist, create it with both section headers and empty bodies.
-
-### Sections
-
-Two section-scoped parts, **each with its own lifecycle**. Writes always target a single
-section — never a whole-file overwrite.
-
-#### `## Handoff` — pause snapshot (~500 tokens max, OVERWRITTEN each pause)
-
-Never grows: every pause replaces the body. Fields:
-
-```markdown
-## Handoff
-
-- **Feature**: [name / docs/superpowers path]
-- **Wave / Task**: [e.g. Wave 2 / T4 — implement repository layer]
-- **Completed**: [task IDs or "none"]
-- **In-progress** (file:line): [e.g. `src/billing/subscription.service.ts:88` — mid-write]
-- **Next step**: [one sentence — exactly what to do next]
-- **Blockers**: [none | description]
-- **Uncommitted changes**: [files or "none"]
-- **Branch**: [git branch]
-```
-
-#### `## Decisions` — OPTIONAL append-only log
-
-Project-level decisions future features must honor or supersede (feature-local decisions
-stay in the design doc, not here). Keep entries short:
-
-```markdown
-## Decisions
-
-### AD-001
-- **Decision**: [one sentence]
-- **Reason**: [why this option]
-- **Trade-off**: [what was given up]
-- **Scope**: [features / layers governed]
-- **Date**: YYYY-MM-DD
-- **Status**: active | superseded by AD-NNN
-```
-
-`AD-NNN` is sequential, project-scoped, and permanent — never reused; check existing
-entries before assigning the next number (first is `AD-001`). Supersede by appending a
-new entry and setting the old one's `Status` to `superseded by AD-NNN`; never delete
-history.
-
-### Section-scoped write rule (correctness invariant)
-
-One file, two lifecycles. **Writing the Handoff NEVER rewrites Decisions, and appending
-a Decision NEVER touches the Handoff.** Technique: locate the target `##` header, replace
-only the content between it and the next `##` header (or EOF). Violating this is silent
-data loss — a pause clobbers the decision log, or a decision append corrupts mid-task
-state.
-
-### When to write / read
-
-| Moment | Section | Operation |
-|---|---|---|
-| `Planejando → Executando` gate | `## Handoff` | **Write** — initial snapshot |
-| Every pause / end of wave | `## Handoff` | **Replace** — Handoff body only |
-| New project-level decision | `## Decisions` | **Append** — new `AD-NNN` only |
-| Resume, before any code | `## Handoff` | **Read** — relocate, propose next step |
-| Resume, before designing | `## Decisions` | **Read** — re-confirm active constraints |

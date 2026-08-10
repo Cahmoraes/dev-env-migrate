@@ -94,6 +94,8 @@ alias nw="node --watch"
 alias ammend="git commit --amend --no-edit"
 alias claudey="claude --dangerously-skip-permissions"
 alias claudya="claude agents --dangerously-skip-permissions"
+alias hclaudya="headroom wrap claude --code-memory none agents --dangerously-skip-permissions"
+alias hclaudey="headroom wrap claude --code-memory none --dangerously-skip-permissions"
 alias glow="glow -p"
 
 
@@ -156,7 +158,7 @@ export HEADROOM_HOST="127.0.0.1"
 export HEADROOM_MODE="cache"
 export HEADROOM_BACKEND="anthropic"
 export HEADROOM_TELEMETRY="off"
-export HEADROOM_MEMORY_ENABLED="1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 export ENABLE_TOOL_SEARCH="true"
+export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
 # <<< headroom persistent env <<<

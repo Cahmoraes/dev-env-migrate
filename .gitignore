@@ -23,3 +23,6 @@ RELATORIO_IMPORT.md
 
 # Banco de memória local do headroom (gerado em cada máquina)
 headroom_memory.db
+
+# Marcador de estado do hook SessionStart do headroom (PID/porta da sessão atual)
+.claude/.headroom_wrap_marker.json

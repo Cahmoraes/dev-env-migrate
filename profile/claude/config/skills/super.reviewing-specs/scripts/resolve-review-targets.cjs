@@ -162,19 +162,60 @@ function parseCorporateEntries(raw, repoRoot) {
   return entries;
 }
 
+// Read the owner's consent from <repoRoot>/.superpowers/preferences.yml: the
+// `has_corporate_artifacts` key nested under the top-level `context:` block. Same hand-parse
+// rationale as above (no YAML dep), but scoped: a top-level lookalike line does NOT count —
+// the flag has one home, and accepting a stray line would reintroduce the very ambiguity
+// this gate exists to remove. An absent or unreadable file means "not declared" (false).
+function corporateConsent(repoRoot) {
+  const prefsPath = path.join(repoRoot, '.superpowers', 'preferences.yml');
+  if (!fs.existsSync(prefsPath) || !fs.statSync(prefsPath).isFile()) return false;
+  let raw;
+  try {
+    raw = fs.readFileSync(prefsPath, 'utf8');
+  } catch {
+    return false;
+  }
+  let inContext = false;
+  for (const line of raw.split(/\r?\n/)) {
+    const noComment = line.replace(/(?:^|\s)#.*$/, '');
+    if (/^\S/.test(noComment)) inContext = /^context\s*:/.test(noComment); // any unindented key closes the previous block
+    if (!inContext) continue;
+    const m = noComment.match(/^\s+has_corporate_artifacts\s*:\s*(\S+)\s*$/);
+    if (m) return m[1].replace(/^["']|["']$/g, '') === 'true';
+  }
+  return false;
+}
+
 // Resolve corporate artifacts declared in <repoRoot>/.superpowers/corporate-artifacts.yml.
-// `found` is true only when the file exists AND declares at least one entry — so the
-// corporate lens (Lens 5) runs exactly when there is something to check, mirroring how
-// Lens 3 runs only when tasks exist. File presence is the deterministic signal here;
-// super.using-superpowers already reconciled the has_corporate_artifacts flag at session start.
+//
+// PRESENCE IS NOT CONSENT. The file being on disk says a document was declared once; it does
+// not say the repo owner wants it treated as the company's source of truth for THIS review —
+// and Lens 5 gives a corporate artifact precedence over the spec, so running it on a stale or
+// leftover declaration lets another feature's document outrank the spec under review. The gate
+// is therefore the owner's own flag (`context.has_corporate_artifacts` in preferences.yml),
+// the same "populated object != existence != consent" rule read-preferences.cjs already obeys.
+//
+// `found` (the Lens 5 switch) requires BOTH consent and at least one declared entry.
+// `declaredButDisabled` reports the mismatch — entries exist while the flag is off — so the
+// caller surfaces it as an out-of-scope CONFIG observation instead of silently ignoring it.
+// Entries stay populated in that case: the caller needs them to name what it is disregarding.
 function corporateArtifactsEntry(repoRoot) {
-  if (!repoRoot) return { found: false, configPath: null, entries: [] };
+  if (!repoRoot) return { found: false, enabled: false, declaredButDisabled: false, configPath: null, entries: [] };
+  const enabled = corporateConsent(repoRoot);
   const configPath = path.join(repoRoot, '.superpowers', 'corporate-artifacts.yml');
   if (!fs.existsSync(configPath) || !fs.statSync(configPath).isFile()) {
-    return { found: false, configPath: null, entries: [] };
+    return { found: false, enabled, declaredButDisabled: false, configPath: null, entries: [] };
   }
   const entries = parseCorporateEntries(fs.readFileSync(configPath, 'utf8'), repoRoot);
-  return { found: entries.length > 0, configPath, entries };
+  const declared = entries.length > 0;
+  return {
+    found: enabled && declared,
+    enabled,
+    declaredButDisabled: declared && !enabled,
+    configPath,
+    entries,
+  };
 }
 
 function main() {

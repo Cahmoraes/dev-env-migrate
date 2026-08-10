@@ -17,6 +17,7 @@
  *         "spec_hash": string | null,
  *         "prd_hash":  string | null,
  *         "qa_hash":   string | null,
+ *         "iv_hash":   string | null,
  *         "adr_hash":  string | null
  *       }
  *     },
@@ -61,7 +62,7 @@ Input JSON (from stdin or --input-file):
   {
     "treeHash":       string|null,
     "hashMethod":     "git"|"stat"|"none",
-    "syncedFeatures": { "<slug>": { "spec_hash", "prd_hash", "qa_hash", "adr_hash" } },
+    "syncedFeatures": { "<slug>": { "spec_hash", "prd_hash", "qa_hash", "iv_hash", "adr_hash" } },
     "deletedSlugs":   string[]
   }
 
@@ -200,6 +201,7 @@ function canonicalizeEntry(entry) {
     spec_hash: canonicalHash(e.spec_hash ?? null),
     prd_hash: canonicalHash(e.prd_hash ?? null),
     qa_hash: canonicalHash(e.qa_hash ?? null),
+    iv_hash: canonicalHash(e.iv_hash ?? null),
     adr_hash: canonicalHash(e.adr_hash ?? null),
   };
 }

@@ -6,7 +6,7 @@ Large/Complex features keep the existing fan-out unchanged.
 
 ## When it applies
 
-Tier **Small** or **Medium** (see the tier table in `SKILL.md`): roughly ≤8 atomic implementation steps, no open architecture decision, known domain. Above that — or an open architecture decision, or a plan decomposed into **parallel waves** (authored for concurrent fan-out) — the feature is **Large**; use `super.subagent-driven-development`'s fan-out instead. Multiple *sequential* waves — a linear chain of dependent tasks with no parallelism — are fine inline: the controller runs them one after another.
+Tier **Small** or **Medium** (see the tier table in `triage-sizing.md`): roughly ≤8 atomic implementation steps, no open architecture decision, known domain. Above that — or an open architecture decision, or a plan decomposed into **parallel waves** (authored for concurrent fan-out) — the feature is **Large**; use `super.subagent-driven-development`'s fan-out instead. Multiple *sequential* waves — a linear chain of dependent tasks with no parallelism — are fine inline: the controller runs them one after another.
 
 ## Hard stop — tier mismatch guard
 

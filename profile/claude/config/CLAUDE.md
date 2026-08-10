@@ -1,4 +1,3 @@
 @RTK.md
 @AST-GREP.md
 @TOKEN-EFFICIENT.md
-@WEBSEARCH.md

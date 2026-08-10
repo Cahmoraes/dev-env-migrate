@@ -1,6 +1,7 @@
 ---
 name: super.persistent-memory
-description: ALWAYS USE THIS SKILL when handling persistent memory in this workspace, including task-start memory recall, explicit "remember" instructions, storing durable preferences/facts, and retrieving prior context. This skill owns the local memory workflow and CLI for init/sync/search/add/recent/stats.
+description: ALWAYS USE THIS SKILL when handling persistent memory in this workspace, including task-start memory recall, explicit "remember" instructions, storing durable cross-feature decisions/preferences, and retrieving prior context. Writes are per-feature, never per wave/task — during execution nothing is written at all; progress and review findings already live in the plan's task files. This skill owns the local memory workflow and CLI for init/sync/search/add/recent/stats.
+user-invocable: false
 ---
 
 # Persistent Memory
@@ -30,6 +31,8 @@ Supported commands:
 - `add-batch [--no-embed]` — add many notes in ONE process (JSON via stdin/`--input-file`, JSON out). Loads the embedding model once per batch, not per note — prefer when persisting 2+ entries.
 - `recent --limit 10`
 - `stats`
+
+> **Write boundary — when, not what.** The superpowers flow writes a feature **once**: the planning exit (or the execution Memory Gate, when planning skipped it), plus re-sync ingestion. **Between the first dispatch and the finishing gates there is no authorized `add` at all.** The rule is the moment, not your judgement of the content — because every candidate passes a content test: a finished wave is a "durable fact", and a review finding relabelled "lesson learned" or "cross-feature" is still an execution-time write. Wave summaries, task-DONE notes and review findings belong to the feature's own artifacts (the task files, the spec, the QA report), which a re-sync gate ingests once — normally the end-of-flow gate in `super.finishing-a-development-branch` (Step 8), and otherwise the entry gate of the next session. Written per step instead, they inflate the DB and bury the recall signal the write meant to add.
 
 > **Performance — the model import is the cost, not SQLite.** Loading `sentence-transformers` (torch) takes ~6-7s per process. So: (1) non-embedding commands (`init`, `prune`, `recent`, `stats`, `cleanup-legacy`, `add --no-embed`) never import it (~0.2s); (2) `add-batch` pays it once, not N times; (3) `--no-embed` inserts immediately, deferring vectors to a single `backfill-embeddings` load (semantic search omits the note until then). Use `--no-embed` + backfill when latency beats instant semantic recall.
 

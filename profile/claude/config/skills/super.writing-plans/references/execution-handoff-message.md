@@ -25,7 +25,7 @@ After saving the index and task files, offer the message below (fill in feature 
 
 - **`decisionRequired: true`** (≥1 parallel wave) → `parse-waves` already recommends a **parallel mode — option 3 (worktrees)** (wave structure shows parallelism; worktrees are safe regardless of write-set disjointness). It does **not** fall back to option 1. Confirm or refine for THIS plan before tagging, in order:
   1. **Tightly coupled?** If the parallel-wave tasks are tightly coupled (high fan-in in `signals`, one task's shape dictates the others, a known design trap from research/brainstorming) so an early error would cascade, the per-task review checkpoint of **option 1 (subagent-driven)** can outweigh the parallelism → move `(recommended)` to option 1 and say why.
-  2. **Disjoint writes + expensive isolation?** If the wave's tasks write **disjoint files** (confirm `check-wave-disjoint.cjs --wave N` → `safeForInTreeParallel: true`) **and** worktree isolation is expensive — a pnpm/npm/yarn monorepo where each worktree needs its own heavy `node_modules`, or a sandbox that forbids extra checkouts — move `(recommended)` to **option 2 (in-tree)**. Note `check-wave-disjoint.cjs` lives in the sibling skill `super.parallel-subagent-in-tree` (not alongside `parse-waves.cjs`); resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-in-tree`.
+  2. **Disjoint writes + expensive isolation?** If the wave's tasks write **disjoint files** (confirm `check-wave-disjoint.cjs --tasks-index <tasks-index> --wave N` → `safeForInTreeParallel: true`; `--tasks-index` is required — `--wave` alone is rejected) **and** worktree isolation is expensive — a pnpm/npm/yarn monorepo where each worktree needs its own heavy `node_modules`, or a sandbox that forbids extra checkouts — move `(recommended)` to **option 2 (in-tree)**. Note `check-wave-disjoint.cjs` lives in the sibling skill `super.parallel-subagent-in-tree` (not alongside `parse-waves.cjs`); resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-in-tree`.
   3. **Otherwise** keep `(recommended)` on the recommended **option 3 (worktrees)**.
 - Whichever you elect, **move `(recommended)` there** and give your reasoning in one short paragraph (raw material: `signals`, `alternatives[].when`). Then flag environment chokepoints (e.g. a wave needing Postgres up or `generate:types`) that serialize regardless of mode.
 
@@ -40,7 +40,7 @@ After saving the index and task files, offer the message below (fill in feature 
 
 **Recommended for this plan: option X** — <one short paragraph of reasoning from Step 2>
 
-**0. Revisar a spec (opcional)** — before picking how to execute, send the spec — and these just-created tasks — through a final critical review via `super.reviewing-specs`, without leaving this session
+**0. Review the spec (optional)** — before picking how to execute, send the spec — and these just-created tasks — through a final critical review via `super.reviewing-specs`, without leaving this session
 - Not required; skip straight to an execution option if the plan is already trusted
 - See Step 4 below for what happens when the user picks this
 
@@ -63,9 +63,20 @@ After saving the index and task files, offer the message below (fill in feature 
 - Best when the plan has at least one parallel wave and full isolation is wanted (e.g. wave tasks that must mutate shared files); offers no speedup for a fully sequential chain
 - Pass the tasks index path to the execution skill
 
+**To resume in a later session** — the plan is on disk; invoke the mode's skill with the tasks index:
+```
+super.subagent-driven-development docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
+```
+- Same shape for options 2 and 3, with that skill's name
+- Or just start and ask to execute: triage finds the pending index and re-offers these options
+
 > **If `workflow.auto_commit` is `false`:** only **option 1** honors it (its implementers leave each task uncommitted). Options 2 and 3 commit as part of how they integrate — the in-tree barrier commits once per wave, and each worktree task commits on its branch so it can be merged — so a parallel mode **will commit even when `auto_commit` is false**. If the user set `auto_commit: false` and leans toward a parallel mode, tell them their work will still be committed (per wave / per task) before they choose.
 
 **Which approach? (my recommendation is option X — see above; or 0 to review the spec first)"**
+
+> **The resume block is information, not a fourth option.** Render it with the real tasks-index path, in the
+> session language, and still close with the question above — the user is expected to answer here and now.
+> A hint that reads like an offer to stop turns one decision into two round trips.
 
 > Fill the wave summary line from `parse-waves.cjs` (W = `waveCount`, P = count of `waveKinds` equal to `parallel`, K = `maxParallelWave`). The recommendation line and the `(recommended)` tag both come from Step 2 — they must agree and reflect THIS plan, not a fixed default.
 

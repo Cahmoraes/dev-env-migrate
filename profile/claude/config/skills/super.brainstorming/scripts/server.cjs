@@ -3,6 +3,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// Single source of truth for the click digest. The agent-facing shape
+// (`finalSelection` vs "last choice") is a documented footgun; deriving it in two
+// places would let the long-poll answer and `check-visual-state --with-events`
+// disagree about what the user picked.
+const { readEvents } = require('./check-visual-state.cjs');
+
 // ========== WebSocket Protocol (RFC 6455) ==========
 
 const OPCODES = { TEXT: 0x01, CLOSE: 0x08, PING: 0x09, PONG: 0x0A };
@@ -151,6 +157,12 @@ function handleRequest(req, res) {
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
+  } else if (req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/poll') {
+    // Exact pathname, not a prefix: `startsWith('/poll')` would also swallow
+    // `/pollute` and, worse, `/poll-anything`, parking a request that was never a
+    // poll. The client detects an old server by its 404 here, so a route that
+    // answers too eagerly breaks the compatibility fallback.
+    handlePoll(req, res, new URL(req.url, 'http://localhost').searchParams);
   } else if (req.method === 'GET' && req.url.startsWith('/files/')) {
     const fileName = req.url.slice(7);
     const filePath = path.join(CONTENT_DIR, path.basename(fileName));
@@ -187,6 +199,18 @@ function handleUpgrade(req, socket) {
 
   let buffer = Buffer.alloc(0);
   clients.add(socket);
+
+  // Sync the "agent is listening" indicator on connect. The broadcast only fires
+  // on transitions, so a page opened (or reloaded) while a poll is already parked
+  // would otherwise show the idle state and tell the user nobody is listening.
+  try {
+    socket.write(encodeFrame(
+      OPCODES.TEXT,
+      // Mirror the ANNOUNCED state, not the instantaneous one, so a page opened
+      // during the leave-debounce window agrees with every other open tab.
+      Buffer.from(JSON.stringify({ type: 'agent-waiting', waiting: announcedAgentWaiting }))
+    ));
+  } catch (e) { /* client vanished mid-handshake */ }
 
   socket.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
@@ -240,9 +264,14 @@ function handleMessage(text) {
   }
   touchActivity();
   console.log(JSON.stringify({ source: 'user-event', ...event }));
-  if (event.choice) {
+  // `submit` is the COMMITTED decision and must be journaled even if the payload shape
+  // ever drifts; `choice` keeps journaling the exploration clicks that become `path`.
+  if (event.choice || event.type === 'submit') {
     const eventsFile = path.join(STATE_DIR, 'events');
     fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
+    // Append first, wake second: a parked poll re-reads the journal, so the write
+    // must be durable before anyone is told the count moved.
+    flushPolls();
   }
 }
 
@@ -251,6 +280,170 @@ function broadcast(msg) {
   for (const socket of clients) {
     try { socket.write(frame); } catch (e) { clients.delete(socket); }
   }
+}
+
+// ========== Agent Long-Poll (the server → agent bridge) ==========
+//
+// The browser → server leg already existed (WebSocket frames appended to
+// `state/events`). What was missing is the leg that lets a browser click WAKE the
+// agent: a CLI agent cannot hold a socket open across turns, so its only inbox is
+// "a process exits and prints JSON". `GET /poll` blocks until the click stream
+// grows past `since`, which converts an async browser event into a process exit
+// the harness can notify on.
+//
+// `seq` is not server state: it is the LINE COUNT of the append-only events
+// journal. That makes it survive a server restart and stay meaningful to any
+// client that only has the file (see the watch fallback in wait-for-user.cjs).
+
+// Capped well below Node's 300s `server.requestTimeout` default so a parked poll
+// is never aborted mid-flight by the HTTP layer. Waits longer than one slice are
+// synthesized by the client looping, exactly as impeccable's poll client does
+// against undici's non-lowerable 300s headers timeout.
+const POLL_SLICE_CAP_MS = 240 * 1000;
+const POLL_SLICE_MIN_MS = 1000;
+const DEFAULT_POLL_TIMEOUT_MS = 30 * 1000;
+
+const pendingPolls = new Set();
+let announcedAgentWaiting = false;
+
+function countJournaledEvents() {
+  try {
+    return fs.readFileSync(path.join(STATE_DIR, 'events'), 'utf-8')
+      .split('\n').filter((l) => l.trim()).length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * Where a cursor actually points once the journal is allowed to shrink.
+ *
+ * A `since` ABOVE the current count is not "the future": it is a cursor from before a
+ * new screen truncated the journal back to zero. The agent gets one of these on every
+ * screen change, because it re-parks with the seq the previous answer handed it — and
+ * only AFTER rendering the screen that did the truncating. Comparing against it strands
+ * the wait below the old high-water mark: the click lands, the Send lands, the count is
+ * still under the cursor, and nothing wakes until the user clicks enough extra times to
+ * climb past it. Measured live: two screens in one session, each costing the user a
+ * dead Send plus one or two re-clicks.
+ */
+function anchorSince(since, count) {
+  return since > count ? 0 : since;
+}
+
+/** The digest for everything past `since`, or null when nothing new has landed. */
+function pollSnapshot(since) {
+  const digest = readEvents(STATE_DIR);
+  const anchor = anchorSince(since, digest.count);
+  if (digest.count <= anchor) return null;
+  return { type: 'selection', seq: digest.count, since: anchor, ...digest };
+}
+
+function respondJson(res, payload) {
+  if (res.writableEnded || res.destroyed) return;
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload) + '\n');
+}
+
+// The browser must know whether anyone is listening. Without it the user clicks
+// into the void and cannot tell a resolved question from an abandoned one.
+//
+// Arrival is announced immediately; DEPARTURE is debounced. The agent's settle
+// window resolves a poll and re-parks it within milliseconds on every click, so an
+// undebounced announcement makes the indicator flip false → true under the user's
+// cursor on each click — precisely the moment they are reading it. Found by
+// simulating a hesitating user (a → b → a), not by any unit test: each transition
+// was individually correct.
+const AGENT_WAITING_LEAVE_MS = Number(process.env.BRAINSTORM_AGENT_LEAVE_MS) || 750;
+let waitingLeaveTimer = null;
+
+function announceAgentWaiting() {
+  if (pendingPolls.size > 0) {
+    if (waitingLeaveTimer) { clearTimeout(waitingLeaveTimer); waitingLeaveTimer = null; }
+    if (announcedAgentWaiting) return;
+    announcedAgentWaiting = true;
+    broadcast({ type: 'agent-waiting', waiting: true });
+    return;
+  }
+  if (!announcedAgentWaiting || waitingLeaveTimer) return;
+  waitingLeaveTimer = setTimeout(() => {
+    waitingLeaveTimer = null;
+    if (pendingPolls.size > 0) return; // re-parked while the timer ran
+    announcedAgentWaiting = false;
+    broadcast({ type: 'agent-waiting', waiting: false });
+  }, AGENT_WAITING_LEAVE_MS);
+  // Never hold the event loop open on this: it is cosmetic, and the shutdown path
+  // must not wait for it.
+  if (waitingLeaveTimer.unref) waitingLeaveTimer.unref();
+}
+
+function clampPollTimeout(raw) {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return DEFAULT_POLL_TIMEOUT_MS;
+  return Math.min(Math.max(n, POLL_SLICE_MIN_MS), POLL_SLICE_CAP_MS);
+}
+
+/**
+ * `since` omitted means "tell me about clicks from now on" — anchoring on the
+ * current count instead of 0, so a poll opened mid-session does not instantly
+ * replay a decision the agent already consumed.
+ */
+function resolvePollSince(raw) {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : countJournaledEvents();
+}
+
+function handlePoll(req, res, query) {
+  // Anchor at park time too, not just inside `pollSnapshot`: a stranded cursor would
+  // otherwise survive in `poll.since` and be reported back as the seq of a timeout.
+  const since = anchorSince(resolvePollSince(query.get('since')), countJournaledEvents());
+  const timeout = clampPollTimeout(query.get('timeout'));
+
+  const ready = pollSnapshot(since);
+  if (ready) { respondJson(res, ready); return; }
+
+  const poll = { since, res, timer: null };
+  poll.timer = setTimeout(() => {
+    pendingPolls.delete(poll);
+    announceAgentWaiting();
+    respondJson(res, { type: 'timeout', seq: since, waitedMs: timeout });
+  }, timeout);
+
+  pendingPolls.add(poll);
+  announceAgentWaiting();
+
+  req.on('close', () => {
+    if (!pendingPolls.delete(poll)) return;
+    clearTimeout(poll.timer);
+    announceAgentWaiting();
+  });
+}
+
+function flushPolls() {
+  if (pendingPolls.size === 0) return;
+  for (const poll of [...pendingPolls]) {
+    const snapshot = pollSnapshot(poll.since);
+    if (!snapshot) continue;
+    pendingPolls.delete(poll);
+    clearTimeout(poll.timer);
+    respondJson(poll.res, snapshot);
+  }
+  announceAgentWaiting();
+}
+
+/** Re-anchor parked polls at the start of a freshly truncated journal. */
+function rebasePolls() {
+  for (const poll of pendingPolls) poll.since = 0;
+}
+
+/** Release every parked poll so the agent learns the companion went away. */
+function drainPolls(type) {
+  for (const poll of [...pendingPolls]) {
+    pendingPolls.delete(poll);
+    clearTimeout(poll.timer);
+    respondJson(poll.res, { type, seq: poll.since });
+  }
+  announceAgentWaiting();
 }
 
 // ========== Activity Tracking ==========
@@ -300,7 +493,20 @@ function startServer() {
       if (!knownFiles.has(filename)) {
         knownFiles.add(filename);
         const eventsFile = path.join(STATE_DIR, 'events');
-        if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
+        // Displace, don't destroy. Truncating is right — the journal describes ONE screen,
+        // and `seq` restarting at zero is what the poll re-anchoring depends on. But the
+        // agent can write the next screen while an answer sits unread (step 6 parks the
+        // browser with a placeholder at the end of every terminal-bound turn), and an
+        // unlink makes that answer unrecoverable: the next state call reports
+        // `present:false`, indistinguishable from a user who never touched the browser.
+        // Keeping one generation costs a rename and turns silent loss into recoverable
+        // loss, which `check-visual-state --with-events` surfaces as `previousAnswer`.
+        if (fs.existsSync(eventsFile)) fs.renameSync(eventsFile, path.join(STATE_DIR, 'events.prev'));
+        // A new screen truncates the journal back to zero, which would strand any
+        // poll parked at a higher `since` forever (count can never climb past it
+        // again). Re-anchor them at 0 so the first click on the NEW screen wakes
+        // them — that click is exactly what they are waiting for.
+        rebasePolls();
         console.log(JSON.stringify({ type: 'screen-added', file: filePath }));
       } else {
         console.log(JSON.stringify({ type: 'screen-updated', file: filePath }));
@@ -313,6 +519,11 @@ function startServer() {
 
   function shutdown(reason) {
     console.log(JSON.stringify({ type: 'server-stopped', reason }));
+    // Answer parked polls before closing: `server.close()` waits for in-flight
+    // requests, so a parked long-poll would otherwise hang the shutdown until its
+    // own timeout fires, and the agent would read a socket error instead of a
+    // reason it can act on.
+    drainPolls('server-stopped');
     const infoFile = path.join(STATE_DIR, 'server-info');
     if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
     fs.writeFileSync(
@@ -322,6 +533,19 @@ function startServer() {
     watcher.close();
     clearInterval(lifecycleCheck);
     server.close(() => process.exit(0));
+    // `server.close()` only fires once every connection drains, and the companion
+    // holds long-lived WebSocket sockets that never end on their own. Without this
+    // the process would ignore SIGTERM until stop-server.sh escalates to SIGKILL —
+    // which is exactly the path that skips the poll drain above.
+    setTimeout(() => process.exit(0), 500).unref();
+  }
+
+  // stop-server.sh sends SIGTERM (then SIGKILL after ~3s). Handling it is what makes
+  // the shutdown path — the poll drain and the `server-stopped` marker — reachable at
+  // all; before this, every stop was an abrupt kill and a parked agent poll died as a
+  // socket reset instead of a reason it could act on.
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => shutdown(signal.toLowerCase()));
   }
 
   function ownerAlive() {
@@ -393,4 +617,6 @@ if (require.main === module) {
 module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   isFullDocument, wrapInFrame, getNewestScreen,
+  clampPollTimeout, resolvePollSince, anchorSince, pollSnapshot, countJournaledEvents,
+  POLL_SLICE_CAP_MS, POLL_SLICE_MIN_MS, DEFAULT_POLL_TIMEOUT_MS,
 };

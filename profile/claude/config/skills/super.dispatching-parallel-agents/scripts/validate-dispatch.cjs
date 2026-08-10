@@ -27,6 +27,15 @@
  *          in a 2+ dispatch must declare a non-empty write set, else disjointness
  *          is unprovable. Off by default (backward compatible — `writeFiles`
  *          stays optional for callers that do not need write-set proof).
+ *          An agent marked `readOnly: true` is exempt: it writes nothing, so it is
+ *          trivially disjoint from every writer and has no write-set to prove. This
+ *          is what makes a mixed wave (reviewer for task N + implementer for task M)
+ *          declarable at all — previously the only way to declare one was to fail the
+ *          gate, so the gate was skipped instead. `readOnly` exempts the write proof
+ *          ONLY; the agent still participates in the read∩write hazard check above,
+ *          which is the risk a concurrent reader actually runs. Declaring both
+ *          `readOnly: true` and a non-empty `writeFiles` is a contradiction and fails
+ *          with `readonly_with_writeset`.
  *
  * This script does NOT validate whether parallelism is appropriate for the
  * problem (that is a judgment call documented in the skill's "When to Use"
@@ -59,7 +68,10 @@
  *         "escalationReason":string,    // optional — non-empty = escalation ladder; downgrades a
  *                                       //   tier mismatch from error to a recorded warning
  *         "writeFiles":      string[],  // optional — files this agent will modify/create
- *         "readFiles":       string[]   // optional — files this agent reads; enables the read∩write gate
+ *         "readFiles":       string[],  // optional — files this agent reads; enables the read∩write gate
+ *         "readOnly":        boolean    // optional — true for an agent that writes nothing
+ *                                       //   (reviewer, verifier). Exempts it from the write-set
+ *                                       //   proof it cannot supply; it still counts as a reader.
  *       }
  *     ]
  *   }
@@ -79,6 +91,7 @@
  *   { type: "write_conflict",      agents: string[], file: string }
  *   { type: "read_write_hazard",   writer: string, reader: string, file: string }
  *   { type: "unverifiable_writeset", agent: string }
+ *   { type: "readonly_with_writeset", agent: string }
  *   { type: "no_agents" }
  *
  * Warning shapes:
@@ -100,6 +113,42 @@ Usage:
 Options:
   --dispatch <path>  Path to the dispatch manifest JSON file (required)
   --help             Show this help text and exit 0
+
+Manifest skeleton (copy this, then substitute every <...> placeholder):
+  {
+    "modelTiers": {
+      "cheap":    "<model_tiers.cheap verbatim>",
+      "standard": "<model_tiers.standard verbatim>",
+      "capable":  "<model_tiers.capable verbatim>"
+    },
+    "enforceWriteSets": true,
+    "agents": [
+      {
+        "label": "task-01-implementer",
+        "model": "<model_tiers.cheap verbatim>",
+        "goal": "what this agent must accomplish",
+        "tier": "cheap",
+        "writeFiles": ["src/a.ts", "src/a.test.ts"],
+        "readFiles": ["src/shared/types.ts"]
+      }
+    ]
+  }
+
+  The three tiers are ABSTRACT. Copy the values of "modelTiers" verbatim out of
+  the consuming repo's .superpowers/preferences.yml "model_tiers" — never a model
+  name you assume or remember, because the mapping is per-harness and per-vendor.
+  A tier whose value is empty or "auto" means the harness picks: no equality is
+  enforced for it. Omit "modelTiers" entirely and the tier<->model gate is skipped.
+  "enforceWriteSets": true makes a missing writeFiles an error
+  (unverifiable_writeset) on a 2+ agent dispatch.
+
+  Per agent: "label", "model" and "goal" are required. "tier" is the task's
+  written **Tier:**, and "model" must equal what that tier resolves to above.
+  "escalationReason" (non-empty) downgrades a tier mismatch to a recorded warning.
+  "readOnly": true marks a reviewer and must come with no writeFiles.
+  "expectedModel" substitutes for "modelTiers" when no map is passed.
+
+  The verdict is "valid" in the JSON on stdout, never the exit code.
 `.trimStart();
 
 function usage(msg) {
@@ -239,6 +288,7 @@ function validateManifest(manifest) {
       errors.push({ type: "missing_field", agent: label, field: "goal" });
     }
 
+    const readOnly = agent.readOnly === true;
     const writeFiles = Array.isArray(agent.writeFiles) ? agent.writeFiles : [];
     let writeCount = 0;
     for (const file of writeFiles) {
@@ -250,6 +300,13 @@ function validateManifest(manifest) {
       else fileToAgents.set(normalized, [label]);
     }
 
+    // A read-only agent that also declares a write-set is self-contradictory: one of the
+    // two claims is wrong, and guessing which would either hide a real conflict or drop a
+    // real write. Fail loudly instead of silently honouring one side.
+    if (readOnly && writeCount > 0) {
+      errors.push({ type: "readonly_with_writeset", agent: label });
+    }
+
     const readFiles = Array.isArray(agent.readFiles) ? agent.readFiles : [];
     for (const file of readFiles) {
       const normalized = typeof file === "string" ? file.trim() : "";
@@ -259,7 +316,7 @@ function validateManifest(manifest) {
       else readsByFile.set(normalized, new Set([label]));
     }
 
-    writeSetSizes.push({ label, writeCount });
+    writeSetSizes.push({ label, writeCount, readOnly });
   }
 
   for (const [file, agentLabels] of fileToAgents) {
@@ -286,9 +343,17 @@ function validateManifest(manifest) {
   // unverifiable write-set — opt-in via enforceWriteSets. In a 2+ agent dispatch,
   // an agent that declares no write file cannot be proven disjoint. Off by
   // default so existing manifests (writeFiles optional) stay valid.
+  //
+  // `readOnly: true` is the one principled exemption: an agent that writes nothing is
+  // trivially disjoint from every writer, so there is no write-set to prove. Without it
+  // a reviewer dispatched alongside an implementer (review task N while implementing
+  // task M) could not be declared at all — the gate returned an error for a safe wave,
+  // and the observed response was to skip the gate entirely rather than fix the manifest.
+  // The exemption is opt-in and narrow: it covers the write proof only, never the
+  // read∩write hazard above, which is the risk a concurrent reader actually runs.
   if (enforceWriteSets && agents.length >= 2) {
-    for (const { label, writeCount } of writeSetSizes) {
-      if (writeCount === 0) {
+    for (const { label, writeCount, readOnly } of writeSetSizes) {
+      if (writeCount === 0 && !readOnly) {
         errors.push({ type: "unverifiable_writeset", agent: label });
       }
     }

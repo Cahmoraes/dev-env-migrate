@@ -36,7 +36,7 @@ A per-story `tsconfig.json`'s `include` fully replaces (never merges with) the a
 
 ## Verifying the fix actually resolved (don't trust a silent `tsc`)
 
-Running `npx tsc --noEmit` from inside the evidence directory can print **nothing at all** even when the alias is broken — a `tsconfig.json` with its own `include` is self-excluded from any `include` it would otherwise inherit via `extends`, so `tsc` silently compiles **zero files** instead of erroring. Confirmed real (not story-specific) across both `admin-edit-user-data` and `admin-role-management` smoke tests. Empty output is not proof of success. Verify the acceptance test file was actually part of the compiled program before reading "no errors" as a pass:
+Running `npx tsc --noEmit` from inside the evidence directory can print **nothing at all** even when the alias is broken — a `tsconfig.json` with its own `include` is self-excluded from any `include` it would otherwise inherit via `extends`, so `tsc` silently compiles **zero files** instead of erroring. Confirmed real (not story-specific) across two independent smoke tests. Empty output is not proof of success. Verify the acceptance test file was actually part of the compiled program before reading "no errors" as a pass:
 
 ```bash
 npx tsc --noEmit --listFilesOnly | grep <us-slug>   # must list the test file

@@ -23,9 +23,12 @@ function run(args) {
 // `corporateYml` (optional): raw contents to write to <root>/.superpowers/corporate-artifacts.yml.
 // `corporateFiles` (optional): repo-relative paths to create as real files (so a declared
 // `path:` entry resolves to an existing file).
+// `corporateEnabled` (optional): when not null, writes <root>/.superpowers/preferences.yml with
+// `context.has_corporate_artifacts` set to it — the OWNER'S CONSENT, which is a separate signal
+// from the yml merely being on disk. `null` writes no preferences file at all.
 function makeFeature(name, {
   withPrd = true, withIndex = true, taskCount = 0, withMockup = false,
-  corporateYml = null, corporateFiles = [],
+  corporateYml = null, corporateFiles = [], corporateEnabled = null,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'review-targets-'));
   const featureDir = path.join(root, 'docs', 'superpowers', name);
@@ -52,6 +55,14 @@ function makeFeature(name, {
   if (corporateYml != null) {
     fs.mkdirSync(path.join(root, '.superpowers'), { recursive: true });
     fs.writeFileSync(path.join(root, '.superpowers', 'corporate-artifacts.yml'), corporateYml, 'utf8');
+  }
+  if (corporateEnabled != null) {
+    fs.mkdirSync(path.join(root, '.superpowers'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.superpowers', 'preferences.yml'),
+      `workflow:\n  auto_commit: true\ncontext:\n  has_corporate_artifacts: ${corporateEnabled}\n`,
+      'utf8',
+    );
   }
   return { root, featureDir, specPath };
 }
@@ -114,12 +125,15 @@ test('resolves corporate artifacts: local path (exists) + url (not fetchable)', 
   const { root, specPath } = makeFeature('with-corp', {
     corporateYml: yml,
     corporateFiles: ['docs/corp/prd-x.md'],
+    corporateEnabled: true,
   });
   try {
     // repoRoot must be passed explicitly: the temp dir is not a git repo, so gitToplevel
     // would return null and corporate resolution would have no root to resolve against.
     const r = run(['--spec', specPath, '--repo-root', root]);
     assert.equal(r.corporateArtifacts.found, true);
+    assert.equal(r.corporateArtifacts.enabled, true);
+    assert.equal(r.corporateArtifacts.declaredButDisabled, false);
     assert.equal(r.corporateArtifacts.entries.length, 2);
     const local = r.corporateArtifacts.entries.find((e) => e.kind === 'path');
     assert.equal(local.exists, true, 'declared local path that exists resolves to exists:true');
@@ -133,7 +147,7 @@ test('resolves corporate artifacts: local path (exists) + url (not fetchable)', 
 
 test('a declared corporate path that does not exist is reported exists:false, not crashed', () => {
   const yml = 'artifacts:\n  - path: docs/corp/ghost.md\n';
-  const { root, specPath } = makeFeature('corp-ghost', { corporateYml: yml });
+  const { root, specPath } = makeFeature('corp-ghost', { corporateYml: yml, corporateEnabled: true });
   try {
     const r = run(['--spec', specPath, '--repo-root', root]);
     assert.equal(r.corporateArtifacts.found, true, 'declared → found even if the file is missing');
@@ -147,6 +161,66 @@ test('no corporate-artifacts.yml → found:false with empty entries (Lens 5 will
     const r = run(['--spec', specPath, '--repo-root', root]);
     assert.equal(r.corporateArtifacts.found, false);
     assert.deepEqual(r.corporateArtifacts.entries, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- consent gate -----------------------------------------------------------
+// Presence of the yml is NOT consent. A leftover/stale corporate-artifacts.yml must never
+// grant another feature's document precedence over the spec under review: Lens 5 runs only
+// when the repo owner declared `context.has_corporate_artifacts: true` in preferences.yml.
+
+test('flag off + yml declaring artifacts → found:false, but entries are preserved for the config observation', () => {
+  const yml = 'artifacts:\n  - path: docs/superpowers/other-feature/prd/prd-other-feature.md\n';
+  const { root, specPath } = makeFeature('corp-flag-off', {
+    corporateYml: yml,
+    corporateFiles: ['docs/superpowers/other-feature/prd/prd-other-feature.md'],
+    corporateEnabled: false,
+  });
+  try {
+    const r = run(['--spec', specPath, '--repo-root', root]);
+    assert.equal(r.corporateArtifacts.found, false, 'Lens 5 must NOT run without the owner consent');
+    assert.equal(r.corporateArtifacts.enabled, false);
+    assert.equal(r.corporateArtifacts.declaredButDisabled, true, 'the mismatch is surfaced, not swallowed');
+    assert.equal(r.corporateArtifacts.entries.length, 1, 'entries stay visible so the caller can report the config problem');
+    assert.ok(r.corporateArtifacts.configPath, 'the caller needs the path to tell the user what to fix');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('no preferences.yml at all + yml declaring artifacts → found:false (absent file is not consent)', () => {
+  const yml = 'artifacts:\n  - path: docs/corp/prd-x.md\n';
+  const { root, specPath } = makeFeature('corp-no-prefs', { corporateYml: yml });
+  try {
+    const r = run(['--spec', specPath, '--repo-root', root]);
+    assert.equal(r.corporateArtifacts.found, false);
+    assert.equal(r.corporateArtifacts.enabled, false);
+    assert.equal(r.corporateArtifacts.declaredButDisabled, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('flag on but no corporate-artifacts.yml → found:false and declaredButDisabled:false (nothing declared)', () => {
+  const { root, specPath } = makeFeature('corp-flag-only', { corporateEnabled: true });
+  try {
+    const r = run(['--spec', specPath, '--repo-root', root]);
+    assert.equal(r.corporateArtifacts.found, false);
+    assert.equal(r.corporateArtifacts.enabled, true);
+    assert.equal(r.corporateArtifacts.declaredButDisabled, false, 'no entries → no config mismatch to report');
+    assert.deepEqual(r.corporateArtifacts.entries, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('has_corporate_artifacts is only honored under the context: key, not from a lookalike line', () => {
+  const yml = 'artifacts:\n  - path: docs/corp/prd-x.md\n';
+  const { root, specPath } = makeFeature('corp-lookalike', { corporateYml: yml });
+  try {
+    // a top-level (unindented) lookalike must not be read as the context flag
+    fs.writeFileSync(
+      path.join(root, '.superpowers', 'preferences.yml'),
+      'has_corporate_artifacts: true\nworkflow:\n  auto_commit: true\n',
+      'utf8',
+    );
+    const r = run(['--spec', specPath, '--repo-root', root]);
+    assert.equal(r.corporateArtifacts.enabled, false, 'the flag lives at context.has_corporate_artifacts');
+    assert.equal(r.corporateArtifacts.found, false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

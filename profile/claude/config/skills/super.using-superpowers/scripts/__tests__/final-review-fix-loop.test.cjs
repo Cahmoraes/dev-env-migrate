@@ -33,7 +33,12 @@ const EXECUTION_SKILLS = [
 // literal-space regex can straddle a line break; collapse whitespace runs to a
 // single space so wrapping never masks content that is actually present.
 const FINISH_TAIL = read('super.subagent-driven-development/references/finish-tail.md').replace(/\s+/g, ' ');
+// All three now delegate. The sequential skill used to carry an inline copy of the tail;
+// that copy was 7.7 KB sitting past the 20.000-char compaction window, so on resume the
+// model had the gates in neither place. It now points at the same canonical file the two
+// parallel skills use — which is what this set has always meant.
 const DELEGATES_FINISH_TAIL = new Set([
+  'super.subagent-driven-development/SKILL.md',
   'super.parallel-subagent-in-tree/SKILL.md',
   'super.parallel-subagent-development/SKILL.md',
 ]);

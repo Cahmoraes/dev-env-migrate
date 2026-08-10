@@ -201,7 +201,7 @@ test('merges existing entries, canonicalizes mixed/non-object hashes, applies de
     assert.equal(m.last_synced_tree_hash, 'new-tree');
     assert.ok(m.synced_features.legacy.spec_hash.startsWith('sha256:'));
     assert.equal(m.synced_features.prefixed.spec_hash, 'sha256:cafe');
-    assert.deepEqual(m.synced_features.weird, { spec_hash: null, prd_hash: null, qa_hash: null, adr_hash: null });
+    assert.deepEqual(m.synced_features.weird, { spec_hash: null, prd_hash: null, qa_hash: null, iv_hash: null, adr_hash: null });
     assert.equal(m.synced_features.fresh.spec_hash, 'sha256:abc');
     assert.equal(m.synced_features.fresh.prd_hash, 'sha256:def'); // bare → prefixed
     assert.equal(m.synced_features.doomed, undefined); // deleted

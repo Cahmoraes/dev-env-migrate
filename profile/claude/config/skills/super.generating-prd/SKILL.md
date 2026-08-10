@@ -1,6 +1,7 @@
 ---
 name: super.generating-prd
 description: "Generates PRD (Product Requirements Document) validated design spec. Invoked automatically after brainstorming approves spec before super.writing-plans begins. Use transitioning design exploration implementation planning — PRD formalizes user stories, functional requirements, scope boundaries super.writing-plans can produce more precise traceable implementation plan."
+argument-hint: "[path-to-<feature-name>-design.md]"
 ---
 
 Generating PRD
@@ -105,6 +106,12 @@ Fix issues inline.
 Present the PRD:
 
 > "PRD generated and saved to `<path>`. Please review it — particularly the user stories and functional requirements. These will directly inform the implementation plan. Any changes before we proceed to planning?"
+
+**Resume hint — one line inside that same message, not a second question.** Planning survives the session, so say it once, with the real paths in the session language:
+
+> _Planning can also run in a new session: `super.writing-plans docs/superpowers/<feature-name>/specs/<feature-name>-design.md docs/superpowers/<feature-name>/prd/prd-<feature-name>.md`_
+
+The approval question above is still what you are waiting on — a hint that reads like an offer to stop turns one decision into two round trips.
 
 Wait for approval. If changes are requested:
 - **Clarification-only edits** (rewording, adding detail, fixing ambiguity): apply them and re-run self-review.

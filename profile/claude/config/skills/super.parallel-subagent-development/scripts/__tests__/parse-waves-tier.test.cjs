@@ -214,6 +214,51 @@ test('critical-surface keyword ("rate limit") in title → reviewShape is always
   }
 });
 
+// A title names the artifact; the rule it enforces lives in the body. On a real
+// authorization feature, 0 of 19 titles matched the keyword set while the spec's
+// top-priority characteristic was authorization — and the task carrying the spec's
+// highest-scored risk got the lightest shape. These three lock the body scan in,
+// and the third one is the anti-over-trigger guard: it must not escalate everything.
+test('critical-surface keyword in the task BODY (clean title) → two-stage, signal names the body', () => {
+  const dir = mkdir();
+  try {
+    const body = `${taskFile({ title: '# Task: FetchGymByIdController', files: ['`src/a.ts`'] })}\n\nA rota passa a exigir \`isProtected\`; a decisão de autorização fica no use case.`;
+    const index = build(dir, [{ n: 1, indexTitle: '`FetchGymByIdController` — `isProtected: true`', body }]);
+    const r = runJson(index);
+    assert.equal(r.tasks[0].reviewShape, 'two-stage');
+    assert.ok(r.tasks[0].reviewSignals.some((s) => /critical-surface keyword in task body/.test(s)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a title match still reports "title", not "task body" (provenance is not blurred)', () => {
+  const dir = mkdir();
+  try {
+    const index = build(dir, [
+      { n: 1, indexTitle: 'Add rate limit to login route', body: taskFile({ title: '# Task: Add rate limit to login route' }) },
+    ]);
+    const r = runJson(index);
+    assert.ok(r.tasks[0].reviewSignals.some((s) => /critical-surface keyword in title/.test(s)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('body scan does not over-trigger — a keyword-free leaf keeps the "none" shape', () => {
+  const dir = mkdir();
+  try {
+    const index = build(dir, [
+      { n: 1, indexTitle: 'Add a literal constant', body: taskFile({ files: ['`src/a.ts`'] }) },
+    ]);
+    const r = runJson(index);
+    assert.equal(r.tasks[0].reviewShape, 'none');
+    assert.ok(!r.tasks[0].reviewSignals.some((s) => /critical-surface/.test(s)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('wave derivation still works after tier enrichment (regression)', () => {
   const dir = mkdir();
   try {
