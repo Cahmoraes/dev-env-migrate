@@ -10,7 +10,7 @@ user-invocable: false
 
 Guide completion of dev work: present clear options, handle the chosen workflow.
 
-**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up → sync memory.
+**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up.
 
 **Announce at start:** "I'm using the super.finishing-a-development-branch skill to complete this work."
 
@@ -245,7 +245,7 @@ EOF
 
 #### Option 3: Keep As-Is
 
-Report: "Keeping branch <name>. Worktree preserved at <path>."
+Report: "Keeping branch <name>." Append "Worktree preserved at <path>." **only when Step 3 found `GIT_DIR != GIT_COMMON`** — in a normal repo there is no separate worktree, and claiming one is a false statement to the user.
 
 **Don't cleanup worktree.**
 
@@ -352,18 +352,6 @@ git worktree prune  # clean up any stale registrations
 
 **Otherwise:** The harness owns this workspace. Do NOT remove it. Use your platform's workspace-exit tool if it has one; otherwise leave the workspace in place.
 
-### Step 8: Memory Re-Sync (feature-scoped, automatic)
-
-The work is integrated, so the feature is final — ingest it now rather than leaving it for the next session's entry gate. **Skip silently** when `session_memory_enabled` is `false`, when no `docs/superpowers/<feature>/` tree exists, or when the choice was **Discard**. Otherwise run, from the main repo root (`.memory/` never lives in a worktree):
-
-```bash
-MEMORY_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
-node <super.using-superpowers-base-dir>/scripts/compute-inventory.cjs \
-  --repo-root "$MEMORY_ROOT" --feature <feature>
-```
-
-`features[0].status` decides: `new`/`changed` → dispatch **one** sync-worker subagent for this feature (never read its artifacts yourself), then update the manifest for that slug and run `verify-sync.cjs`. Anything else — `unchanged`, `deleted`, no feature reported — is nothing to do, and says nothing. Preconditions, dispatch prompt and the one-line report: `super.using-superpowers/references/memory-resync.md`, "End-of-Flow Re-Sync". Non-blocking: the integration already happened, so a failure is one reported line, never a rollback — the entry gate retries next session.
-
 ## Reference Card
 
 Option recap table + Problem/Fix breakdown of common mistakes: `references/common-mistakes.md`.
@@ -384,4 +372,3 @@ Option recap table + Problem/Fix breakdown of common mistakes: `references/commo
 - Present the menu matching the detected environment — standard 4 options on a feature branch, the on-base-branch 4 options when committed straight to `main`/`master`, or 3 options on a detached HEAD
 - Clean up worktree for Options 1 & 4 only
 - Run `git worktree prune` after removal
-- Run Step 8 after the choice is executed — every option except Discard, whenever memory is enabled

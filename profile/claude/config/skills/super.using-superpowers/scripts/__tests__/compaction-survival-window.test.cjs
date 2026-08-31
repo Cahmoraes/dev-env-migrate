@@ -224,11 +224,86 @@ test('a skill that loses binding content to the window says so INSIDE the window
     );
   }
 
+  // The pointers need a reason attached or they read as optional reading. The reason is
+  // stated as a CONDITION the model can observe ("you may not be able to see this section")
+  // plus what to do about it — never as our character budget. The cap is our SLO: it is
+  // measured by `skillmd-compaction-cap.test.cjs`, it is per-harness, and a skill that
+  // recites it is carrying a number that is false everywhere else and actionable nowhere.
   assert.match(
     head,
-    /re-injects only the first 20\.000 characters/,
-    'the surviving half must state WHY those pointers are there — a bare pointer reads as optional',
+    /Parts of this file may be missing from your context by the time you need them/,
+    'the surviving half must name the condition, so a missing section reads as expected rather than as an absent rule',
   );
+  assert.match(
+    head,
+    /\*\*Recover, never reconstruct\*\*/,
+    'naming the condition without the imperative leaves the model free to infer the missing rule',
+  );
+  assert.doesNotMatch(
+    head,
+    /20\.000 characters|20k window|compaction cap/i,
+    'the character budget is ours, not the skill\'s — state the condition and the action instead',
+  );
+});
+
+// Our re-attach budget is an SLO of this repository, not a fact the skills act on. It is
+// per-harness (false on any runtime with another window), it is unfalsifiable from inside a
+// session, and a model that reads "this file is laid out to fit 20.000 characters" gains
+// nothing it can do. What a skill legitimately says is the CONDITION ("this section may be
+// missing") and the ACTION ("read the reference, do not infer"). The budget itself is
+// measured next door, in skillmd-compaction-cap.test.cjs.
+//
+// The sweep is by vocabulary rather than by one phrase because the first removal pass left a
+// remainder: eight files said the same thing eight ways.
+const SLO_VOCABULARY = [
+  /20\.000 characters/i,
+  /20,000 characters/i,
+  /20k window/i,
+  /20 ?KB cap/i,
+  /compaction cap/i,
+  /compaction window/i,
+  /re-injects only the first/i,
+  /so it survives compaction/i,
+  /must survive a compaction/i,
+  /inside the 20k/i,
+];
+
+/** Runtime prose only: what a session can actually load. evals/ and __tests__/ are ours. */
+function runtimeProse() {
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (e.name === 'evals' || e.name === '__tests__' || e.name === 'node_modules') continue;
+        walk(abs, r);
+      } else if (e.name.endsWith('.md')) {
+        out.push({ rel: r, text: fs.readFileSync(abs, 'utf8') });
+      }
+    }
+  };
+  for (const skill of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
+    walk(path.join(SKILLS, skill), skill);
+  }
+  return out;
+}
+
+test('no skill recites our re-attach budget back to itself', () => {
+  const files = runtimeProse();
+  assert.ok(files.length >= 100,
+    `anti-staleness: expected to scan 100+ runtime markdown files, scanned ${files.length}`);
+
+  const hits = [];
+  for (const { rel, text } of files) {
+    text.split('\n').forEach((line, i) => {
+      const pattern = SLO_VOCABULARY.find((re) => re.test(line));
+      if (pattern) hits.push(`${rel}:${i + 1} matches ${pattern} — ${line.trim().slice(0, 110)}`);
+    });
+  }
+  assert.deepEqual(hits, [],
+    'the character budget is a repository SLO. A skill states the condition and the recovery action; '
+      + 'the number belongs in CLAUDE.md and in skillmd-compaction-cap.test.cjs.');
 });
 
 test('the entry skill keeps every gate, the routing rule and the red flags inside the window', () => {
@@ -244,7 +319,6 @@ test('the entry skill keeps every gate, the routing rule and the red flags insid
     '## Instruction Priority',
     '## Platform Adaptation',
     '### Tool discovery is charged against the context window',
-    '### Memory Re-Sync Gate',
   ];
   for (const section of MUST_SURVIVE) {
     assert.ok(
@@ -300,9 +374,6 @@ test('the once-per-session block stays ordered: bootstrap rule, then summary, th
  * into the recovery block instead.
  */
 const POINTER_OUTSIDE_OK = {
-  'super.brainstorming': {
-    'research-subagent-templates.md': 'pointed at from "## The Process" step 1 — the research fan-out runs before the design exists, so before any compaction of this work',
-  },
   'super.writing-plans': {
     'required-task-step-pattern.md': 'pointed at from "# Entry Phase" — plan-authoring time, before the first task file exists',
     'research-subagent-prompt.md': 'same — the research fan-out runs once, at plan-authoring time',

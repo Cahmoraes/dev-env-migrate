@@ -85,7 +85,7 @@ const CONTRACTS = [
       // safe to state absolutely.
       /never search for it again/,
       /after a compaction\*\*, when the toolset really is empty again/,
-      /A CLI is not a tool/,                 // pmem/node/python3/grep are shell, not toolset
+      /A CLI is not a tool/,                 // node/python3/grep are shell, not toolset
       // The null probe, and why this is phrased as a procedure rather than a prohibition.
       //
       // First attempt was a prohibition ("an empty result costs what a full one costs —
@@ -137,7 +137,7 @@ function proseFiles() {
     const skillMd = path.join(SKILLS, dir, 'SKILL.md');
     if (fs.existsSync(skillMd)) out.push(skillMd);
 
-    // Skill-root .md (visual-companion.md, plan-document-reviewer-prompt.md) and agents/
+    // Skill-root .md (plan-document-reviewer-prompt.md, root-cause-tracing.md) and agents/
     // templates carry the dispatch allowlists — the exact place a tool name becomes an
     // instruction to go find that tool.
     for (const sub of ['.', 'references', 'agents']) {

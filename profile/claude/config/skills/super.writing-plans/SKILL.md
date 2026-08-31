@@ -6,7 +6,7 @@ argument-hint: "[path-to-<feature>-design.md] [path-to-prd-<feature>.md]"
 
 # Writing Plans
 
-> **The entry-phase procedure lives in `./references/entry-phase.md`** (overview, scope/YAGNI, research fan-out, task-file writing). The rules a resume still needs are inline under "# Entry Phase" — the fan-out and the sequential writer both run long enough to be compacted through.
+> **The entry-phase procedure lives in `./references/entry-phase.md`** (overview, scope/YAGNI, research fan-out, task-file writing). The rules a resume still needs are inline under "# Entry Phase".
 
 ## PRD Integration
 
@@ -80,7 +80,9 @@ Task B depends on task A when B reads, imports, extends, or builds on a file or 
 
 **Type-contract dependencies are NOT real dependencies** — see the precision rule under `**Depends on:**` above. A type/interface/DTO that B only imports, stable before B starts, is consumption not sequencing; declaring it would inflate `fanIn` and force `two-stage` review. Only declare the edge when A may still change the contract while B runs.
 
-Derive waves topologically: Wave 1 = tasks with `**Depends on:** N/A`; each next wave = tasks whose dependencies are all placed. A 2+ task wave is `(parallel)`; a single-task wave is `(sequential)`. Read `./references/execution-waves.md` for the full algorithm, worked examples, and the exact format. After writing the waves, confirm they are consistent with the `**Depends on:**` fields with `parse-waves.cjs`. It lives in the sibling skill `super.parallel-subagent-development`; resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-development` (all superpowers skills are siblings in the same `skills/` directory):
+Derive waves topologically: Wave 1 = tasks with `**Depends on:** N/A`; each next wave = tasks whose dependencies are all placed. A 2+ task wave is `(parallel)`; a single-task wave is `(sequential)`. Read `./references/execution-waves.md` for the full algorithm, worked examples, and the exact format. After writing the waves, confirm they are consistent with the `**Depends on:**` fields with `parse-waves.cjs`. It lives in the sibling skill `super.parallel-subagent-development`:
+
+> **Resolving `<super.X-base-dir>`:** the skills are siblings — parent of your header's base directory + `/super.X`. Never `glob` for one (`glob` misses dotdirs); a gate script that will not run is a **STOP**, never a skipped gate.
 
 ```bash
 node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
@@ -161,20 +163,6 @@ After writing the complete plan, look at the spec with fresh eyes. **Read `./ref
 
 For complex or high-stakes plans, dispatch a plan document reviewer subagent using the template in `./plan-document-reviewer-prompt.md` for an independent second opinion on the plan's completeness and buildability. This is optional. Set an explicit `model:` on the dispatch — review is judgment work, floor it at `standard`; never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
 
-## Memory Persistence
-
-> **Conditional on `session_memory_enabled`.** If `session_memory_enabled = false`, skip this entire section and proceed directly to Execution Handoff.
-
-> **When enabled — do not skip.** This is the exit action of the Planejando state (see the superpowers state diagram). Skipping it when memory is enabled means future sessions cannot recall prior decisions, constraints, or artifact paths for this feature.
-
-After self-review passes and **before** the execution handoff, persist the planning artifacts to `super.persistent-memory`. **Read `./references/memory-persistence.md`** for the full procedure (graceful degradation, dedupe check, what to persist). Write three entries:
-
-1. **Architectural decisions + constraints** (key choices from the spec)
-2. **Feature scope + boundaries** (objective, in-scope stories, out-of-scope items)
-3. **Artifact paths** (spec, PRD, tasks index paths + task count)
-
-**Do not proceed to the Execution Handoff step until all three `pmem add` calls have succeeded** (or graceful degradation confirmed `pmem` is unavailable, or `session_memory_enabled = false`).
-
 ## Execution Handoff
 
 After saving the tasks index and task files, **read `./references/execution-handoff-message.md` and follow it to offer the execution options to the user**, filling in the feature name, task count, and wave summary.
@@ -185,7 +173,6 @@ The handoff message leads with an **optional spec-review option** (option 0) —
 
 # Entry Phase
 
-> **Why this block is last.** A compaction re-injects only the **first 20.000 characters** of a SKILL.md, dropping the rest silently. These sections run at the start of planning, so losing them on resume costs nothing — losing Self-Review, No Placeholders, Memory Persistence or the Execution Handoff above would strand a resumed session mid-plan.
 
 ## Overview — the procedure is in `./references/entry-phase.md`
 

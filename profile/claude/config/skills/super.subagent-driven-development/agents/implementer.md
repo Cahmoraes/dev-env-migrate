@@ -3,7 +3,7 @@
 Use this template when dispatching an implementer subagent.
 
 ```yaml
-Task tool (general-purpose):
+Subagent (general-purpose):
   description: "Implement Task N: [task name]"
   model: [REQUIRED. Resolve from this task's **Tier:** field per
           super.subagent-driven-development, "Model Selection" section. Most implementer

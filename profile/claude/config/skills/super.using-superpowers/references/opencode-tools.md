@@ -16,7 +16,7 @@ Skills use Claude Code tool names. Use your platform equivalent:
 | session task list (task tracking, optional) | `todowrite` (`todos[]`) |
 | `WebFetch` | `webfetch` (`url`, `format`, `timeout`) |
 | `WebSearch` | `websearch` — **not always present**, see "Tool availability depends on the model" |
-| `Task` tool (dispatch subagent) | `task` (`description`, `prompt`, `subagent_type`) — **`subagent_type` carries the model tier**, see "Model tiers become agents" |
+| a `Subagent (...):` dispatch block | `task` (`description`, `prompt`, `subagent_type`) — **`subagent_type` carries the model tier**, see "Model tiers become agents" |
 | Multiple `Task` calls (parallel) | Multiple `task` calls issued in the same turn |
 | Task returns result | The `task` call returns the subagent's output directly — it blocks, see "Dispatching subagents" |
 | Research (`super.deep-research`) | Fan-out via `task` with `subagent_type: "general"`, using `webfetch` (+ `websearch` when the model exposes it) |
@@ -117,7 +117,7 @@ An older `tools: { <name>: bool }` map also exists on agent definitions but is *
 
 **opencode's `task` blocks and returns the subagent's output directly.** There is no background/async dispatch mode and no separate "read result" tool, so the skills' instruction — *"After dispatching, await its result — never poll"* — is satisfied natively: issue the `task` call and read its return value. Never insert a `bash sleep`, a wakeup loop, or a `question` call to "wait for" a subagent.
 
-**Parallel fan-out is issuing several `task` calls in the same turn.** For a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, the research fan-out, or the memory re-sync sync-workers, emit all of the independent `task` calls together in one turn; they run concurrently and you receive every result. Keep dependent tasks sequential, but never serialize independent dispatches just to get a simpler history.
+**Parallel fan-out is issuing several `task` calls in the same turn.** For a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, or the research fan-out, emit all of the independent `task` calls together in one turn; they run concurrently and you receive every result. Keep dependent tasks sequential, but never serialize independent dispatches just to get a simpler history.
 
 **`task_id` resumes a subagent session.** Passing a prior `task_id` continues that same subagent instead of starting a fresh one. Use it for the **fix → re-review loop**, where the reviewer benefits from remembering its own earlier findings. Do **not** use it where the flow requires a *fresh* agent: the `super.independent-verification` Verifier must be blind (author ≠ verifier), so it always gets a new dispatch, never a resumed one.
 
@@ -148,6 +148,8 @@ Two behaviors to respect:
 # Your skill context header shows the base directory — use it to build the absolute path:
 node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root "$(git rev-parse --show-toplevel)"
 ```
+
+`<super.X-base-dir>` is never filled in for you: the harness injects the base directory of the skill it just invoked, and only that one. **For a sibling skill:** parent of your header's base directory + `/super.X`. Do not search for it — skill directories live under a dotdir, search skips those, and a false "not found" ends with a gate quietly skipped. A gate script that will not run is a **STOP**.
 
 It detects the root via `git rev-parse --show-toplevel`, handles nested YAML, returns defaults for missing keys, and marks malformed files. See `read-preferences.cjs --help` for the JSON schema.
 

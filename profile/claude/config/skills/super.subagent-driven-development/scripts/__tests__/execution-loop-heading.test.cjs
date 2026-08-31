@@ -77,7 +77,7 @@ test('the execution loop has its own heading inside The Process', () => {
   assert.equal(heading.level, 3, 'the execution loop heading must be a ### step of The Process');
 
   // It comes after the pre-flight gates, which must still run first.
-  for (const gate of ['### Branch Guard', '### Memory Gate Check', '### Caveman Mode Activation']) {
+  for (const gate of ['### Branch Guard', '### Caveman Mode Activation']) {
     const at = body.indexOf(gate);
     assert.notEqual(at, -1, `missing pre-flight gate ${gate}`);
     assert.ok(at < heading.offset, `${gate} must precede the execution loop heading`);

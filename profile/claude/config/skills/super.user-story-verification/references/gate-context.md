@@ -1,6 +1,6 @@
 # Why This Gate Exists, and Where It Sits in the Pipeline
 
-Entry material: read once, when deciding whether to run the QA gate. Nothing here is needed mid-run, which is why it lives in this reference instead of in the skill body — the skill body has to fit the compaction window that a resumed run depends on.
+Entry material: read once, when deciding whether to run the QA gate. Nothing here is needed mid-run, which is why it lives in this reference instead of in the skill body.
 
 ## Why This Gate Exists
 

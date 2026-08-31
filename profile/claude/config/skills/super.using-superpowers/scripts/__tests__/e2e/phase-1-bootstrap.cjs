@@ -1,8 +1,7 @@
 'use strict';
 // FASE 1 — Bootstrap / roteamento de entrada (super.using-superpowers).
-// Foco de regressao: os commits recentes consolidaram o bootstrap em UMA chamada
-// (derive + check-resync + pmem embedding-status) e moveram a tabela de tiers
-// para references/triage-sizing.md.
+// Foco de regressao: o bootstrap e UMA chamada (derive-session-state + o `cat` do
+// session-start.md) e a tabela de tiers vive em references/triage-sizing.md.
 const { run, sh, write, check, assert, eq, setPhase, report, ROOT, fs, path } = require('./harness.cjs');
 
 check('setup: sandbox git virgem', () => {
@@ -30,47 +29,36 @@ check('derive-session-state em repo SEM .superpowers: preferencesFound=false', (
   return 'defaults mascaram ausencia, flag distingue';
 });
 
-check('check-resync em repo sem docs/: nao quebra, dirty=false', () => {
-  const r = run(`${US}/check-resync.cjs`, ['--repo-root', ROOT]);
-  assert(r.json, `sem JSON: ${r.stderr}`);
-  eq(r.json.docsExists, false, 'docsExists');
-  assert(r.json.dirty === false, `dirty deveria ser false, veio ${r.json.dirty}`);
-  return `dirty=${r.json.dirty}`;
-});
-
-check('bootstrap de 1 call: os 3 comandos encadeados rodam sem erro', () => {
-  // Exatamente a forma que o SKILL.md manda depois do commit de otimizacao.
+check('bootstrap de 1 call: derive + o `cat` do session-start rodam encadeados', () => {
+  // Exatamente a forma que o SKILL.md manda.
   const B = path.join(require('./harness.cjs').SKILLS, 'super.using-superpowers');
   const cmd = `node ${B}/scripts/derive-session-state.cjs --platform claude-code --repo-root "${ROOT}"; ` +
-              `node ${B}/scripts/check-resync.cjs --repo-root "${ROOT}"; ` +
-              `${B}/../super.persistent-memory/scripts/pmem embedding-status 2>&1 | head -3`;
+              `cat ${B}/references/session-start.md`;
   const out = sh(cmd);
-  // Os scripts emitem JSON pretty-printed (multi-linha) e o pmem prefixa uma linha
-  // em branco: o consumidor real precisa varrer objetos, nao linhas.
+  // O script emite JSON pretty-printed (multi-linha) e o `cat` despeja markdown depois:
+  // o consumidor real precisa varrer objetos, nao linhas.
   const objs = [];
   let depth = 0, start = -1;
   for (let i = 0; i < out.length; i++) {
     if (out[i] === '{') { if (depth === 0) start = i; depth++; }
     else if (out[i] === '}') { depth--; if (depth === 0 && start >= 0) { objs.push(out.slice(start, i + 1)); start = -1; } }
   }
-  assert(objs.length >= 3, `esperava 3 objetos JSON (derive/resync/pmem), veio ${objs.length}`);
-  const [derive, resync, pmem] = objs.map(o => JSON.parse(o));
+  assert(objs.length >= 1, `esperava ao menos o JSON do derive, veio ${objs.length}`);
+  const derive = JSON.parse(objs[0]);
   assert('sessionState' in derive, 'derive sem sessionState');
-  assert('dirty' in resync, 'check-resync sem dirty');
-  assert('reembed_needed' in pmem, 'pmem sem reembed_needed');
-  return `3 JSONs do bootstrap consolidado parseiam`;
+  assert(out.length > JSON.stringify(derive).length, 'o `cat` do session-start.md nao entrou na saida');
+  return 'JSON do derive + markdown do session-start na mesma chamada';
 });
 
 setPhase('P1 bootstrap: write-preferences -> derive (juncao real)');
 
 const prefsFull = {
-  workflow: { auto_commit: true, confirm_destructive_actions: true, qa_gate: true },
+  workflow: { auto_commit: true, confirm_destructive_actions: true, qa_gate: true, visual_companion: true },
   communication: { language: 'pt-BR' },
   claude_code: { simplify: true, code_review_final: true, code_review_effort: 'high' },
   copilot: { rubber_duck: false, review_final: true },
   context: { has_corporate_artifacts: false },
   optimization: { caveman: true, caveman_level: 'ultra' },
-  memory: { persistent_memory: true },
   model_tiers: { cheap: 'haiku', standard: 'sonnet', capable: 'opus' },
 };
 
@@ -92,8 +80,8 @@ check('derive le o que write gravou (nao ha drift de schema entre os dois)', () 
   eq(s.session_language, 'pt-BR', 'language');
   eq(s.session_caveman_active, true, 'caveman_active');
   eq(s.session_caveman_level, 'ultra', 'caveman_level');
-  eq(s.session_memory_enabled, true, 'memory');
   eq(s.session_qa_gate_enabled, true, 'qa_gate');
+  eq(s.session_visual_companion_enabled, true, 'visual_companion');
   eq(s.session_simplify_enabled, true, 'simplify');
   eq(s.session_code_review_final_enabled, true, 'code_review_final');
   eq(s.session_model_tier_cheap, 'haiku', 'tier cheap');
@@ -139,7 +127,6 @@ check('qa_gate:false desliga session_qa_gate_enabled', () => {
   const p = JSON.parse(JSON.stringify(prefsFull));
   p.workflow.qa_gate = false;
   p.workflow.auto_commit = false;
-  p.memory.persistent_memory = false;
   const inFile = path.join(ROOT, 'prefs-off.json');
   fs.writeFileSync(inFile, JSON.stringify(p));
   run(`${US}/write-preferences.cjs`, ['--input-file', inFile, '--repo-root', ROOT]);
@@ -147,8 +134,28 @@ check('qa_gate:false desliga session_qa_gate_enabled', () => {
   const s = r.json.sessionState;
   eq(s.session_qa_gate_enabled, false, 'qa_gate');
   eq(s.session_auto_commit, false, 'auto_commit');
-  eq(s.session_memory_enabled, false, 'memory');
-  return 'tres gates desligados propagam';
+  return 'dois gates desligados propagam';
+});
+
+// A chave `memory:` existia enquanto o superpowers mantinha um banco de memoria. Ela
+// segue no preferences.yml de todo repo consumidor que ja rodou o onboarding antigo, e
+// esses arquivos nao sao migrados. Ignorar em silencio e o contrato: derrubar o bootstrap
+// numa chave morta seria o pior desfecho possivel de uma remocao.
+check('uma chave `memory:` legada no arquivo e ignorada, sem erro e sem vazar', () => {
+  const prefsPath = path.join(ROOT, '.superpowers/preferences.yml');
+  const bkp = fs.readFileSync(prefsPath, 'utf8');
+  fs.writeFileSync(prefsPath, `${bkp}\nmemory:\n  persistent_memory: true\n`);
+  const r = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
+  assert(r.json, `sem JSON com chave legada: ${r.stderr}`);
+  eq(r.json.preferencesFound, true, 'preferencesFound');
+  eq(r.json.malformed, false, 'malformed');
+  eq(r.json.sessionState.session_language, 'pt-BR', 'o resto do mapeamento sobreviveu');
+  const vazou = Object.keys(r.json.sessionState).filter((k) => /memory|resync/i.test(k));
+  eq(vazou, [], 'nenhuma variavel de memoria pode voltar ao sessionState');
+  const rp = run(`${US}/read-preferences.cjs`, ['--repo-root', ROOT]);
+  assert(!('memory' in rp.json.preferences), 'a chave legada vazou para o objeto preferences');
+  fs.writeFileSync(prefsPath, bkp);
+  return 'chave morta ignorada';
 });
 
 check('preferences.yml malformado: malformed=true, sem crash', () => {
@@ -163,17 +170,49 @@ check('preferences.yml malformado: malformed=true, sem crash', () => {
   return `malformed=${r.json.malformed}`;
 });
 
-// Restaura prefs completas para as fases seguintes. Tem de ser um check(): as fases
-// 3, 5 e 7 leem model_tiers e persistent_memory daqui, e um IIFE de top-level rodaria
-// no require — antes dos checks de preferencias adversas acima, que deixariam o
-// arquivo com memoria DESLIGADA para todo o resto do pipeline.
+// O estado que rodava em silencio: o consumidor declara um artefato corporativo em
+// .superpowers/corporate-artifacts.yml e deixa has_corporate_artifacts em false. Os
+// artefatos corporativos VENCEM a spec em conflito, entao ignora-los calado e o pior
+// desfecho. A prosa mandava avisar, mas nada olhava o disco: o ramo era inalcancavel.
+check('yml corporativo declarado com a flag off vira declaredButDisabled', () => {
+  const corpDir = path.join(ROOT, '.superpowers');
+  const corpPath = path.join(corpDir, 'corporate-artifacts.yml');
+  fs.mkdirSync(corpDir, { recursive: true });
+  fs.writeFileSync(corpPath, 'artifacts:\n  - path: docs/corp/prd-legado.md\n');
+  try {
+    const r = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
+    assert(r.json, `sem JSON: ${r.stderr}`);
+    const c = r.json.corporateArtifacts;
+    assert(c, 'derive nao emitiu corporateArtifacts');
+    eq(r.json.sessionState.session_has_corporate_artifacts, false, 'consentimento off');
+    eq(c.declared, true, 'declared');
+    eq(c.enabled, false, 'enabled');
+    eq(c.declaredButDisabled, true, 'declaredButDisabled');
+    eq(c.count, 1, 'count');
+    assert(c.configPath && c.configPath.endsWith('corporate-artifacts.yml'), 'configPath ausente');
+    // Presenca nao e consentimento: o bootstrap sabe QUANTOS e ONDE, nunca QUAIS.
+    assert(!JSON.stringify(r.json).includes('prd-legado'),
+      'o caminho declarado vazou para o JSON do bootstrap sem consentimento');
+    return 'mismatch visivel, entradas nao vazadas';
+  } finally {
+    // Efeito colateral de fase mora DENTRO do check: as fases seguintes nao devem herdar
+    // um yml corporativo que elas nao declararam.
+    fs.rmSync(corpPath, { force: true });
+  }
+});
+
+// Restaura prefs completas para as fases seguintes. Tem de ser um check(): as fases 3 e 7
+// leem model_tiers e auto_commit daqui, e um IIFE de top-level rodaria no require — antes
+// dos checks de preferencias adversas acima, que deixariam o arquivo com os gates
+// DESLIGADOS para todo o resto do pipeline.
 check('setup: prefs completas restauradas para as fases seguintes', () => {
   const inFile = path.join(ROOT, 'prefs-in.json');
   fs.writeFileSync(inFile, JSON.stringify(prefsFull));
   const r = run(`${US}/write-preferences.cjs`, ['--input-file', inFile, '--repo-root', ROOT]);
   assert(r.json && r.json.written === true, `write-preferences nao confirmou escrita: ${r.stdout.slice(0, 200)}`);
   const back = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
-  eq(back.json.sessionState.session_memory_enabled, true, 'memoria religada');
+  eq(back.json.sessionState.session_auto_commit, true, 'auto_commit religado');
+  eq(back.json.sessionState.session_qa_gate_enabled, true, 'qa_gate religado');
   return 'prefs de referencia no disco';
 });
 

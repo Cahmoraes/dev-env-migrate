@@ -16,7 +16,7 @@ subagent. Per-platform tool names: `super.using-superpowers/references/*-tools.m
 orchestrated the session. Its judgment comes from the spec, not from the build history.
 
 ```
-Task tool - Verifier subagent (tools: file reading, searching and shell — never edits source or tests; the scratch-state mutation cycle is the one exception):
+Subagent (Verifier — never edits source or tests; the scratch-state mutation cycle is the one exception):
   description: "Independently verify spec coverage + mutation sensor"
   prompt: |
     You are an Independent Verifier. You did NOT write this code and you were NOT
@@ -181,8 +181,7 @@ Task tool - Verifier subagent (tools: file reading, searching and shell — neve
       share one working tree: concurrent jobs read each other's mutant as the
       "original" and restore THAT, and a suite run picks up a neighbour's live fault
       and reports a true SURVIVOR as `killed` - a real gap deleted from your report.
-      Measured 2026-08-03: a Verifier did exactly this, corrupted the tree, and had
-      to re-run the whole sensor serially. `run-mutation-batch.cjs` is how you get
+      Doing it anyway corrupts the tree and forces the whole sensor to re-run serially. `run-mutation-batch.cjs` is how you get
       the parallelism safely; `--jobs > 1` without isolation is refused outright.
 
       Subset-first is sound and does not weaken the sensor: the subset is part of the
@@ -252,16 +251,42 @@ Task tool - Verifier subagent (tools: file reading, searching and shell — neve
 
     ## Step 5 - Distill lessons (grounded only)
 
-    For EACH grounded signal (surviving mutant, spec-precision gap, failed/uncovered
-    AC, SPEC_DEVIATION), record one terse lesson:
+    A lesson is served at planning time only after the same rule surfaced in two DISTINCT
+    features. That only happens when you record the rule, not the incident. Two steps, in order.
+
+    **First, read what is already recorded:**
+
+    ```bash
+    python3 <super.independent-verification-base-dir>/scripts/lessons.py list --status active
+    ```
+
+    `active` is candidate + confirmed - every lesson still worth corroborating. Quarantined
+    ones are excluded for you: their signal is spent, and writing into one is a dead record.
+
+    If an existing lesson already states the rule your signal just proved, reuse its `--text`
+    **verbatim** - copy that sentence character for character; do not improve it, do not
+    translate it, do not adapt its wording to this feature. Identical text under a new
+    `--feature` is what makes recurrence count and promotes the lesson to confirmed. Re-wording
+    mints a second candidate and both die uncorroborated. Reuse is never refused, including for
+    an older lesson that runs past the limits below.
+
+    **Then, for EACH grounded signal** (surviving mutant, spec-precision gap, failed/uncovered
+    AC, SPEC_DEVIATION) that had no lesson to reuse, record one:
 
     ```bash
     python3 <super.independent-verification-base-dir>/scripts/lessons.py add \
       --feature {FEATURE_NAME} --signal <ac_gap|surviving_mutant|spec_precision_gap|spec_deviation|gate_fail> \
-      --source <file:line|AC id|mutant id> --text "<one actionable sentence>" [--scope <path/layer>]
+      --source <file:line|AC id|mutant id> --text "<the general rule, max 200 chars>" [--scope <path/layer>]
     ```
 
-    Clean PASS with no signal → record NOTHING. If there was a signal but you wrote
+    A NEW `--text` carries the transferable rule and nothing else: max 200 characters, no file
+    names, no paths, no line numbers. The incident belongs in `--source` and the area in
+    `--scope` - that is what those two flags are for. Write "when a spec pins exact CSS classes,
+    assert className, not only the rendered text", never "add toHaveClass to gym-results.test.tsx".
+    The script refuses a feature-bound text (exit 2) and names the reason: shorten the rule or
+    move the specifics into the right flag - never split it into two lessons.
+
+    Clean PASS with no signal -> record NOTHING. If there was a signal but you wrote
     no lesson, say so explicitly in your verdict.
 
     The store is lock-protected and written atomically, so several `add` calls may

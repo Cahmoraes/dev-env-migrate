@@ -9,11 +9,19 @@ How a parallel wave's worktrees are created, merged into the base branch, and ho
 
 ## Creating worktrees (one per parallel task)
 
-Defer creation to `super.using-git-worktrees` — do not hand-roll `git worktree add` if a native worktree tool exists. For each task:
+**Use `git worktree add` here, and do not reach for a native session worktree tool.** That inversion is deliberate and is the one place this skill overrides `super.using-git-worktrees`' Step 1a preference — a wave's worktrees are not a session workspace, and three properties of a native tool make it the wrong mechanism:
 
-1. Invoke `super.using-git-worktrees` for a workspace off the base branch, with a deterministic, auditable name: `wt/<feature-name>-task-NN`.
+- **Cardinality.** A wave needs N trees at once. Native tools are typically one-per-session and refuse a second while one is active.
+- **Who moves.** A native tool switches *your* working directory into the new tree. You are the orchestrator: you stay on the base branch, run the pre-merge gate, and merge. An implementer is pinned to a path; it does not inherit yours.
+- **Base ref and branch name.** The wave must branch off **the base branch** (which already carries earlier waves' merges), on the exact name `wt/<feature-name>-task-NN`. Native tools pick both for you — a common default is to branch from `origin/<default-branch>`, which silently drops every wave already integrated, and the branch name is theirs, not yours. `check-integration.cjs` resolves task branches literally from `--feature`; it has no override, so a differently-named branch reads as "the implementer never committed".
+
+`super.using-git-worktrees` still owns everything *after* creation. For each task:
+
+1. `git worktree add <dir>/<feature-name>-task-NN -b wt/<feature-name>-task-NN <base-branch>` — the branch name is a contract, not a label. Directory selection and the ignore check are that skill's Step 1b.
 2. Let that skill run project setup (install deps), **allocate the worktree's ports (its Step 3.5)**, and confirm a clean test baseline. A task must start green — if the baseline fails, report it and do not dispatch the implementer until resolved.
 3. Record the mapping `task-NN → worktree path → branch name`. The implementer is pinned to this path and commits only inside it.
+
+A native tool is still the right answer for the case it was built for: **one** workspace that **you** work in. That is `super.using-git-worktrees` invoked on its own, or the sequential execution skill — not a wave.
 
 ## Runtime isolation, not just file isolation
 
@@ -29,6 +37,8 @@ A wave is the exact situation port collisions were waiting for: N implementers, 
   ```
 
   `disjoint: false` is a **STOP**: dispatching into overlapping blocks reproduces the exact failure the isolation exists to prevent. Each `conflicts` entry names the two worktrees and the fix. When the repo has no `.superpowers/ports.yml` the check reports `enabled: false` and there is nothing to audit — that is a pass, not a skip.
+
+  **You do not run this audit by hand, and you cannot forget it.** Give each agent in the step-3 dispatch manifest a `workspace` (its worktree path); two or more distinct values make it a worktree fan-out, and `validate-dispatch.cjs` then runs the command above itself before letting the dispatch through. The verdicts arrive as `port_block_overlap` (**STOP**), `missing_port_audit` (you are validating before the worktrees exist), `port_audit_scope_stale` (fewer leases on record than worktrees in the wave — the audit ran too early), and the warning `port_isolation_off` for the `enabled: false` case. That last one is the reason the field exists: a pass and a skipped gate used to produce identical output, so the audit could go unrun for a whole wave with nothing to show for it either way.
 
 ## Dispatching implementers
 
@@ -49,6 +59,7 @@ node <super.parallel-subagent-development-base-dir>/scripts/check-integration.cj
 - `missedDependencySignals` non-empty → two tasks the planner declared independent changed the **same file**, surfaced *before* the merge. Expect a conflict, inspect those files first, and after the run consider correcting the `**Depends on:**` fields so the next plan serializes them.
 - `baseSafe: false` → you are about to integrate onto `main`/`master`; stop unless the user explicitly consented.
 - `mergeOrder` is the deterministic ascending order to merge in — follow it.
+- **What this gate cannot see: a task branch cut off the wrong base.** With the right name and real commits it reports `readyToIntegrate: true`, and the only trace is a non-zero `commitsBehind` — which is also what a legitimate resume looks like after a sibling merged, so it cannot be read as an error here. The tree that implementer worked in simply never contained the earlier waves. That is why the base branch is fixed at creation time, above, and not checked here.
 
 ## Integration order
 

@@ -14,8 +14,8 @@ Skills use Claude Code tool names. Use your platform equivalent:
 | `Skill` tool (invoke a skill) | `skill` |
 | `AskUserQuestion` (structured user question) | `ask_user` |
 | `WebFetch` | `web_fetch` |
-| `Task` tool (dispatch subagent) | `task` with `agent_type: "general-purpose"` or `"explore"`, and **`mode: "sync"` for a sequential/blocking dispatch** — see "Dispatching subagents" below |
-| Multiple `Task` calls (parallel) | Multiple `task` calls with `mode: "background"`, then collect with `read_agent` — see "Dispatching subagents" below |
+| a `Subagent (...):` dispatch block | `task` with `agent_type: "general-purpose"` or `"explore"`, and **`mode: "sync"` for a sequential/blocking dispatch** — see "Dispatching subagents" below |
+| Multiple `Subagent (...):` blocks (parallel) | Multiple `task` calls with `mode: "background"`, then collect with `read_agent` — see "Dispatching subagents" below |
 | Task status/output | `read_agent`, `list_agents` |
 | session task list (task tracking, optional) | `sql` with built-in `todos` table |
 | `WebSearch` | No equivalent — use `web_fetch` with a search engine URL |
@@ -48,6 +48,8 @@ Everything between those gates — dispatch, review, fix loop, verification — 
 # Your skill context header shows the base directory — use it to build the absolute path:
 node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root "$(git rev-parse --show-toplevel)"
 ```
+
+`<super.X-base-dir>` is never filled in for you: the harness injects the base directory of the skill it just invoked, and only that one. **For a sibling skill:** parent of your header's base directory + `/super.X`. Do not search for it — skill directories live under a dotdir, search skips those, and a false "not found" ends with a gate quietly skipped. A gate script that will not run is a **STOP**.
 
 It detects root via `git rev-parse --show-toplevel`, handles nested YAML, returns defaults for missing keys, and marks malformed files. See `read-preferences.cjs --help` for the JSON schema.
 

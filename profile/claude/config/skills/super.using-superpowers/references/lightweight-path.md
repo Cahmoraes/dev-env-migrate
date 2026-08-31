@@ -27,7 +27,7 @@ If the user picks full, or does not confirm, run the full pipeline.
 
 Route through the SAME skills, in reduced mode:
 
-- **`super.brainstorming`** — flat one-or-two-question pass (for trivial/reversible changes), memory recall + a SINGLE targeted codebase exploration (not a research cluster), and a few-sentence design doc (not the enriched-section version). Skip the visual companion unless a UI change genuinely needs it. **Skip the PRD.**
+- **`super.brainstorming`** — flat one-or-two-question pass (for trivial/reversible changes), the feature-history index + a SINGLE targeted codebase exploration (not a research cluster), and a few-sentence design doc (not the enriched-section version). Skip the visual companion unless a UI change genuinely needs it. **Skip the PRD.**
 - **`super.writing-plans`** — a single targeted exploration (scope is already bounded), a minimal task set (often one or two tasks, one wave).
 - **Execution** — unchanged: mode election + full per-task gates (TDD → `super.verification-before-completion` → spec + code-quality review).
 

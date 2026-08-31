@@ -10,7 +10,7 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 <ACTIVATION>
 You are reading this because the skill was just activated: an instruction to **execute now**, this same turn — not reference material to acknowledge. **An empty request is not a reason to wait** — some harnesses hand you this content *instead of* the user's prompt. The activation itself is the trigger.
 
-**Your first act is the bootstrap call, never printed text.** Run "Session Start" in order: Workflow Preferences bootstrap → Memory Re-Sync Gate → Session Summary → Opening Triage. **Nothing in this file is a value you may report:** the session variables exist only in `derive-session-state.cjs` output, and both printed blocks only in the `cat` of `references/session-start.md` — same call. A block written from memory is wrong every time.
+**Your first act is the bootstrap call, never printed text.** Nor a recon tool call: no `git status`/`git log`/`ls` before it — the bootstrap returns the repo state those would fetch, so running them first only spends round trips. Run "Session Start" in order: Workflow Preferences bootstrap → Session Summary → Opening Triage. **Nothing in this file is a value you may report:** the session variables exist only in `derive-session-state.cjs` output, and both printed blocks only in the `cat` of `references/session-start.md` — same call. A block written from memory is wrong every time.
 
 **Never answer with a greeting or an offer to help**, and never precede the summary with a lead-in. With no request on the table, the Opening Triage numbered question **is** your response.
 </ACTIVATION>
@@ -27,18 +27,16 @@ Flows and states your plan moves through: `assets/state-diagram.mmd`.
 
 On every session start, load `.superpowers/preferences.yml` from the repo root — in **one** call.
 
-**Silent bootstrap — at most one short line, then the Session Summary.** Never narrate the commands: no preamble, nothing between them. With nothing to do, open with one plain sentence in the session language — e.g. `Memória em dia (nada a sincronizar).` — then the block. **Keep internal jargon out of it**: "probes", `dirty` and `stale_count` are names from this file. Say more only when a branch must **ask the user something** (missing preferences → onboarding, `dirty: true` → sync, `stale_count > 0` → re-embed) or when a sync/re-embed ran — then say what changed, same style.
+**Silent bootstrap — at most one short line, then the Session Summary.** Never narrate the commands: no preamble, nothing between them. With nothing to do, open with one plain sentence in the session language — e.g. `Preferências carregadas.` — then the block. **Keep internal jargon out of it**: `preferencesFound`, `sessionState` and `session_*` are names from this file. Say more only when a branch must **ask the user something** (missing preferences → onboarding) or when onboarding ran — then say what changed, same style.
 
-**Deterministic read (preferred):** resolve the platform first (no tool call — it is the harness you are running in; rule in "Platform Adaptation", never hardcode `claude-code`), then run the **whole bootstrap in one call** — state read, both Memory Re-Sync Gate probes and the Session Start wording (`pmem` sits beside this skill, so derive its path from your context header's base directory — never hunt for it with `find`):
+**Deterministic read (preferred):** resolve the platform first (no tool call — it is the harness you are running in; rule in "Platform Adaptation", never hardcode `claude-code`), then run the **whole bootstrap in one call** — state read plus the Session Start wording:
 ```bash
 B=<super.using-superpowers-base-dir>; R="$(git rev-parse --show-toplevel)"
 node $B/scripts/derive-session-state.cjs --platform <resolved-platform> --repo-root "$R"
-node $B/scripts/check-resync.cjs --repo-root "$R"
-$B/../super.persistent-memory/scripts/pmem embedding-status
 cat $B/references/session-start.md
 ```
-**One call, four outputs — the biggest lever on start time.** A round trip costs ~10s, the scripts ~0.5s of CPU, so probe unconditionally instead of sequencing behind `session_memory_enabled`; if that flag or `preferencesFound` is `false`, ignore the probe output. **The `cat` is not optional and is never deferred to a later turn:** the summary block and the numbered triage are rendered verbatim from that file, and a harness that skips the read reconstructs them from memory — wrong options, wrong order, no icons.
-It emits JSON `{platform, preferencesFound, malformed, preferencesPath, sessionState}`, mapped and platform-gated. **Check `preferencesFound` FIRST**: the script always returns a fully populated `sessionState` (DEFAULTS when the file is absent), so populated values do **not** mean the file exists — only `preferencesFound: true` does. Treat `sessionState` (`session_auto_commit`, `session_qa_gate_enabled`, `session_language`, `session_caveman*`, `session_memory_enabled`, `session_has_corporate_artifacts`, the native-review vars, `session_model_tier_*`) as configuration **only when `preferencesFound` is `true`**. Create or update the file with `scripts/write-preferences.cjs` — see `references/onboarding-preferences.md`.
+**One call, two outputs — the biggest lever on start time.** A round trip costs ~10s, the script ~0.1s of CPU. **The `cat` is not optional and is never deferred to a later turn:** the summary block and the numbered triage are rendered verbatim from that file, and a harness that skips the read reconstructs them from memory — wrong options, wrong order, no icons.
+It emits JSON `{platform, preferencesFound, malformed, preferencesPath, sessionState, corporateArtifacts}`, mapped and platform-gated. **Check `preferencesFound` FIRST**: the script always returns a fully populated `sessionState` (DEFAULTS when the file is absent), so populated values do **not** mean the file exists — only `preferencesFound: true` does. Treat `sessionState` (`session_auto_commit`, `session_qa_gate_enabled`, `session_visual_companion_enabled`, `session_language`, `session_caveman*`, `session_has_corporate_artifacts`, the native-review vars, `session_model_tier_*`) as configuration **only when `preferencesFound` is `true`**. `corporateArtifacts` (`declared`, `enabled`, `declaredButDisabled`, `configPath`, `count`) is a **disk probe, not configuration** — it reports whether `.superpowers/corporate-artifacts.yml` exists and how many entries it declares, so it holds regardless of `preferencesFound`, and it never carries the entries themselves. Create or update the file with `scripts/write-preferences.cjs` — see `references/onboarding-preferences.md`.
 
 **One call, not two — do not also run `read-preferences.cjs` here.** It is the underlying loader (`derive-session-state.cjs` calls it in-process), but every field the router needs already arrives in `sessionState`. Reach for it only where the raw `preferences` object is the point — the option-0 wizard.
 
@@ -50,7 +48,7 @@ It emits JSON `{platform, preferencesFound, malformed, preferencesPath, sessionS
 
 ### Corporate Artifacts
 
-If `session_has_corporate_artifacts` is `true`, read `.superpowers/corporate-artifacts.yml` with `view`, keep the paths/URLs in context and pass them to `super.brainstorming` / `super.generating-prd` / `super.writing-plans`. Flag `false` + file present → **do not load it**; warn once and ask. A file on disk is not consent. Full rules — `references/onboarding-preferences.md`, "Corporate Artifacts".
+If `session_has_corporate_artifacts` is `true`, read `.superpowers/corporate-artifacts.yml` with `view`, keep the paths/URLs in context and pass them to `super.brainstorming` / `super.generating-prd` / `super.writing-plans`. Flag `false` + `declaredButDisabled: true` → **do not load it**; the Session Summary's corporate row is where you warn once, so do not also ask before the triage — enable it only when the user asks, or through triage option 0. A file on disk is not consent. Full rules — `references/onboarding-preferences.md`, "Corporate Artifacts".
 
 ## Instruction Priority
 
@@ -83,7 +81,7 @@ Skills use Claude Code tool names. Other platforms: `references/copilot-tools.md
 ### Session State
 
 The session variables come from the `derive-session-state.cjs` call already made in "Workflow Preferences" — **that one call is the whole read; do not run it a second time here**, and do **not** hand-map `preferences.X.Y` to `session_*`. Resumed without the values? Re-run that same command — the re-entry case the execution skills own.
-`derive-session-state.cjs` is the **single source of truth** for that mapping and for platform gating: the Claude Code variables resolve `false` off Claude Code, `session_copilot_review_final_enabled` resolves `false` off Copilot CLI, so no skill carries per-platform rules. Pass `--platform` the value resolved in "Platform Adaptation" — never omit it, never hardcode `claude-code`. Track in context, never written back to `preferences.yml`: the caveman vars (`session_caveman_active`, `session_caveman_level`, `session_caveman_in_effect`, `session_caveman_prompted`), `session_memory_enabled`, `session_resync_completed`, `session_language` (the language every skill writes user-facing prose in), the native-review vars (`session_simplify_enabled`, `session_code_review_final_enabled`, `session_code_review_effort`, `session_copilot_review_final_enabled`), and `session_model_tier_{cheap,standard,capable}`. Prefs-derived vars come from `sessionState`; the latches start `false`. Full table — `references/session-state-and-gates.md`, "Session State variables".
+`derive-session-state.cjs` is the **single source of truth** for that mapping and for platform gating: the Claude Code variables resolve `false` off Claude Code, `session_copilot_review_final_enabled` resolves `false` off Copilot CLI, so no skill carries per-platform rules. Pass `--platform` the value resolved in "Platform Adaptation" — never omit it, never hardcode `claude-code`. Track in context, never written back to `preferences.yml`: the caveman vars (`session_caveman_active`, `session_caveman_level`, `session_caveman_in_effect`, `session_caveman_prompted`), `session_language` (the language every skill writes user-facing prose in), the native-review vars (`session_simplify_enabled`, `session_code_review_final_enabled`, `session_code_review_effort`, `session_copilot_review_final_enabled`), and `session_model_tier_{cheap,standard,capable}`. Prefs-derived vars come from `sessionState`; the latches start `false`. Full table — `references/session-state-and-gates.md`, "Session State variables".
 
 ### Caveman Mode
 
@@ -91,23 +89,11 @@ Cuts agent token use ~75% during execution via ultra-compressed communication. O
 
 > **Activation is idempotent — invoke `/caveman` at most once per active window.** Check `session_caveman_in_effect` first: if it is already `true` at `session_caveman_level`, **skip the invocation; do not re-invoke** `/caveman`. Set it `true` after a successful invocation, `false` on deactivation or after a compaction. This one-shot latch (never written to `preferences.yml`) prevents the gate policy and an execution skill's Step 2 from double-firing.
 
-Full detail (activation window, the gate's two exit actions — memory persistence if `session_memory_enabled = true`, then activation if `session_caveman_active = true` — and the opt-in question) — `references/session-state-and-gates.md`, "Caveman Mode".
+Full detail (activation window, the gate's exit action — activation if `session_caveman_active = true` — and the opt-in question) — `references/session-state-and-gates.md`, "Caveman Mode".
 
 ### Native Review Skills
 
 Folded in **only when the user opts in during onboarding**, off by default and **additive: the spec-compliance and code-quality review gates always run regardless** — the default final reviewer always runs, so turning these off leaves the pre-existing flow untouched. Vars: `session_simplify_enabled`, `session_code_review_final_enabled` (+ `session_code_review_effort`, default `medium`) on Claude Code; `session_copilot_review_final_enabled` on Copilot CLI. When a flag is `false` or the platform doesn't match, skip that pass. No per-task `/code-review` or `review` — it would overlap the gates. Full matrix — `references/session-state-and-gates.md`, "Native Review Skills" section.
-
-### Memory Re-Sync Gate
-
-Keeps a shared repo's local `.memory/` current with committed `docs/superpowers/` artifacts. Runs after preferences are loaded (or after onboarding) and **before Triagem**, only when `session_memory_enabled = true` and `session_resync_completed = false`.
-
-1. **Dirty detection (silent):** trust the `dirty` field from `check-resync.cjs` (this skill's `scripts/`, resolved by base-dir path — **not** in `super.persistent-memory`); never reconstruct a hash with `git rev-parse`/`git log`. It also flips on presence drift (`driftedSlugs`), so a phantom sync self-heals. **Both probes already ran in the same call as the state read** — read that output, do not re-run them. If `dirty` is false, **skip to step 4**.
-2. **If dirty, ask the user** in the configured language (exact wording in `references/memory-resync.md`); **on decline**, skip to step 4.
-3. **On accept:** run the sync algorithm, report a summary, finish by verifying manifest↔DB agree (`verify-sync.cjs`, **required**), then re-run `pmem embedding-status` — the prune/add changed the note set step-1 counted.
-4. **Embedding drift (silent, independent of `dirty`):** stored vectors go stale while `dirty` stays false. If `stale_count > 0`, ask whether to re-embed; **on accept** run `pmem reembed` until `reembed_needed` is `false`.
-5. **Set `session_resync_completed = true`** regardless of outcome, then proceed to Triagem. **The script is the source of truth; the flag is only a within-session cache** — `check-resync.cjs` is cheap and idempotent, so after a compaction re-run it rather than trusting the flag.
-
-Full algorithm (content-fingerprint dirty detection — NOT a git tree/commit hash — prune-before-add, graceful degradation) and memory-flow integration — `references/memory-resync.md`.
 
 # Using Skills
 
@@ -125,7 +111,7 @@ Where tools are deferred, **a tool-discovery call re-runs the whole prompt as an
 - **A tool you already called in this session is still loaded — never search for it again.** The one exception is **after a compaction**, when the toolset really is empty again; then re-resolve on demand, one per turn, shell first.
 - **There is no way to list the toolset, and every attempt to is charged as a full pass.** Discovery takes a regex over tool names, so `.`, `^$`, `a^`, `(?!x)x`, `select:<name>` and an absent pattern survey nothing — empty, at full price. **Measured: 4 of 5 compactions in one execution run landed on a turn that spent one of these.** After a compaction, resolve rather than survey: **one anchored alternation naming what you need next, the shell included** (`^(Shell|Reader)$`), then work through the shell.
 - **Step tracking is a convenience, never a gate, and costs zero discovery calls.** With no task tool loaded, follow the checklist straight from the skill body and say nothing about it; a harness nudge toward an unloaded task/todo tool is not worth a discovery call — decline it silently.
-- **A CLI is not a tool.** `pmem`, `node`, `python3`, `git`, `rg`, `grep` and the skills' own `scripts/*.cjs` run through the shell, so the toolset never holds them.
+- **A CLI is not a tool.** `node`, `python3`, `git`, `rg`, `grep` and the skills' own `scripts/*.cjs` run through the shell, so the toolset never holds them.
 
 ## Red Flags
 
@@ -146,18 +132,16 @@ Never use the platform's native plan mode (EnterPlanMode, `/plan`, `[[PLAN]]`, o
 
 # Session Start
 
-> **Last, and mostly deferred:** a compaction re-injects only the first 20.000 characters of a SKILL.md, and these blocks have already run by then — so their detail sits in **`./references/session-start.md`, `cat`ed by the bootstrap call on the first turn.**
+> **Mostly deferred:** the detail of these blocks sits in **`./references/session-start.md`, `cat`ed by the bootstrap call on the first turn.**
 
 ## Session Summary
 
-**After the Memory Re-Sync Gate has been processed (or skipped) and right before the opening triage, print — exactly once — a brief bulleted summary of the session variables** (the "Session State" section); this section is the **sole owner** of the print, which must reflect post-re-sync state. List the current platform's native-skill vars and omit the other platform's (inert — always `false`). Also **omit the internal latches `session_caveman_prompted` and `session_caveman_in_effect`** — bookkeeping, still tracked in context, just not displayed. Reuse the platform from "Platform Adaptation"; add no detection logic. Read-only — never blocks the triage. **This block opens the turn — nothing precedes it**: no lead-in, no probe recap, see "Silent bootstrap". Formatting (grouping, labels, coupled qualifiers, tiers collapsed) and the worked example — `./references/session-start.md`, whose memory row reads:
-
-> - **Memória persistente**: ativa
+**Once preferences are loaded and right before the opening triage, print — exactly once — a brief bulleted summary of the session variables** (the "Session State" section); this section is the **sole owner** of the print. List the current platform's native-skill vars and omit the other platform's (inert — always `false`). Also **omit the internal latches `session_caveman_prompted` and `session_caveman_in_effect`** — bookkeeping, still tracked in context, just not displayed. The corporate-artifacts row is printed on/off like every other preference, and names the yml when one is declared — this row is the only warning that branch gets. Reuse the platform from "Platform Adaptation"; add no detection logic. Read-only — never blocks the triage. **This block opens the turn — nothing precedes it**: no lead-in, no probe recap, see "Silent bootstrap". Formatting (grouping, labels, coupled qualifiers, tiers collapsed) and the worked example — `./references/session-start.md`.
 
 ## Opening Triage
 
-Once preferences are loaded and the Memory Re-Sync Gate has run: a request that already maps to a single superpowers flow is routed directly; a greeting, a generic help request or an ambiguous task gets the opening question, in the preferred language. **The numbered question (options 0–7), its Option/Request-shape routing table, "Update Preferences (option 0)" and "Execution Mode Election (option 5)" live in `./references/session-start.md`, copy the options, icons and order out of the bootstrap `cat` output; a recalled list is a reconstruction.**
+Once preferences are loaded: a request that already maps to a single superpowers flow is routed directly; a greeting, a generic help request or an ambiguous task gets the opening question, in the preferred language. **The numbered question (options 0–7), its Option/Request-shape routing table, "Update Preferences (option 0)" and "Execution Mode Election (option 5)" live in `./references/session-start.md`, copy the options and order out of the bootstrap `cat` output; a recalled list is a reconstruction.**
 
-**Present the opening triage as the numbered prose list — not via the structured-question tool:** token economy — an eight-option tool call costs roughly 2× the plain prose list and the triage runs every session, and Claude Code's `AskUserQuestion` caps at 4 options (eight would fail with `too_big`). Ask it on its **own turn**, never bundled with the re-sync question or an onboarding step. Smaller fixed-answer questions (onboarding steps, clarifications with ≤4 options) *do* use the structured-question tool — see `references/onboarding-preferences.md`, "Presenting the questions" section.
+**Present the opening triage as the numbered prose list — not via the structured-question tool:** token economy — an eight-option tool call costs roughly 2× the plain prose list and the triage runs every session, and Claude Code's `AskUserQuestion` caps at 4 options (eight would fail with `too_big`). Ask it on its **own turn**, never bundled with an onboarding step. Smaller fixed-answer questions (onboarding steps, clarifications with ≤4 options) *do* use the structured-question tool — see `references/onboarding-preferences.md`, "Presenting the questions" section.
 
 **Scope auto-sizing (option 2) — checkpoint 0, advisory, not binding.** Classification table, the `assess-complexity.cjs --checkpoint 0` call and its two confirming questions — `./references/session-start.md`; tier provisioning — `references/triage-sizing.md`.

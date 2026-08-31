@@ -65,23 +65,21 @@ test('canonical skill declares a "Session State Re-Entry Guard" section', () => 
   );
 });
 
-test('canonical guard runs BEFORE the Memory Gate and Caveman (ordering fix)', () => {
+test('canonical guard runs BEFORE Caveman (ordering fix)', () => {
   const body = read(CANONICAL);
   const guard = body.indexOf('### Session State Re-Entry Guard');
-  const memory = body.indexOf('### Memory Gate Check');
   const caveman = body.indexOf('### Caveman Mode Activation');
-  assert.ok(guard >= 0 && memory >= 0 && caveman >= 0, 'all three sections must exist');
+  assert.ok(guard >= 0 && caveman >= 0, 'both sections must exist');
   assert.ok(
-    guard < memory,
-    'the re-entry guard must precede the Memory Gate — the gate reads session_memory_enabled, which the guard restores',
+    guard < caveman,
+    'the re-entry guard must precede Caveman — the gate reads session_caveman_*, which the guard restores',
   );
-  assert.ok(memory < caveman, 'Memory Gate stays before Caveman Activation');
 });
 
 function canonicalGuardRegion() {
   const body = read(CANONICAL);
   const start = body.indexOf('### Session State Re-Entry Guard');
-  const end = body.indexOf('### Memory Gate Check', start);
+  const end = body.indexOf('### Caveman Mode Activation', start);
   return body.slice(start, end);
 }
 

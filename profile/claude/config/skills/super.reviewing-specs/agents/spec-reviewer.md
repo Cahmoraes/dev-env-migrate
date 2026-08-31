@@ -7,8 +7,11 @@ Use this template when dispatching one spec-review lens as a subagent. Dispatch 
 **Model:** the resolved `capable` model, passed explicitly (see `references/capable-tier-dispatch.md`). Never dispatch a reviewer with `model:` omitted.
 
 ```
-Task tool — read-only subagent (tools: file reading, searching and shell — read-only), model: <resolved capable model>:
+Subagent (read-only):
   description: "Review spec — {LENS_NAME}"
+  model: [REQUIRED — the resolved `capable` model (see `references/capable-tier-dispatch.md`).
+          Reviewing a spec is architectural judgment, so the tier is fixed at capable and
+          does NOT come from a task's **Tier:** field. Never omit / inherit the controller's model.]
   prompt: |
     You are a principal-level software architect with 15+ years of hands-on
     experience in THIS spec's exact domain and stack, reviewing a design spec

@@ -337,7 +337,9 @@ function writeEvents(stateDir, clicks) {
 test('--with-events returns the click digest alongside the render verdict', () => {
   const root = tmpRoot();
   const { stateDir, contentDir } = makeSession(root);
-  writeScreen(contentDir, 'opts.html', '<div class="options">…</div>');
+  // A BESPOKE screen on purpose: the verdict asserted below is "current", and a session
+  // whose only screen is generator text cards is `generated-only` (see the debt tests).
+  writeScreen(contentDir, 'opts.html', '<style>.m{}</style><div class="mockup" data-choice="a">…</div>');
   writeEvents(stateDir, [
     { type: 'click', choice: 'a', selected: true, selectedChoices: ['a'] },
     { type: 'click', choice: 'b', selected: true, selectedChoices: ['a', 'b'] },
@@ -481,4 +483,66 @@ test('newestScreenKind tracks the newest REAL screen, ignoring a placeholder on 
 
 test('classifyScreen tolerates an unreadable file', () => {
   assert.equal(classifyScreen(path.join(tmpRoot(), 'nope'), 'gone.html'), 'bespoke');
+});
+
+// ------------------------------------------------- generated-only: the debt that "settled"
+//
+// Real session (2026-08-11, 22:44-22:46): the request was "refatorar o módulo de analytics
+// do admin com novas informações". The offer went out on the word "analytics" — before any
+// answer had established whether the refactor touched a screen — the user accepted, and the
+// only thing owed to them at that moment was a SCOPE question. So the scope question is what
+// was rendered: five text cards, A/B/C/D/E, in a browser the user had been told to open.
+// check-visual-state answered `renderDebt:false, reason:current`, because presence was the
+// whole test. The user's report: "essas perguntas conceituais poderiam ser respondidas no
+// terminal sem abrir o servidor".
+//
+// The prose gate (SKILL.md: a signal fires on what the conversation established; a matched
+// signal becomes an offer only when you can name the artifact) is the fix. This is its
+// backstop: if the browser only ever showed text cards, the promised artifact never came.
+
+const cards = (name) => `${GENERATED_MARKER}\n<h2>${name}</h2>\n<div class="options">…</div>`;
+
+test('a companion whose every screen is generator text cards owes a render', () => {
+  const root = tmpRoot();
+  const { contentDir } = makeSession(root);
+  writeScreen(contentDir, 'novas-informacoes-options.html', cards('Que tipo de novas informações?'));
+  const out = run(['--project-dir', root]);
+  assert.equal(out.reason, 'generated-only');
+  assert.equal(out.renderDebt, true, 'text cards are a terminal message behind a URL — they settle nothing');
+  assert.match(out.action, /artifact you named/);
+  assert.match(out.action, /stop the server/, 'the escape hatch is named, or the debt has no exit');
+});
+
+test('one bespoke screen in the history settles the debt, even under newer text cards', () => {
+  const root = tmpRoot();
+  const { contentDir } = makeSession(root);
+  writeScreen(contentDir, 'layout.html', '<style>.p{}</style><div class="panel" data-choice="a">…</div>', 300);
+  writeScreen(contentDir, 'follow-up-options.html', cards('E os filtros?'), 0);
+  const out = run(['--project-dir', root]);
+  assert.equal(out.reason, 'current', 'the generator is legitimate for a conceptual choice inside an already-visual thread');
+  assert.equal(out.renderDebt, false);
+  assert.equal(out.newestScreenKind, 'generated');
+});
+
+test('generated-only outranks terminal-parked: parking on a placeholder does not pay the debt', () => {
+  // Same shape as the placeholder rule itself — the control arm of the render-debt eval
+  // settled its conscience with waiting.html. Text cards plus a placeholder is that move
+  // with one extra step.
+  const root = tmpRoot();
+  const { contentDir } = makeSession(root);
+  writeScreen(contentDir, 'scope-options.html', cards('Escopo?'), 120);
+  writeScreen(contentDir, 'waiting.html', '<p>Continuando no terminal…</p>', 0);
+  const out = run(['--project-dir', root]);
+  assert.equal(out.reason, 'generated-only');
+  assert.equal(out.renderDebt, true);
+});
+
+test('an empty browser is still no-screen-rendered, not generated-only', () => {
+  // `[].every(...)` is true, so the empty case has to be decided before this branch or the
+  // harder, older diagnosis would be silently relabelled.
+  const root = tmpRoot();
+  const { contentDir } = makeSession(root);
+  writeScreen(contentDir, 'waiting.html', '<p>Continuing in terminal…</p>');
+  const out = run(['--project-dir', root]);
+  assert.equal(out.reason, 'no-screen-rendered');
 });

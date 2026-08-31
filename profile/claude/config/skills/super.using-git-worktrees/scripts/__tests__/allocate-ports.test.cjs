@@ -26,8 +26,18 @@ const mod = require(SCRIPT);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Canonical path, not the raw mkdtemp one. On macOS os.tmpdir() is `/var/folders/…`,
+ * a symlink into `/private/var/folders/…`, and `git rev-parse --show-toplevel` always
+ * answers with the resolved form. The allocator adopts git's answer on purpose: the
+ * worktree path IS the identity that keys the ledger and seeds the block, so two
+ * spellings of one worktree must never look like two worktrees. That makes the
+ * un-resolved path the fixture's bug, not the allocator's — resolving here keeps the
+ * assertions exact instead of relaxing them to endsWith and going blind to a real
+ * identity mismatch.
+ */
 function mkTmp(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 function git(cwd, args) {

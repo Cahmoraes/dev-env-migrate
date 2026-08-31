@@ -7,7 +7,17 @@ the Execution Loop.
 
 ## Reverse tier mismatch guard
 
-If you arrived here but the feature was classified **Micro/Small/Medium** at triage, **pause and
+**First, is there a classification at all?** It is produced at checkpoint 0 of
+`super.brainstorming` (`assess-complexity.cjs`). Two entry paths never cross that checkpoint: a
+direct/standalone invocation of this skill, and `super.using-superpowers`' Execution Mode Election
+(option 5) resuming a plan already on disk. In those, **there is no classification and this guard
+does not fire** — the written task index is the authority, so run its tasks with the normal
+per-task dispatch. Do **not** infer a complexity from the task count and re-route to
+`medium-inline-path.md`: that path has the controller writing code itself, and a written plan is
+exactly the case where the controller orchestrates instead. Review cost is scaled by each task's
+`reviewShape` (`none`/`combined`/two-stage), not by collapsing the plan into inline work.
+
+If the feature *was* classified **Micro/Small/Medium** at triage, **pause and
 verify** before dispatching anything:
 
 1. Did the user explicitly choose this skill ("execute com subagent-driven-development", "use

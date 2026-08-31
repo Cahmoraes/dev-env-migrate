@@ -6,8 +6,8 @@ That section is the **running order** — what to do, in which sequence. This fi
 a failure, what bounds the review loops, and what the two opt-in native passes do.
 
 Read it **once, at the start of an execution run**, before the first dispatch. The loop in
-`SKILL.md` is deliberately terse so it survives compaction; terse is not the same as complete,
-and running the loop without the rules below is how the two silent failure modes below happen.
+`SKILL.md` is deliberately terse, and terse is not the same as complete: running it without the
+rules below is how the two silent failure modes here happen.
 
 ## Tracker writes are physical edits on disk
 
@@ -40,6 +40,31 @@ is unavailable — the edits are mandatory, the script is only the safe way to m
 These edits are the authoritative audit record. `super.finishing-a-development-branch` reads the
 index directly to verify every task is `[x]` — if the files are not edited on disk, the branch
 cannot be finished and the history cannot be audited.
+
+## Arriving at a finished plan
+
+`parse-tasks.cjs` reports `allDone: true` when every task is `[x]` on the index **and**
+`Status: DONE` in its own file. That is a distinct entry state, not a degenerate loop:
+the loop below says "skip the `[x]` ones, run what remains", and when nothing remains it
+reads as an empty procedure rather than as an instruction.
+
+**Do not restart at task 1.** Every task being complete means the code is already on the
+branch; re-dispatching implementers over it produces duplicate work, spurious diffs, and
+review rounds against changes nobody asked for. The controller that hits this state has
+finished the Execution Loop by definition and belongs in the finish tail.
+
+What to do:
+
+1. Say it plainly, in the session language — the plan is already complete, N tasks done.
+2. Go to the finish tail. Its gates still apply in full: the done-state gate re-asserts
+   `--assert-all-done`, and the independent-verification and QA gates run as usual. A
+   finished implementation is not a verified one.
+3. If the user expected pending work, the disagreement is about *which* plan or *which*
+   feature — resolve that before touching anything. Never resolve it by re-implementing.
+
+The mirror case matters too: `mismatches` non-empty means the index and the task files
+disagree about completion. Resolve those before reading `allDone` at all — a mismatch
+makes both `allDone: true` and `allDone: false` untrustworthy.
 
 ## Dispatch failure modes
 

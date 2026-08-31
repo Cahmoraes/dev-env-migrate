@@ -107,7 +107,7 @@ Copilot CLI), depois rode na ordem:
 
 | Comando | Verificação | O que faz |
 |---|---|---|
-| `rtk init -g --copilot --auto-patch` | `rtk gain` | Registra hook PreToolUse do rtk no Copilot CLI (reescreve automaticamente comandos shell, ex.: git status -> rtk git status) + injeta instruções no system prompt do Copilot (não aplicado nesta origem) |
+| `rtk init -g --copilot --auto-patch` | `rtk gain` | Registra hook PreToolUse do rtk no Copilot CLI (reescreve automaticamente comandos shell, ex.: git status -> rtk git status) + injeta instruções no system prompt do Copilot (já aplicado nesta origem) |
 | `copilot plugin install mksglu/context-mode:configs/copilot-cli` | `copilot mcp list` | Registra o context-mode como plugin do Copilot CLI (MCP server + hooks + skill de roteamento ctx-search/ctx-index/etc.) (já aplicado nesta origem) |
 
 Idempotência: rode o `verify` de cada passo ANTES de rodar o `command` — se já
@@ -168,6 +168,7 @@ Esta fase é o critério de sucesso. Execute, não presuma.
 | `rtk` | CLI | `rtk --version` |
 | `context-mode` | CLI | `context-mode doctor` |
 | `ast-grep` | CLI | `ast-grep --version || sg --version` |
+| `codegraph` | CLI | `codegraph --version` |
 | `nvm` | version manager | `nvm --version  # rodar em shell interativa, após carregar o nvm` |
 | `pyenv` | version manager | `pyenv --version` |
 | `bun` | version manager | `bun --version` |

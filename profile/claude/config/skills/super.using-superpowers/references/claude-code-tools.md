@@ -1,4 +1,36 @@
-# Claude Code Native Skills
+# Claude Code Tool Mapping and Native Skills
+
+## Tool mapping
+
+Skills are written in Claude Code tool names, so most need no translation. Subagent dispatch does:
+
+| Skill references | Claude Code equivalent |
+|-----------------|------------------------|
+| a `Subagent (...):` dispatch block / "dispatch a subagent" | the **`Agent`** tool: `subagent_type` (the agent type), `prompt`, `description`, `model`, `run_in_background` |
+| `Subagent (explore):` | `subagent_type: "Explore"` — a **parameter value**, never a tool |
+| `Subagent (general-purpose):` | `subagent_type: "general-purpose"` |
+| `Subagent (read-only):` | `subagent_type: "general-purpose"` with the template's allowed-tools list — the template's prose above the block names what to withhold |
+
+A dispatch that fails with *"No such tool available"* naming an agent type means the type was called as a tool: re-issue it as the `subagent_type` argument above.
+
+**If the tool name differs in your build,** it is the one taking a prompt plus an agent-type parameter. Do not go hunting — if no dispatch tool is in your toolset, say so and continue without subagents rather than spending calls searching (see "Tool discovery is charged against the context window" in `super.using-superpowers/SKILL.md`).
+
+## Resolving `<super.X-base-dir>`
+
+The harness injects the base directory of the skill it just invoked, and only that one. A sibling skill is reached from it:
+
+```bash
+# Your skill context header shows the base directory — use it to build the absolute path:
+node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root "$(git rev-parse --show-toplevel)"
+```
+
+**For a sibling:** parent of your header's base directory + `/super.X`. The skills sit side by side in one directory, so no search is needed and none is warranted.
+
+**Never search for one.** Skill directories usually live under a dotdir (`.claude/skills/`), and glob-style tools commonly skip hidden directories — a search there answers "not found" about a file that is present, which reads as "this environment lacks the script" and ends with a gate silently skipped. A gate script that will not run is a **STOP**: say so and stop, never proceed quietly.
+
+Claude Code substitutes `${CLAUDE_SKILL_DIR}` inside a `SKILL.md` body, which is the same directory. It is **not** substituted in `references/` or `agents/` files — those are read as plain files — so the header rule above is the one that holds everywhere, and it is what the skills are written against.
+
+## Native skills
 
 Claude Code ships native skills that the superpowers flow can fold into its execution and review steps when the user opts in during onboarding. They are **Claude Code only** — Copilot CLI, Codex, and Gemini CLI do not have them and silently ignore the `claude_code:` section of `.superpowers/preferences.yml`.
 

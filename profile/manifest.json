@@ -207,6 +207,20 @@
       "shell_init": null,
       "config_dirs": null,
       "note": "Distribuído como binário pré-compilado via npm — NÃO requer Rust/cargo. Requer node/npm no PATH (já presente com o Claude Code). O pacote instala dois binários: `ast-grep` e o alias `sg`. Detecção usa `ast-grep` porque `sg` colide com o comando nativo do Linux (shadow-utils: run command as group)."
+    },
+    {
+      "name": "codegraph",
+      "source": "https://github.com/colbymchenry/codegraph",
+      "install": {
+        "all": "npm install -g @colbymchenry/codegraph"
+      },
+      "verify": "codegraph --version",
+      "detect": "codegraph",
+      "detect_alt": null,
+      "detect_path": null,
+      "shell_init": null,
+      "config_dirs": null,
+      "note": "Pacote npm `@colbymchenry/codegraph` funciona como bootstrapper: após a instalação o binário se auto-gerencia por versão em `~/.codegraph/versions/`, por isso pode não aparecer em `npm ls -g`. Indexação (`codegraph init`) é por projeto e fica em `.codegraph/` dentro de cada repo — não viaja via dotfiles, é decisão do usuário rodar em cada destino."
     }
   ],
   "version_managers": [
@@ -342,37 +356,37 @@
       "text": "alias fd=\"fdfind\""
     },
     {
-      "line": 139,
+      "line": 150,
       "pattern": "/mnt/c",
       "platform": "wsl_windows",
       "text": "VSCODE_BIN=\"/mnt/c/Users/ike_m/AppData/Local/Programs/Microsoft VS Code/bin\""
     },
     {
-      "line": 140,
+      "line": 151,
       "pattern": "VSCODE_BIN",
       "platform": "wsl_windows",
       "text": "[[ -d \"$VSCODE_BIN\" ]] && path=(\"$VSCODE_BIN\" $path)"
     },
     {
-      "line": 144,
+      "line": 155,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode='bash ~/nice-vscode.sh'"
     },
     {
-      "line": 145,
+      "line": 156,
       "pattern": "nice-vscode",
       "platform": "wsl_windows",
       "text": "alias nice-vscode-restore='bash ~/nice-vscode.sh 0'"
     },
     {
-      "line": 146,
+      "line": 157,
       "pattern": "pastepng",
       "platform": "wsl_windows",
       "text": "alias pscreen='pastepng /tmp/screen.png && echo /tmp/screen.png'"
     },
     {
-      "line": 149,
+      "line": 160,
       "pattern": "/mnt/wslg",
       "platform": "wsl_windows",
       "text": "export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native"
@@ -393,7 +407,7 @@
           "~/.copilot/hooks/rtk-rewrite.json",
           "~/.copilot/copilot-instructions.md"
         ],
-        "applied_here": false
+        "applied_here": true
       },
       {
         "id": "context-mode-copilot-plugin",

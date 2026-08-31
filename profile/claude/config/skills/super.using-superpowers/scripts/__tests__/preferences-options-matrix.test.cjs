@@ -63,26 +63,24 @@ test('FULL option set: every preferences.yml option round-trips write -> read', 
   const root = mkRepo();
   try {
     const input = {
-      workflow: { auto_commit: false, confirm_destructive_actions: false, qa_gate: false },
+      workflow: { auto_commit: false, confirm_destructive_actions: false, qa_gate: false, visual_companion: false },
       communication: { language: 'en-US' },
       copilot: { rubber_duck: true, review_final: true },
       claude_code: { simplify: true, code_review_final: true, code_review_effort: 'high' },
       context: { has_corporate_artifacts: true },
       optimization: { caveman: true, caveman_level: 'wenyan-ultra' },
-      memory: { persistent_memory: true },
       model_tiers: { cheap: 'haiku', standard: 'sonnet', capable: 'opus' },
     };
     const w = write(root, input);
     assert.equal(w.written, true);
     assert.equal(w.roundTripValid, true);
     const r = read(root).preferences;
-    assert.deepEqual(r.workflow, { auto_commit: false, confirm_destructive_actions: false, qa_gate: false });
+    assert.deepEqual(r.workflow, { auto_commit: false, confirm_destructive_actions: false, qa_gate: false, visual_companion: false });
     assert.equal(r.communication.language, 'en-US');
     assert.deepEqual(r.copilot, { rubber_duck: true, review_final: true });
     assert.deepEqual(r.claude_code, { simplify: true, code_review_final: true, code_review_effort: 'high' });
     assert.equal(r.context.has_corporate_artifacts, true);
     assert.deepEqual(r.optimization, { caveman: true, caveman_level: 'wenyan-ultra' });
-    assert.equal(r.memory.persistent_memory, true);
     assert.deepEqual(r.model_tiers, { cheap: 'haiku', standard: 'sonnet', capable: 'opus' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -183,6 +181,7 @@ test('every boolean option round-trips both true and false', () => {
   const BOOLEANS = [
     ['workflow', 'auto_commit'],
     ['workflow', 'qa_gate'],
+    ['workflow', 'visual_companion'],
     ['workflow', 'confirm_destructive_actions'],
     ['copilot', 'rubber_duck'],
     ['copilot', 'review_final'],
@@ -190,7 +189,6 @@ test('every boolean option round-trips both true and false', () => {
     ['claude_code', 'code_review_final'],
     ['context', 'has_corporate_artifacts'],
     ['optimization', 'caveman'],
-    ['memory', 'persistent_memory'],
   ];
   for (const [section, key] of BOOLEANS) {
     for (const value of [true, false]) {

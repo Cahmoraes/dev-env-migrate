@@ -48,6 +48,9 @@
  *   no-server          — no live companion for this project; nothing is owed.
  *   no-screen-rendered — server up, zero real screens ever written. HARD debt: the user
  *                        is staring at an empty browser you told them to open.
+ *   generated-only     — real screens exist but EVERY one of them is generator text cards.
+ *                        HARD debt: the offer promised an artifact worth seeing and the
+ *                        browser only ever showed text a chat message could have carried.
  *   terminal-parked    — newest screen is a waiting/placeholder screen and real screens
  *                        exist. Legitimate: the documented state for a terminal question.
  *   stale-screen       — only with --max-age-seconds: newest real screen is older than
@@ -58,6 +61,15 @@
  * step: 'generated' means render-screen.cjs text cards are on screen, which the Layout gate
  * forbids for any positioning/layout/appearance question. Presence alone reported "current"
  * while a real session answered "bottom sheet vs centered dialog" with 927B of text cards.
+ *
+ * `generated-only` applies the same signal to the WHOLE history instead of the newest file,
+ * and it is the debt axis rather than the layout one: a companion whose every screen is
+ * generated never showed the artifact its offer promised. Measured on a session that opened
+ * the browser for a scope question — five text cards, `renderDebt:false`, `reason:current`,
+ * and a user who had left the terminal to read a numbered list. KNOWN false negative: with
+ * `--reuse`, a bespoke screen left in the content dir by an EARLIER brainstorming on the
+ * same live server counts as history, so it masks the violation. Never a false positive —
+ * a brainstorming that rendered its own bespoke screen has that file in the same dir.
  *
  * pendingAnswer narrows it by a SECOND mechanical step, on the other leg of the loop: the
  * browser is an input device, so a turn can end with an answer sitting unread in the
@@ -93,7 +105,7 @@ const path = require('path')
 // historical placeholder predates the marker and is caught by filename alone, and every one
 // of them is written in the session language (pt-BR "Continuando no terminal…"), so an
 // English-only name list would miss a pt-BR session that names the file `aguardando.html`.
-// New screens carry the marker (documented in visual-companion.md, "The loop" step 6).
+// New screens carry the marker (documented in references/visual-companion.md, "The loop" step 6).
 const PLACEHOLDER_NAME = /^(waiting|placeholder|idle|continuing|aguardando|aguarde|pausa|espera|esperando|continuando)/i
 const PLACEHOLDER_MARKER = 'data-companion-placeholder'
 
@@ -346,6 +358,8 @@ const ACTIONS = {
   'no-server': 'No live companion — nothing owed. Launch it only when you are ready to render.',
   'no-screen-rendered':
     'RENDER DEBT: you told the user to open a URL that shows nothing. Write the screen that justified the companion BEFORE ending this turn — it pre-empts clarifying questions, complexity checkpoints, and consent gates.',
+  'generated-only':
+    'RENDER DEBT: every screen served so far is generator text cards, which a terminal message could have carried. Render the artifact you named when you offered the companion — a bespoke mockup or diagram — or say in-thread that the debt cannot be settled and stop the server.',
   'terminal-parked':
     'Browser is parked on a placeholder while the conversation runs in the terminal. Legitimate — re-render when the next visual decision comes up.',
   'stale-screen':
@@ -381,6 +395,9 @@ function evaluate({ sessionDir, maxAgeSeconds, now, withEvents }) {
 
   let reason
   if (real.length === 0) reason = 'no-screen-rendered'
+  // Before terminal-parked on purpose: parking the browser on a placeholder without ever
+  // having shown the promised artifact is the same unpaid debt, one turn later.
+  else if (real.every((s) => s.kind === 'generated')) reason = 'generated-only'
   else if (newest && newest.placeholder) reason = 'terminal-parked'
   else if (maxAgeSeconds != null && ageSeconds != null && ageSeconds > maxAgeSeconds) reason = 'stale-screen'
   else reason = 'current'
@@ -402,7 +419,7 @@ function evaluate({ sessionDir, maxAgeSeconds, now, withEvents }) {
     newestRealScreen: newestReal ? newestReal.name : null,
     newestScreenKind: newestReal ? newestReal.kind : null,
     ageSeconds,
-    renderDebt: reason === 'no-screen-rendered' || reason === 'stale-screen',
+    renderDebt: reason === 'no-screen-rendered' || reason === 'stale-screen' || reason === 'generated-only',
     pendingAnswer,
     reason,
     action: pendingAnswer ? `${ACTIONS[reason]} ${PENDING_ANSWER_ACTION}` : ACTIONS[reason],
@@ -455,4 +472,7 @@ module.exports = {
   evaluate, listScreens, isPlaceholder, classifyScreen, findLiveSession, isLiveSession, readEvents,
   readConsumed, consumedSubmitsFor,
   EVENTS_FILE, PREV_EVENTS_FILE, CONSUMED_FILE, PENDING_ANSWER_ACTION,
+  // Exported so the prose guard derives the reason list instead of restating it: a new code
+  // added here and documented nowhere is exactly the drift that guard exists to catch.
+  ACTIONS,
 }

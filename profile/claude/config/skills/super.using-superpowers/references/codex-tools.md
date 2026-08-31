@@ -16,7 +16,7 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | `WebSearch` | `web_search` |
 | `WebFetch` | `web_search` (no separate fetch tool) |
 | Image input | `view_image` |
-| `Task` tool (dispatch subagent) | `spawn_agent` — see "Subagent dispatch" |
+| a `Subagent (...):` dispatch block | `spawn_agent` — see "Subagent dispatch" |
 | Multiple `Task` calls (parallel) | Multiple `spawn_agent` calls |
 | Task returns result | `wait_agent` |
 | Task completes automatically | `close_agent` (v1) / `interrupt_agent` (v2) to free the slot |
@@ -83,8 +83,11 @@ File-search tools may not return files inside hidden directories (names starting
 **Preferred — the deterministic script:**
 
 ```bash
+# Your skill context header shows the base directory — use it to build the absolute path:
 node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root "$(git rev-parse --show-toplevel)"
 ```
+
+`<super.X-base-dir>` is never filled in for you: the harness injects the base directory of the skill it just invoked, and only that one. **For a sibling skill:** parent of your header's base directory + `/super.X`. Do not search for it — skill directories live under a dotdir, search skips those, and a false "not found" ends with a gate quietly skipped. A gate script that will not run is a **STOP**.
 
 **Fallback — read the file directly with your native read tool:**
 

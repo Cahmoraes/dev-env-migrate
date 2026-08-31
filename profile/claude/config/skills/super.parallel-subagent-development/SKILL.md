@@ -1,6 +1,6 @@
 ---
 name: super.parallel-subagent-development
-description: Use this skill to execute an implementation plan in PARALLEL — independent tasks run concurrently, each isolated in its own git worktree, dependent tasks stay sequential, then everything integrates into the base branch. Trigger whenever the user wants to parallelize or speed up a plan, run tasks at the same time instead of one-by-one, mentions running tasks in worktrees, says some tasks are independent / disjoint / don't depend on each other, or asks to exploit the parallelism or Execution Waves in a plan — even without naming the skill. Keeps the SAME per-task quality gates as super.subagent-driven-development (fresh implementer + spec review + code-quality review + verification-before-completion), just distributed across worktrees wave by wave. Third execution option offered by super.writing-plans, alongside subagent-driven (sequential) and inline execution. Use super.subagent-driven-development instead only when the plan is a single dependent chain with nothing to parallelize.
+description: "Use this skill to execute an implementation plan in PARALLEL — independent tasks run concurrently, each isolated in its own git worktree. Trigger whenever the user wants to parallelize or speed up a plan, run tasks at the same time instead of one-by-one, mentions running tasks in worktrees, says some tasks are independent / disjoint / don't depend on each other, or asks to exploit the parallelism or Execution Waves in a plan — even without naming the skill. Use super.dispatching-parallel-agents instead for ad-hoc independent work with no written plan. Use super.subagent-driven-development instead only when the plan is a single dependent chain with nothing to parallelize."
 argument-hint: "[path-to-tasks-<feature>.md]"
 ---
 
@@ -14,9 +14,9 @@ It does not replace `super.subagent-driven-development`: it reuses that skill's 
 
 **Announce at start:** "I'm using super.parallel-subagent-development to execute the plan wave by wave."
 
-**Core principle:** Parallelism is only safe across isolated workspaces — two implementers must never edit the same tree at once, so each parallel task gets its own worktree. Every task runs through a **dispatched implementer subagent** (Agent/Task tool) in its worktree, never inline; a single-task (sequential) wave holds exactly like a parallel one, and a lone task is never "small enough to just do" — dispatch it with full per-task gates. If you catch yourself editing a file directly, STOP: inline work bypasses the spec review, code-quality review, model selection, and verification gate this skill enforces.
+**Core principle:** Parallelism is only safe across isolated workspaces — two implementers must never edit the same tree at once, so each parallel task gets its own worktree. Every task runs through a **dispatched implementer subagent** in its worktree, never inline; a single-task (sequential) wave holds exactly like a parallel one, and a lone task is never "small enough to just do" — dispatch it with full per-task gates. If you catch yourself editing a file directly, STOP: inline work bypasses the spec review, code-quality review, model selection, and verification gate this skill enforces.
 
-> **Entry-only material lives in `./references/entry-and-integration.md`** — election-time tier guard, routing decision tree, `parallelizable: false` handling, workflow-skill integration list. Read once when electing this skill; a resumed run does not need it, and keeping it out holds Red Flags inside the 20k window.
+> **Entry-only material lives in `./references/entry-and-integration.md`** — election-time tier guard, routing tree, `parallelizable: false`, workflow-skill list.
 
 ## Process
 
@@ -33,11 +33,13 @@ node <super.subagent-driven-development-base-dir>/scripts/parse-tasks.cjs --task
 
 **Both parsers go in this one call** — same index, neither consumes the other's output; splitting costs a round trip and buys nothing.
 
-`parse-waves.cjs`'s JSON gives `waves` (execution order; inner entries run in parallel), `waveKinds` (per-wave, 1:1 with `waves`: `"parallel"`/`"sequential"`), `parallelizable`, `maxParallelWave`, and per-task `dependsOn`. `parse-tasks.cjs`'s gives the tasks already `[x]` (session resume) and index/file mismatches — skip completed tasks.
+> **Election guard:** `executionRecommendation.decisionRequired: true` with no upstream election → present the three options and wait. *"In parallel"* names two modes, so it names none.
 
-### Step 2: Memory gate + caveman
+`parse-waves.cjs`'s JSON gives `waves`, `waveKinds` (per-wave, 1:1 with `waves`: `"parallel"`/`"sequential"`), and per-task `dependsOn`. `parse-tasks.cjs`'s gives the tasks already `[x]` (session resume) and index/file mismatches — skip completed tasks.
 
-Same policy as `super.subagent-driven-development` — apply it, don't reinvent it. Memory and caveman come from `.superpowers/preferences.yml`, so **honor whatever the user configured there** (caveman on/off, its level, memory enabled).
+### Step 2: Caveman
+
+Same policy as `super.subagent-driven-development` — apply it, don't reinvent it. Caveman comes from `.superpowers/preferences.yml`, so **honor whatever the user configured there** (on/off, and its level).
 
 - **Session State Re-Entry Guard — run this FIRST, before the two gates below.** It restores **ALL** session variables, not just caveman. Unconditionally re-derive the **entire** set in one deterministic call per `super.subagent-driven-development/SKILL.md`, "Session State Re-Entry Guard" section — never first check whether the variables are still known: a wiped flag reverted to `false` is indistinguishable from one the user deliberately disabled. Restoring only caveman is the silent-drop bug where `/simplify` and the final `/code-review` default off after a resume:
   ```bash
@@ -58,8 +60,6 @@ Same policy as `super.subagent-driven-development` — apply it, don't reinvent 
 
   If `workflow.auto_commit` is `true` or the file is absent (`found: false`), proceed without asking.
 
-- **Memory gate** (only if `session_memory_enabled = true`): verify planning artifacts were persisted (`pmem search "<feature-name>"`); if absent, run the persistence procedure before dispatching. See `super.subagent-driven-development/SKILL.md`, "Memory Gate Check" section.
-
 - **Caveman** — run before dispatching any implementer:
   1. **State check (idempotent).** If `session_caveman_active = true` **and `session_caveman_in_effect = false`**, invoke `/caveman <session_caveman_level>` now and set `session_caveman_in_effect = true`; if already in effect (activated at the gate or re-activated post-compaction), **do not re-invoke**. Keep it active through every wave (implementers, spec and code-quality reviewers, QA gate) and propagate the caveman block into **every** subagent prompt you dispatch, so each parallel-worktree implementer runs at the **same** level. **Render the block deterministically — never hand-assemble it** (a parallel wave fans out many prompts at once, so one hand-fill mistake multiplies across the wave): `node <super.using-superpowers-base-dir>/scripts/render-caveman-block.cjs --active <session_caveman_active> --level <session_caveman_level>` and paste its `block` field verbatim. If instead `session_caveman_active = false` and `session_caveman_prompted = false`, you may ask the dynamic question once (see `super.using-superpowers` Caveman Mode). Deactivate caveman ("normal mode"), resetting `session_caveman_in_effect = false`, only before invoking `super.finishing-a-development-branch`.
 
@@ -69,7 +69,7 @@ Same policy as `super.subagent-driven-development` — apply it, don't reinvent 
 
 ### Step 3: Confirm the base branch and worktree strategy
 
-Parallel work spawns worktrees off the **base branch** — where the integrated result lands, so where the whole feature ultimately commits. Before the first wave, run the same deterministic check as the sequential skill's "Branch Guard" section (skip on resume, when a wave is already integrated):
+Parallel work spawns worktrees off the **base branch** — where the integrated result lands, so where the whole feature ultimately commits. Before the first wave, run the same deterministic check as the sequential skill's "Branch Guard" section, on **every** session, resume included: what a resume skips is the *question*, not the *check*, and it skips it because the branch came back non-default — never because a wave was already integrated. A resume already sitting on the default branch is what this gate is for:
 
 ```bash
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -80,7 +80,7 @@ echo "current=$BRANCH default=${DEFAULT:-<none>}"
 
 If `BRANCH` is `main`/`master` or equals `DEFAULT`, **STOP and ask the user** before spawning any worktree — offer to create a feature branch (`git checkout -b <feature-name>`) or to integrate onto the default branch with their explicit consent.
 
-Read `./references/integrating-worktrees.md` before the first parallel wave — it defines per-task worktree creation, integration/merge order, conflict handling, and the sandbox fallback. Creation defers to `super.using-git-worktrees` (native tool first, `git worktree add` fallback), once per parallel task.
+Read `./references/integrating-worktrees.md` before the first parallel wave — it defines per-task worktree creation, integration/merge order, conflict handling, and the sandbox fallback. Per-task worktrees are created with `git worktree add` off the base branch, named `wt/<feature>-task-NN` — **not** with a native session worktree tool, which makes one tree and moves *you* into it.
 
 ### Step 4: Execute wave by wave
 
@@ -90,10 +90,14 @@ For each wave, in order. **Branch strictly on `waveKinds[i]`** — that field, n
 
 **Single-task wave (`waveKinds[i] === "sequential"`):** Run it exactly like `super.subagent-driven-development` runs a task — current working tree, no worktree. Set `Status: IN_PROGRESS`, then **run the same mandatory dispatch pre-flight** (`validate-dispatch.cjs` on a one-agent manifest carrying this task's `tier` + resolved `model` — a lone-agent manifest still fires the tier↔model gate; `single_agent` is only a warning, not an error) before dispatching. **A single-task wave is where the tier drifts up to the controller's own model**, so the pre-flight matters most here. Once `valid:true`, dispatch the implementer with full task + PRD + Spec context, run spec review → code quality review → `super.verification-before-completion`, then mark `[x]` / `DONE` on disk.
 
-**Multi-task wave (`waveKinds[i] === "parallel"`):** Run the tasks concurrently, each isolated (worktrees mandatory here per the invariant). **Read `./references/wave-execution.md` and follow it** — it carries the exact script invocations, the PRD/Spec guard, the pre-merge gate, and the BLOCKED/failed-review handling (review-loop cap, route bugs to `super.systematic-debugging`, never block independent siblings). The ordered steps:
+**Multi-task wave (`waveKinds[i] === "parallel"`):** Run the tasks concurrently, each isolated (worktrees mandatory here per the invariant). **Read `./references/wave-execution.md` and follow it** — it carries the exact script invocations, the PRD/Spec guard, the pre-merge gate, and the BLOCKED/failed-review handling (review-loop cap, route bugs to `super.systematic-debugging`, never block independent siblings).
+
+> **Read∩write pre-flight (mandatory, before any status flip or worktree):** `node <super.parallel-subagent-in-tree-base-dir>/scripts/check-wave-disjoint.cjs --tasks-index <path> --tasks <wave task numbers>`. Worktrees neutralize `writeOverlap`, **not `readWriteHazard`**: a task reading what a sibling creates in another worktree gets the stale version and still merges clean. Non-empty `readWriteHazards` → **STOP**, serialize those tasks in dependency order.
+
+The ordered steps:
 1. **Set status** — set every task's `task-NN.md` to `**Status:** IN_PROGRESS` on disk before dispatching (`mark-task-status.cjs`).
-2. **One worktree per task** — branch off the base branch, each with its own setup, allocated port block + clean baseline (see `./references/integrating-worktrees.md`). Once all exist, audit them together (`allocate-ports.cjs --check`): overlapping blocks are a **STOP**, since siblings would then collide on `EADDRINUSE` and report it as a task bug.
-3. **Dispatch implementers in parallel** — one per task, pinned to its worktree, carrying the full task + PRD + Spec. **Dispatch pre-flight (mechanical model/tier gate — mandatory, run first):** build a dispatch manifest (`modelTiers` from preferences `model_tiers`; one agent per task with its `label`, resolved `model`, written `tier`, `writeFiles`; add `escalationReason` only for an escalation-ladder re-dispatch) and run `node <super.dispatching-parallel-agents-base-dir>/scripts/validate-dispatch.cjs --dispatch <manifest.json>` — its `--help` prints a fill-in manifest skeleton, so never read its source for the shape — **do not dispatch while `valid:false`**. `tier_model_mismatch` = a `model:` drifted off its written tier with no recorded escalation (correct it to the tier's resolution); `empty_model`/`missing_field` = omitted model; `write_conflict` = two tasks share a file. This is the deterministic backstop for Step 2's gate. Then, once `valid:true`: PRD/Spec guard (`**Spec:**` must resolve on disk or stop; `**PRD:**` `N/A` is valid), base prompt `super.subagent-driven-development/agents/implementer.md` + the worktree scoping block from `./agents/implementer.md`. Each implements, tests, commits inside its worktree, then self-reviews.
+2. **One worktree per task** — branch off the base branch, each with its own setup + clean baseline (see `./references/integrating-worktrees.md`). Never audit the port blocks by hand: the step-3 pre-flight does it. `port_block_overlap` is a **STOP** — siblings would collide on `EADDRINUSE` and report it as a task bug.
+3. **Dispatch implementers in parallel** — one per task, pinned to its worktree, carrying the full task + PRD + Spec. **Dispatch pre-flight (mechanical model/tier gate — mandatory, run first):** build a dispatch manifest (`modelTiers` from preferences `model_tiers`; one agent per task with its `label`, resolved `model`, written `tier`, `writeFiles`, `readFiles` from its `Read:` lines, `workspace` = its worktree path; add `escalationReason` only for an escalation-ladder re-dispatch) and run `node <super.dispatching-parallel-agents-base-dir>/scripts/validate-dispatch.cjs --dispatch <manifest.json>` — its `--help` prints a fill-in manifest skeleton, so never read its source for the shape — **do not dispatch while `valid:false`**. `tier_model_mismatch` = a `model:` drifted off its written tier with no recorded escalation (correct it to the tier's resolution); `empty_model`/`missing_field` = omitted model; `write_conflict` = two tasks write one file; `read_write_hazard` = one reads what another writes. This is the deterministic backstop for Step 2's gate. Then, once `valid:true`: PRD/Spec guard (`**Spec:**` must resolve on disk or stop; `**PRD:**` `N/A` is valid), base prompt `super.subagent-driven-development/agents/implementer.md` + the worktree scoping block from `./agents/implementer.md`. Each implements, tests, commits inside its worktree, then self-reviews.
 4. **Two-stage review per task** — spec compliance reviewer then code quality reviewer against the worktree diff (`spec-reviewer.md`, `code-quality-reviewer.md`); loops stay in the worktree, can run concurrently across the wave. Per-task **`reviewShape`** from `parse-waves.cjs` scales this: `combined` dispatches one reviewer fusing both lenses (`combined-reviewer.md`) instead of the pair, `none` skips the dedicated reviewers — see "Review cost control" in `super.subagent-driven-development`. **A reviewer's `model:` floors at `standard`**: a `cheap` task is reviewed one family up, never by the tier that wrote it.
 5. **Integrate** — run `check-integration.cjs` before touching the base branch; merge **only if** `readyToIntegrate: true`, then integrate one at a time in its `mergeOrder`. Sequential by design.
 6. **Verify the merged result** — run `super.verification-before-completion` against the **base branch** (full suite), not just per-worktree results.

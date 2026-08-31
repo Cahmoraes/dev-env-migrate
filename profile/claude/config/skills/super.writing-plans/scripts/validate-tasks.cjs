@@ -198,6 +198,9 @@ const REQUIRED_HEADERS = [
   { label: '**Depends on:**', pattern: /^\*\*Depends on:\*\*/mu },
 ];
 
+/** Recommended, not required — see the warning where it is used. */
+const TIER_FIELD = /^\*\*Tier:\*\*\s*(cheap|standard|capable)\s*$/imu;
+
 // A task references the curated mockup via the "### Fidelidade Visual" subsection
 // (## or ### heading). This is the marker the writing-plans template emits.
 const VISUAL_LINK_PATTERN = /^#{2,3}\s+Fidelidade Visual\b/imu;
@@ -324,6 +327,19 @@ function validateTaskFiles(parsedTasks, bodies, errors, warnings) {
         record.missingHeaders.push(header.label);
         errors.push({ line: task.lineNumber, message: `Task file ${task.taskFile} is missing the required ${header.label} header.` });
       }
+    }
+
+    // `**Tier:**` is RECOMMENDED, not required: writing-plans allows omitting it, and the
+    // executor falls back to parse-waves' `suggestedTier`. But nothing used to say so at
+    // plan time, so plans shipped without it and the execution skill went on claiming
+    // "each task carries a **Tier:**". A warning names the gap where it is cheap to fix —
+    // in the plan — instead of leaving the executor to discover it per dispatch.
+    record.tierPresent = TIER_FIELD.test(body);
+    if (!record.tierPresent) {
+      warnings.push({
+        line: task.lineNumber,
+        message: `Task file ${task.taskFile} has no **Tier:** header — the executor will fall back to parse-waves' suggestedTier. Write it explicitly (cheap | standard | capable) so the tier is auditable in the plan rather than recomputed at dispatch.`,
+      });
     }
 
     record.visualLinked = VISUAL_LINK_PATTERN.test(body);

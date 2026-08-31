@@ -32,10 +32,10 @@
  * Prose-only would rot: the two halves are worth nothing apart, and one skill quietly
  * dropping the sentence is invisible. This sweep pins it.
  *
- * BLOCKED is the tracked-debt half, and it is self-expiring. Three skills carry a
- * cross-skill placeholder and are within a few hundred characters of the 20.000-char
+ * BLOCKED is the tracked-debt half, and it is self-expiring. A skill carries a
+ * cross-skill placeholder and sits within a few hundred characters of the 20.000-char
  * compaction cap, where adding the sentence would push load-bearing content out of the
- * window — a worse trade than the gap it closes. Each entry records that, and the test
+ * window — a worse trade than the gap it closes. The entry records that, and the test
  * asserts the claim is STILL TRUE: compress one of those files and this fails, demanding
  * the sentence be added rather than letting the exemption outlive its reason.
  *
@@ -71,6 +71,19 @@ const COVERED = [
   'super.parallel-subagent-in-tree',
   'super.finishing-a-development-branch',
   'super.reviewing-specs',
+  'super.writing-plans',
+  // Was BLOCKED on budget until 2026-08-11. Two things closed it: the feature index moved
+  // out of SKILL.md into the recall subagent, and the compaction-layout rationale — which
+  // governs how WE arrange the file and does nothing at runtime — moved to the dev-only
+  // CLAUDE.md. The exemption expired the moment the room existed, which is what the
+  // still-true assertion below exists to force.
+  //
+  // Worth keeping from that entry: this sweep reads SKILL.md ONLY, and the cross-skill call
+  // that actually misfired lived in a reference (research-fan-out.md, the lessons.py load).
+  // Two measured sessions collapsed it into the brainstorming base-dir and spent 2-3 calls
+  // hunting the file. That class is pinned by base-dir-collapse.test.cjs, which does sweep
+  // references — this sentence is the upstream rule, not a replacement for it.
+  'super.brainstorming',
 ];
 
 /**
@@ -79,21 +92,6 @@ const COVERED = [
  * `reason` — why the exemption is the better trade today, not an approval of the gap.
  */
 const BLOCKED = {
-  'super.brainstorming': {
-    reason:
-      'A cross-skill placeholder appears inside the checklist, but the file sits under the '
-      + 'cap with ~114 chars to spare and its await-never-poll guard is already the last '
-      + 'thing inside the window (await-not-poll.test.cjs pins that). Adding CANON pushes '
-      + 'that guard out — trading a resume-time poll for a lookup rule the checklist rarely '
-      + 'needs. Close by compressing the checklist, then move this skill into COVERED.',
-  },
-  'super.writing-plans': {
-    reason:
-      'Its only cross-skill call is parse-waves.cjs, which is advisory: a failure degrades '
-      + 'wave detection, it does not skip a quality gate, and the STOP half would therefore '
-      + 'be overbroad here. With ~72 chars of headroom the sentence would displace real '
-      + 'content to protect the weakest case in the set.',
-  },
   'super.user-story-verification': {
     reason:
       'Tightest file in the set (~41 chars of headroom). Its cross-skill call is PRD '
@@ -204,3 +202,44 @@ for (const [skill, entry] of Object.entries(BLOCKED)) {
     );
   });
 }
+
+/*
+ * A second failure mode of the same placeholder, found by simulating a real entry into
+ * super.subagent-driven-development against a consumer's tasks index.
+ *
+ * The controller resolved all six `<super.X-base-dir>` placeholders correctly and ran all
+ * six commands. Then it flagged, unprompted, two commands that carried NO placeholder:
+ *
+ *     node scripts/parse-tasks.cjs --tasks-index <path>
+ *     node scripts/setup-qa-tsconfig.cjs --ensure-templates ...
+ *
+ * A bare relative `scripts/` path only resolves when the process cwd is the skill's own
+ * directory. It never is: the cwd is the repository being worked on. So the command is
+ * wrong wherever it is pasted, and — unlike an unresolved placeholder, which at least looks
+ * unfinished — it looks perfectly runnable. It fails with ENOENT, which reads as "the script
+ * is missing from this environment" rather than "the path was built wrong".
+ *
+ * Scope is SKILL.md: that is the copy the model has in context while executing, and the copy
+ * it pastes from. A prose MENTION of a filename (`see \`scripts/foo.cjs\``) is left alone —
+ * it names a file, it does not hand over a command.
+ */
+test('no SKILL.md hands over a runnable command with a bare relative scripts/ path', () => {
+  const INVOCATION = /(?:^|[\s`>|(])(node|python3|python|sh|bash)\s+scripts\//gm;
+  const offenders = [];
+  for (const dir of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
+    const abs = path.join(SKILLS, dir, 'SKILL.md');
+    if (!fs.existsSync(abs)) continue;
+    const lines = fs.readFileSync(abs, 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      INVOCATION.lastIndex = 0;
+      if (INVOCATION.test(line)) offenders.push(`${dir}/SKILL.md:${i + 1}: ${line.trim().slice(0, 90)}`);
+    });
+  }
+  assert.deepEqual(
+    offenders, [],
+    'a relative `scripts/` path resolves only if the cwd is the skill directory, and it never '
+    + 'is — the cwd is the repo being worked on. Qualify it with the skill\'s own '
+    + '`<super.X-base-dir>` placeholder, the same form used for a sibling. This fails as '
+    + 'ENOENT, which the model reads as a missing script rather than a bad path.',
+  );
+});

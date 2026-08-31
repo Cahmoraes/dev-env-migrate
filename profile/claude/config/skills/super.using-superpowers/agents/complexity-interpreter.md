@@ -27,7 +27,7 @@ behavior is unchanged. Per-platform tool names:
 `super.using-superpowers/references/*-tools.md`.
 
 ```
-Task tool — read-only subagent (tools: file reading, searching and shell — read-only):
+Subagent (read-only):
   description: "Derive complexity signals for checkpoint N"
   model: [REQUIRED — semantic interpretation of an under-specified request is a
           `capable`-tier job (judgment, no spec, high fan-in). Resolve per

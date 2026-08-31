@@ -36,10 +36,8 @@ stateDiagram-v2
     [*] --> ChecandoPreferencias
     state "⚙️ Checando Preferências" as ChecandoPreferencias
     ChecandoPreferencias --> Onboarding : preferencias ausentes
-    ChecandoPreferencias --> GateResync : preferencias carregadas AND session_memory_enabled
-    ChecandoPreferencias --> Triagem : preferencias carregadas AND NOT session_memory_enabled
-    Onboarding --> GateResync : preferencias salvas AND session_memory_enabled
-    Onboarding --> Triagem : preferencias salvas AND NOT session_memory_enabled
+    ChecandoPreferencias --> Triagem : preferencias carregadas
+    Onboarding --> Triagem : preferencias salvas
 
     state "🛠️ Onboarding" as Onboarding {
         direction TB
@@ -60,31 +58,6 @@ stateDiagram-v2
         ▪ outras plataformas pulam os steps que nao se aplicam
           (secao YAML ignorada)
     end note
-
-    state "🔄 Gate Re-Sync (Memória)" as GateResync {
-        direction TB
-        [*] --> DetectandoMudancas
-        state "🔍 Detectando Mudanças" as DetectandoMudancas
-        state "❓ Perguntando Re-Sync" as PerguntandoResync
-        state "🧠💾 Sincronizando Memória" as SincronizandoMemoria
-        state "🔁 Checando Drift de Embeddings" as ChecandoDriftEmbeddings
-        DetectandoMudancas --> ChecandoDriftEmbeddings : nenhuma mudanca (skip 2-3; Step 4 roda sempre)
-        DetectandoMudancas --> PerguntandoResync : mudancas detectadas em docs/superpowers
-        PerguntandoResync --> SincronizandoMemoria : usuario aceita re-sync
-        PerguntandoResync --> ChecandoDriftEmbeddings : usuario recusa re-sync (Step 4 ainda roda)
-        SincronizandoMemoria --> ChecandoDriftEmbeddings : sync concluido
-        ChecandoDriftEmbeddings --> [*] : embedding-status ok, ou reembed aplicado/declinado
-    }
-    note right of GateResync
-        ▪ entry: dirty check via check-resync.cjs
-          (artifact content fingerprint, NUNCA git tree/commit hash —
-          nao reconstruir a mao)
-        ▪ Step 4 (drift de embeddings) roda SEMPRE, ortogonal ao dirty:
-          pmem embedding-status; se stale, oferece reembed
-        ▪ exit: session_resync_completed = true
-    end note
-
-    GateResync --> Triagem : gate concluido
 
     %% ===================== TRIAGEM (hub de decisao) =====================
     state "🧭 Triagem" as Triagem
@@ -184,8 +157,8 @@ stateDiagram-v2
           quem chamou decide o retorno, RevisandoSpec nao muda
     end note
     note right of Explorando
-        ▪ entry: memory recall se session_memory_enabled
-          (super.persistent-memory search)
+        ▪ entry: indice de historico de features (feature-index.cjs,
+          derivado de docs/superpowers/ na hora — sem store, sem sync)
         ▪ do: analise arquitetural via references sob demanda
           (caracteristicas priorizadas, componentes logicos,
           trade-offs, riscos)
@@ -194,6 +167,9 @@ stateDiagram-v2
           folhas); flat para mudancas triviais/reversiveis
         ▪ exit: spec com Caracteristicas Arquiteturais + Decisoes
           (ADR-lite) + Riscos
+        ▪ do: a oferta do visual-companion e gateada por
+          workflow.visual_companion (default true) — false pula
+          o companion em silencio, sem pergunta de consentimento
         ▪ exit: se houve mockup aprovado, artefato visual curado em
           specs/mockups/&lt;feature&gt;-visual.md + secao
           Especificacao Visual (super.brainstorming visual-companion)
@@ -211,8 +187,6 @@ stateDiagram-v2
     Executando --> RevisandoSpec : opcao 0 do mesmo handoff, agora a partir de tasks ja existentes (triagem opcao 5) — mesma revisao, path da spec resolvido via featureName
     RevisandoSpec --> Executando : retorno do handoff de execucao (opcao 0, de qualquer origem): sem mudanca nas tasks (nada a aplicar, achados recusados, ou relatorio salvo p/ depois) — reapresenta as 3 opcoes com a mesma recomendacao
     note right of Planejando
-        ▪ exit: memory persist se session_memory_enabled
-          (super.persistent-memory add)
         ▪ exit: Execution Waves derivadas do campo "Depends on"
           via parse-waves.cjs
         ▪ exit (Large): consolidation judgment call antes de travar
@@ -378,7 +352,7 @@ stateDiagram-v2
           state prova que os testes matam regressoes
         ▪ QA (user-observable) NUNCA entra aqui — gate opt-in
           separado em todos os tiers, so roda com consentimento
-        ▪ FAIL: registra licao (lessons.py, nao pmem), entao o
+        ▪ FAIL: registra licao (lessons.py), entao o
           controlador decide por complexidade (corrige inline OU
           delega subagent)
     end note
@@ -408,30 +382,17 @@ stateDiagram-v2
         state "📬 Pull Request" as PullRequest
         state "📌 Manter Branch" as Manter
         state "🗑️ Descartar" as Descartar
-        state "🧠💾 Re-Sync Final (feature)" as ResyncFinal
         TestesVerificados --> ApresentandoOpcoes
         ApresentandoOpcoes --> Merge
         ApresentandoOpcoes --> PullRequest
         ApresentandoOpcoes --> Manter
         ApresentandoOpcoes --> Descartar
-        Merge --> ResyncFinal : session_memory_enabled
-        PullRequest --> ResyncFinal : session_memory_enabled
-        Manter --> ResyncFinal : session_memory_enabled
     }
-    note right of Finalizando
-        ▪ Step 8 (ResyncFinal): automatico, escopo = SO a feature concluida
-          (compute-inventory.cjs --feature <slug> a partir do repo principal)
-        ▪ nao pergunta: a preferencia memory.persistent_memory ja e o consentimento;
-          o Gate Re-Sync de entrada continua perguntando (pode trazer feature de terceiros)
-        ▪ Descartar NUNCA sincroniza, e este gate nunca faz prune
-        ▪ nao bloqueante: falha vira 1 linha; o gate de entrada re-detecta na proxima sessao
-    end note
 
-    Merge --> [*] : memoria desativada
-    PullRequest --> [*] : memoria desativada
-    Manter --> [*] : memoria desativada
+    Merge --> [*]
+    PullRequest --> [*]
+    Manter --> [*]
     Descartar --> [*]
-    ResyncFinal --> [*]
 
     %% ===================== ESTILO / CATEGORIAS =====================
     classDef legendClass fill:#1F2937,stroke:#6B7280,stroke-width:1px,stroke-dasharray:4 3,color:#E5E7EB
@@ -446,7 +407,7 @@ stateDiagram-v2
     classDef debug fill:#9F1239,stroke:#FDA4AF,stroke-width:2px,color:#FFF1F2
     classDef terminal fill:#374151,stroke:#9CA3AF,stroke-width:2px,color:#F9FAFB
 
-    class ChecandoPreferencias,GateResync,ResyncFinal,GateQA,GateDisjuncao,VerificacaoIndependente,RegistrandoLicao gate
+    class ChecandoPreferencias,GateQA,GateDisjuncao,VerificacaoIndependente,RegistrandoLicao gate
     class Triagem,PerguntaDeAbertura,EscolhendoModo,ApresentandoOpcoes,DecideCorrecao hub
     class Pesquisando,Explorando,Formalizando,Planejando,Executando,Finalizando nominal
     class RevisandoSpec,Onboarding optional

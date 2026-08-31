@@ -172,7 +172,7 @@ flowchart LR
 
 ```bash
 # Generate with full error recovery
-python scripts/resilient_diagram.py \
+python <super.design-doc-mermaid-base-dir>/scripts/resilient_diagram.py \
     --code "flowchart TD; A-->B" \
     --markdown-file design_doc \
     --diagram-num 1 \
@@ -199,7 +199,7 @@ File-naming convention (`./diagrams/<markdown_file>_<num>_<type>_<title>.{mmd,pn
 5. Generate Mermaid code using templates
 6. Execute resilient workflow:
    ```bash
-   python scripts/resilient_diagram.py \
+   python <super.design-doc-mermaid-base-dir>/scripts/resilient_diagram.py \
        --code "[generated code]" \
        --markdown-file design_doc \
        --diagram-num 1 \
@@ -232,7 +232,7 @@ docs/superpowers/<feature>/specs/
 A diagram inside a spec is frequently consumed by another agent/model in the pipeline (PRD generation, plan writing, review), not opened as an image by a human. For that case, use `--no-image`: the script still validates the Mermaid syntax via `mmdc` (rendering to a discarded temp file), but persists **only the `.mmd`** — no PNG.
 
 ```bash
-python scripts/resilient_diagram.py \
+python <super.design-doc-mermaid-base-dir>/scripts/resilient_diagram.py \
     --code "flowchart TD; A[Client] --> B[API]" \
     --markdown-file account-profile-edit-design \
     --diagram-num 1 \
@@ -276,16 +276,16 @@ Common symbols: 👤 user, 🌐 gateway/load-balancer, ⚙️ service/worker, �
 
 ```bash
 # List all diagrams
-python scripts/extract_mermaid.py document.md --list-only
+python <super.design-doc-mermaid-base-dir>/scripts/extract_mermaid.py document.md --list-only
 
 # Extract to separate files
-python scripts/extract_mermaid.py document.md --output-dir diagrams/
+python <super.design-doc-mermaid-base-dir>/scripts/extract_mermaid.py document.md --output-dir diagrams/
 
 # Validate all diagrams
-python scripts/extract_mermaid.py document.md --validate
+python <super.design-doc-mermaid-base-dir>/scripts/extract_mermaid.py document.md --validate
 
 # Replace with image references (for Confluence upload)
-python scripts/extract_mermaid.py document.md --replace-with-images \
+python <super.design-doc-mermaid-base-dir>/scripts/extract_mermaid.py document.md --replace-with-images \
   --image-format png --output-markdown output.md
 ```
 
@@ -293,17 +293,17 @@ python scripts/extract_mermaid.py document.md --replace-with-images \
 
 ```bash
 # Single conversion
-python scripts/mermaid_to_image.py diagram.mmd output.png
+python <super.design-doc-mermaid-base-dir>/scripts/mermaid_to_image.py diagram.mmd output.png
 
 # With custom settings
-python scripts/mermaid_to_image.py diagram.mmd output.svg \
+python <super.design-doc-mermaid-base-dir>/scripts/mermaid_to_image.py diagram.mmd output.svg \
   --theme dark --background white --width 1200
 
 # Batch convert directory
-python scripts/mermaid_to_image.py diagrams/ output/ --format png --recursive
+python <super.design-doc-mermaid-base-dir>/scripts/mermaid_to_image.py diagrams/ output/ --format png --recursive
 
 # From stdin
-echo "graph TD; A-->B" | python scripts/mermaid_to_image.py - output.png
+echo "graph TD; A-->B" | python <super.design-doc-mermaid-base-dir>/scripts/mermaid_to_image.py - output.png
 ```
 
 ## Decision Tree Examples

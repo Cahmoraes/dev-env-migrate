@@ -1,7 +1,7 @@
 ---
 name: super.deep-research
 description: "Optional upfront research stage of the superpowers pipeline. Use BEFORE designing when the user wants deep, multi-source investigation — state of the art, technology comparisons, library/approach trade-offs, fact-checked findings on a topic — so the brainstorming and design that follow are grounded in evidence. Persists a cited research artifact and hands off to super.brainstorming. Runs ahead of brainstorming and is reachable as its own path from triage."
-argumentHint: "[optional: the topic or question to research]"
+argument-hint: "[optional: the topic or question to research]"
 ---
 
 # Deep Research
@@ -33,16 +33,13 @@ A single persisted artifact: `docs/superpowers/<feature>/research/research-<feat
 - The artifact carries `created_at` / `updated_at` frontmatter in ISO 8601 with offset, generated deterministically from the host clock.
 - `super.brainstorming` reuses this slug when `docs/superpowers/<feature>/research/` already exists, consuming the artifact as a high-priority input — skipping research it would otherwise duplicate.
 
-> **Memory note:** research is an *input*, not a decision — excluded from the GateResync fingerprint, so editing or regenerating it never marks memory dirty (see Constraint 4).
-
 ## Constraints
 
 <law>
 1. Stay inside the internal superpowers flow. NEVER enter platform-native plan mode (EnterPlanMode / ExitPlanMode / `/plan`) from this skill.
 2. NEVER invoke a platform-native research slash command (e.g. `/deep-research`, `/research`) from this procedure — slash commands are user-initiated only. Invoking native research as a *skill* via the platform skill mechanism IS allowed where supported (see the per-platform table in references/research-execution.md) — that is a skill call, not a slash command.
 3. NEVER scaffold projects, write implementation code, or take any implementation action. This stage only investigates and persists a research artifact, then hands off.
-4. Research is excluded from the GateResync fingerprint. Do not add `research/` to any memory inventory or manifest.
-5. Degrade gracefully. If research / web tools are unavailable or out of quota, do NOT block the session — record the limitation in the artifact and proceed with what you have.
+4. Degrade gracefully. If research / web tools are unavailable or out of quota, do NOT block the session — record the limitation in the artifact and proceed with what you have.
 </law>
 
 ## Procedure

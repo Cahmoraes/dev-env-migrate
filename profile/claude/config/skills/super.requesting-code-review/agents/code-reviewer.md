@@ -9,7 +9,7 @@ Use this template when dispatching a code reviewer subagent.
 > **Read-only is about the WRITE, not the tool — and `Bash` is a write tool.** Withholding Edit/Write does not make a reviewer read-only while it holds a shell: a measured run had a reviewer run `lint:fix` and reformat the repo mid-review. So the reviewer's shell is restricted to commands that only observe — no `lint:fix`/`format`/`--write`/`--fix`, no `build` or codegen, no dependency install, no `git add`/`commit`/`checkout`/`stash`/`restore`. A reviewer that mutates invalidates its own verdict (it is no longer reviewing the diff it was given). Findings are **reported**, never applied — the controller dispatches a fresh implementer to fix them. `Bash` is required here for read-only git inspection (`git diff`, `git diff --stat` over `BASE_SHA`/`HEAD_SHA`). If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
 
 ```
-Task tool — read-only subagent (tools: file reading, searching and shell — read-only):
+Subagent (read-only):
   description: "Review code changes"
   prompt: |
     You are a Senior Code Reviewer with expertise in software architecture,

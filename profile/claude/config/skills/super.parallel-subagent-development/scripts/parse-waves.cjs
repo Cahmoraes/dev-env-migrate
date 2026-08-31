@@ -26,8 +26,8 @@
  *     "maxParallelWave": number,  // size of the largest wave
  *     "waveCount": number,
  *     "executionRecommendation": { // which mode to tag (recommended) in the handoff
- *                                  //   mode, optionNumber, confidence,
- *                                  //   decisionRequired, signals[], alternatives[] }
+ *                                  //   mode, optionNumber, confidence, decisionRequired,
+ *                                  //   signals[], couplingCheck, alternatives[] }
  *     "tasks": Task[],            // { number, file, dependsOn, fanIn, specPresent,
  *                                 //   fileCount, explicitTier, criticalSurfaceBody,
  *                                 //   suggestedTier, tierSignals,
@@ -347,10 +347,13 @@ function deriveReviewShape(task) {
  *   - No parallelizable wave → `subagent-driven` (option 1). The parallel modes
  *     would run everything in order anyway, so the per-task review checkpoint is
  *     strictly best. `decisionRequired` false, confidence high.
- *   - At least one parallel wave → a PARALLEL mode. Default to `parallel-subagent`
- *     (option 3, worktrees): it is the parallel mode that is safe regardless of
- *     write-set disjointness (hard isolation per task). Recommending option 1
- *     here would discard the wall-clock gain the structure offers.
+ *   - At least one parallel wave whose own tasks are decoupled → a PARALLEL mode.
+ *     Default to `parallel-subagent` (option 3, worktrees): the parallel mode that
+ *     holds regardless of write-set OVERLAP (hard isolation per task). Recommending
+ *     option 1 here would discard the wall-clock gain the structure offers.
+ *   - At least one parallel wave holding a high-fan-in task → `subagent-driven`
+ *     (option 1). The cascade risk is decidable from the same graph, so it is
+ *     settled here rather than re-asked downstream. `couplingCheck` records it.
  *
  * The ONE thing the waves cannot decide is in-tree (option 2) vs worktrees
  * (option 3): in-tree is only safe when the wave's tasks write disjoint files,
@@ -365,6 +368,8 @@ function deriveReviewShape(task) {
  *   confidence       — high (clear call) | medium (thin parallelism)
  *   decisionRequired — true → planner may refine the in-tree/worktrees pick
  *   signals          — why, in plain terms
+ *   couplingCheck    — the coupling verdict, scoped to tasks inside a parallel
+ *                      wave, already applied to `optionNumber` (never re-derive it)
  *   alternatives     — other viable modes with a one-line "when to pick instead"
  */
 function deriveExecutionRecommendation(waves, waveKinds, tasks) {
@@ -384,6 +389,7 @@ function deriveExecutionRecommendation(waves, waveKinds, tasks) {
           : "no parallelizable wave (every wave holds a single task)",
         "parallel modes would run everything in order — no wall-clock gain",
       ],
+      couplingCheck: { scope: "tasks inside a parallel wave", tightlyCoupled: false, tasks: [], applied: true },
       alternatives: [],
     };
   }
@@ -398,15 +404,53 @@ function deriveExecutionRecommendation(waves, waveKinds, tasks) {
   // in check-wave-disjoint.cjs, not here. `decisionRequired` stays true ONLY for
   // that downgrade refinement (to in-tree when disjoint+expensive isolation, or
   // back to subagent-driven when the wave is tightly coupled).
-  const signals = [`${parallelWaves} parallel wave(s); largest holds ${maxParallel} task(s)`];
-  const highFanIn = tasks.filter((t) => (t.fanIn || 0) >= 2);
-  if (highFanIn.length > 0) {
-    signals.push(
-      `${highFanIn.length} high-fan-in task(s) (${highFanIn
-        .map((t) => `#${t.number}`)
-        .join(", ")}) — tightly coupled; an early error propagates downstream`,
-    );
+  const waveSummary = `${parallelWaves} parallel wave(s); largest holds ${maxParallel} task(s)`;
+
+  // Coupling is a property of the tasks that actually sit INSIDE a parallel wave.
+  // Scanning every task instead reports fan-in from a sequential wave the decision
+  // never reaches — the reader then downgrades a wave whose own tasks are decoupled.
+  const inParallelWave = new Set(waves.filter((_, i) => waveKinds[i] === "parallel").flat());
+  const coupled = tasks.filter((t) => inParallelWave.has(t.number) && (t.fanIn || 0) >= 2);
+  const coupledLabels = coupled.map((t) => `#${t.number}`).join(", ");
+  const couplingCheck = {
+    scope: "tasks inside a parallel wave",
+    tightlyCoupled: coupled.length > 0,
+    tasks: coupled.map((t) => t.number),
+    applied: true,
+  };
+
+  // Applied here, not left to the reader: the handoff rubric used to ask the same
+  // question the signals answer, with nothing saying which wins — the same plan then
+  // produced opposite recommendations. The verdict is `optionNumber`; `couplingCheck`
+  // is the audit trail.
+  if (coupled.length > 0) {
+    return {
+      mode: "subagent-driven",
+      optionNumber: 1,
+      confidence: "high",
+      decisionRequired: false,
+      signals: [
+        waveSummary,
+        `${coupled.length} high-fan-in task(s) (${coupledLabels}) sit INSIDE a parallel wave — tightly coupled; an early error propagates downstream`,
+        "the per-task review checkpoint catches that cascade early — worth more here than the wall-clock gain",
+      ],
+      couplingCheck,
+      alternatives: [
+        {
+          mode: "parallel-subagent",
+          optionNumber: 3,
+          when: "the fan-in is structural bookkeeping rather than real coupling (the wave's tasks do not constrain each other's shape) and wall-clock matters more than the review checkpoint",
+        },
+        {
+          mode: "parallel-subagent-in-tree",
+          optionNumber: 2,
+          when: "same as option 3, plus the wave writes disjoint files and per-worktree setup is expensive",
+        },
+      ],
+    };
   }
+
+  const signals = [waveSummary];
   const thin = parallelWaves === 1 && maxParallel <= 2;
   signals.push(
     thin
@@ -420,6 +464,7 @@ function deriveExecutionRecommendation(waves, waveKinds, tasks) {
     confidence: thin ? "medium" : "high",
     decisionRequired: true,
     signals,
+    couplingCheck,
     alternatives: [
       {
         mode: "parallel-subagent-in-tree",
@@ -429,7 +474,7 @@ function deriveExecutionRecommendation(waves, waveKinds, tasks) {
       {
         mode: "subagent-driven",
         optionNumber: 1,
-        when: "the parallel-wave tasks are tightly coupled (high fan-in) and the per-task review checkpoint is worth more than the wall-clock gain",
+        when: "the wave is coupled in a way the dependency graph cannot see — a design trap named in research/brainstorming, or one task's shape dictating the others; structural fan-in is already handled by couplingCheck",
       },
     ],
   };

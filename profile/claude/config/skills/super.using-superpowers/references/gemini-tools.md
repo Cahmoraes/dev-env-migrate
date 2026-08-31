@@ -18,7 +18,7 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | `AskUserQuestion` (structured user question) | `ask_user` |
 | `WebSearch` | `google_web_search` |
 | `WebFetch` | `web_fetch` |
-| `Task` tool (dispatch subagent) | The subagent's own name as a tool, or `@agent-name` in the prompt — see "Subagent support" |
+| a `Subagent (...):` dispatch block | The subagent's own name as a tool, or `@agent-name` in the prompt — see "Subagent support" |
 | Research (`super.deep-research`) | Fan-out via `generalist` with `google_web_search` + `web_fetch` |
 | `EnterPlanMode` / `ExitPlanMode` | `enter_plan_mode` / `exit_plan_mode` — **do not use them** for feature/design/migration/refactor work; stay in the internal pipeline (`super.brainstorming` → `super.generating-prd` → `super.writing-plans`). |
 
@@ -29,8 +29,11 @@ The `glob` tool may not return files inside hidden directories (directories whos
 **Preferred — the deterministic script:**
 
 ```bash
+# Your skill context header shows the base directory — use it to build the absolute path:
 node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root "$(git rev-parse --show-toplevel)"
 ```
+
+`<super.X-base-dir>` is never filled in for you: the harness injects the base directory of the skill it just invoked, and only that one. **For a sibling skill:** parent of your header's base directory + `/super.X`. Do not `glob` for it — `glob` skips hidden directories and skill directories live under one, so a false "not found" ends with a gate quietly skipped. A gate script that will not run is a **STOP**.
 
 **Fallback — use `read_file` directly on the path (NOT `glob`):**
 
@@ -57,11 +60,11 @@ Gemini CLI supports subagents natively. **Each subagent is exposed to the main a
 
 | Skill instruction | Gemini CLI equivalent |
 |-------------------|----------------------|
-| `Task tool (implementer)` | `generalist` with the filled `agents/implementer.md` template |
-| `Task tool (spec-reviewer)` | `generalist` with the filled `agents/spec-reviewer.md` template |
-| `Task tool (code-reviewer)` | `generalist` with the filled review prompt |
-| `Task tool (code-quality-reviewer)` | `generalist` with the filled `agents/code-quality-reviewer.md` template |
-| `Task tool (general-purpose)` with inline prompt | `generalist` with your inline prompt |
+| `Subagent (general-purpose):` + `agents/implementer.md` | `generalist` with the filled `agents/implementer.md` template |
+| `Subagent (read-only):` + `agents/spec-reviewer.md` | `generalist` with the filled `agents/spec-reviewer.md` template |
+| `Subagent (read-only):` + `agents/code-reviewer.md` | `generalist` with the filled review prompt |
+| `Subagent (read-only):` + `agents/code-quality-reviewer.md` | `generalist` with the filled `agents/code-quality-reviewer.md` template |
+| `Subagent (general-purpose):` with an inline prompt | `generalist` with your inline prompt |
 
 ### Prompt filling
 
@@ -99,7 +102,7 @@ Three fields carry superpowers invariants:
 
 ### Parallel dispatch
 
-Because subagents are ordinary tools, a fan-out is several subagent tool calls requested together in the same turn — a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, the research investigators, or the memory re-sync sync-workers. Keep dependent tasks sequential, but do not serialize independent subagent tasks just to preserve a simpler history.
+Because subagents are ordinary tools, a fan-out is several subagent tool calls requested together in the same turn — a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, or the research investigators. Keep dependent tasks sequential, but do not serialize independent subagent tasks just to preserve a simpler history.
 
 ### `ask_user` is a consent tool, never a wait primitive
 

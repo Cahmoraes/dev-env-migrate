@@ -2,8 +2,8 @@
 
 Read this at the start of the Opening Phase, once research is dispatched. This is the conversation
 guide: how to scope, how to ask, how to propose approaches, how to present the design, and how to
-work inside an existing codebase. SKILL.md keeps the two interview rules that must survive a
-compaction (one question per message; selectable multiple-choice when the answers are fixed).
+work inside an existing codebase. SKILL.md keeps the two interview rules that apply throughout
+(one question per message; selectable multiple-choice when the answers are fixed).
 
 ---
 

@@ -5,7 +5,7 @@
  * "session_* variable ← preferences.X.Y" mapping and the platform gating.
  *
  * These tests lock in:
- *   - caveman + memory derive from preferences on EVERY platform;
+ *   - caveman derives from preferences on EVERY platform;
  *   - the Claude Code native vars derive only on Claude Code, safe defaults elsewhere;
  *   - the Copilot native var derives only on Copilot CLI, false elsewhere;
  *   - controller latches are NOT emitted (they are not configuration);
@@ -41,7 +41,6 @@ function derive(root, platform) {
 
 const ALL_ON =
   'optimization:\n  caveman: true\n  caveman_level: ultra\n' +
-  'memory:\n  persistent_memory: true\n' +
   'claude_code:\n  simplify: true\n  code_review_final: true\n  code_review_effort: high\n' +
   'copilot:\n  review_final: true\n';
 
@@ -64,6 +63,23 @@ test('qa_gate + auto_commit derive platform-agnostically (default on, honored of
   }
 });
 
+test('visual_companion derives platform-agnostically (default on, honored off)', () => {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
+    // No file → the companion stays available, exactly as before the preference existed.
+    let root = mkRepo();
+    try {
+      assert.equal(derive(root, platform).sessionState.session_visual_companion_enabled, true,
+        `visual_companion default on ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    // Explicit false → off on every platform (the companion is not a platform-specific feature).
+    root = mkRepo('workflow:\n  visual_companion: false\n');
+    try {
+      assert.equal(derive(root, platform).sessionState.session_visual_companion_enabled, false,
+        `visual_companion off ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 test('language derives from communication.language, platform-agnostic, default pt-BR', () => {
   for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     // Default (no file) → pt-BR on every platform.
@@ -79,12 +95,11 @@ test('language derives from communication.language, platform-agnostic, default p
   }
 });
 
-test('caveman + memory derive from preferences on every platform', () => {
+test('caveman derives from preferences on every platform', () => {
   for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
     const root = mkRepo(ALL_ON);
     try {
       const { sessionState } = derive(root, platform);
-      assert.equal(sessionState.session_memory_enabled, true, `memory on ${platform}`);
       assert.equal(sessionState.session_caveman_active, true, `caveman on ${platform}`);
       assert.equal(sessionState.session_caveman_level, 'ultra', `level on ${platform}`);
     } finally {
@@ -187,7 +202,6 @@ test('missing preferences file → safe defaults, preferencesFound false', () =>
     assert.equal(r.preferencesFound, false);
     assert.equal(r.sessionState.session_caveman_active, false);
     assert.equal(r.sessionState.session_caveman_level, 'full');
-    assert.equal(r.sessionState.session_memory_enabled, false);
     assert.equal(r.sessionState.session_simplify_enabled, false);
     assert.equal(r.sessionState.session_code_review_effort, 'medium');
   } finally {
@@ -196,18 +210,16 @@ test('missing preferences file → safe defaults, preferencesFound false', () =>
 });
 
 test('partial/asymmetric config loads each field independently (no all-or-nothing bleed)', () => {
-  // caveman on (level omitted → default full), memory OFF, simplify on, code_review_final OFF.
+  // caveman on (level omitted → default full), simplify on, code_review_final OFF.
   // Catches a loader that couples fields or defaults the whole block when one key is set.
   const root = mkRepo(
     'optimization:\n  caveman: true\n' +
-    'memory:\n  persistent_memory: false\n' +
     'claude_code:\n  simplify: true\n  code_review_final: false\n',
   );
   try {
     const s = derive(root, 'claude-code').sessionState;
     assert.equal(s.session_caveman_active, true, 'caveman read true');
     assert.equal(s.session_caveman_level, 'full', 'level falls back to full when omitted');
-    assert.equal(s.session_memory_enabled, false, 'memory read explicit false');
     assert.equal(s.session_simplify_enabled, true, 'simplify read true');
     assert.equal(s.session_code_review_final_enabled, false, 'code_review_final read explicit false');
     assert.equal(s.session_code_review_effort, 'medium', 'effort defaults when omitted');
@@ -221,7 +233,6 @@ test('explicit all-false file is loaded as false with preferencesFound true (not
   // both yield false flags, but preferencesFound proves the values came from disk.
   const root = mkRepo(
     'optimization:\n  caveman: false\n' +
-    'memory:\n  persistent_memory: false\n' +
     'claude_code:\n  simplify: false\n  code_review_final: false\n' +
     'copilot:\n  review_final: false\n',
   );
@@ -229,7 +240,6 @@ test('explicit all-false file is loaded as false with preferencesFound true (not
     const r = derive(root, 'claude-code');
     assert.equal(r.preferencesFound, true, 'file present → preferencesFound true');
     assert.equal(r.sessionState.session_caveman_active, false);
-    assert.equal(r.sessionState.session_memory_enabled, false);
     assert.equal(r.sessionState.session_simplify_enabled, false);
     assert.equal(r.sessionState.session_code_review_final_enabled, false);
   } finally {
@@ -250,7 +260,7 @@ test('controller latches are NOT emitted (they are runtime bookkeeping)', () => 
   const root = mkRepo(ALL_ON);
   try {
     const keys = Object.keys(derive(root, 'claude-code').sessionState);
-    for (const latch of ['session_caveman_in_effect', 'session_caveman_prompted', 'session_resync_completed']) {
+    for (const latch of ['session_caveman_in_effect', 'session_caveman_prompted']) {
       assert.ok(!keys.includes(latch), `${latch} must not be a derived variable`);
     }
   } finally {
@@ -339,8 +349,99 @@ test('opencode is an accepted platform and resolves every native-review var off'
     assert.equal(s.session_copilot_review_final_enabled, false, 'copilot.review_final must not leak into opencode');
     // ...while the platform-agnostic vars still derive normally.
     assert.equal(s.session_caveman_active, true);
-    assert.equal(s.session_memory_enabled, true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ─── corporateArtifacts — the disk probe beside the consent flag ─────────────
+//
+// `session_has_corporate_artifacts` is the owner's CONSENT. Whether the file they
+// consented to actually exists is a different fact, and nothing established it: the
+// router is told to warn when the yml is present while the flag is off, but no step
+// ever looked at the disk, so that branch could not fire and a declared corporate
+// document was ignored in total silence. These lock the probe that makes it reachable
+// — and the omission that keeps the consent gate intact.
+
+function withCorporate(root, yml) {
+  fs.mkdirSync(path.join(root, '.superpowers'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.superpowers', 'corporate-artifacts.yml'), yml, 'utf8');
+  return root;
+}
+
+const ONE_ARTIFACT = 'artifacts:\n  - path: docs/prd.md\n';
+
+test('corporateArtifacts covers the full declared x enabled matrix', () => {
+  const cases = [
+    // [enabled, declare a yml?, expected {declared, declaredButDisabled, count, hasPath}]
+    [true, true, { declared: true, declaredButDisabled: false, count: 1, hasPath: true }],
+    [false, true, { declared: true, declaredButDisabled: true, count: 1, hasPath: true }],
+    [true, false, { declared: false, declaredButDisabled: false, count: 0, hasPath: false }],
+    [false, false, { declared: false, declaredButDisabled: false, count: 0, hasPath: false }],
+  ];
+  for (const [enabled, declare, want] of cases) {
+    const root = mkRepo(`context:\n  has_corporate_artifacts: ${enabled}\n`);
+    try {
+      if (declare) withCorporate(root, ONE_ARTIFACT);
+      const c = derive(root, 'claude-code').corporateArtifacts;
+      const label = `enabled=${enabled} declared=${declare}`;
+      assert.equal(c.enabled, enabled, `${label}: enabled`);
+      assert.equal(c.declared, want.declared, `${label}: declared`);
+      assert.equal(c.declaredButDisabled, want.declaredButDisabled, `${label}: declaredButDisabled`);
+      assert.equal(c.count, want.count, `${label}: count`);
+      assert.equal(Boolean(c.configPath), want.hasPath, `${label}: configPath`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test('the probe NEVER carries the declared entries themselves', () => {
+  // Presence is not consent, and corporate artifacts win on conflict. A path list sitting
+  // in the controller's context is an invitation to act on a declaration the user never
+  // made — which is exactly the regression the consent flag exists to prevent. The router
+  // reads the file itself once consent is there; until then it may know HOW MANY and
+  // WHERE, never WHICH.
+  const root = withCorporate(
+    mkRepo('context:\n  has_corporate_artifacts: false\n'),
+    'artifacts:\n  - path: docs/superpowers/other-feature/prd/prd-other-feature.md\n',
+  );
+  try {
+    const out = derive(root, 'claude-code');
+    assert.equal(out.corporateArtifacts.declaredButDisabled, true, 'precondition: the mismatch is live');
+    assert.ok(!('entries' in out.corporateArtifacts), 'entries must not be emitted');
+    assert.doesNotMatch(JSON.stringify(out), /other-feature/,
+      'no declared path may appear anywhere in the bootstrap JSON while consent is off');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a yml with no items is not a declaration', () => {
+  const root = withCorporate(mkRepo('context:\n  has_corporate_artifacts: true\n'), '# nothing here\nartifacts:\n');
+  try {
+    const c = derive(root, 'claude-code').corporateArtifacts;
+    assert.equal(c.declared, false, 'an empty list declares nothing');
+    assert.equal(c.count, 0);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('corporateArtifacts is platform-agnostic — the file is on disk, not in a harness', () => {
+  for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
+    const root = withCorporate(mkRepo('context:\n  has_corporate_artifacts: false\n'), ONE_ARTIFACT);
+    try {
+      const c = derive(root, platform).corporateArtifacts;
+      assert.equal(c.declared, true, `declared on ${platform}`);
+      assert.equal(c.declaredButDisabled, true, `mismatch surfaced on ${platform}`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test('the probe holds with no preferences.yml at all — it is not gated on preferencesFound', () => {
+  // A repo mid-onboarding still gets the row: `declared` is a disk fact, and defaults
+  // masking an absent preferences file must not also mask a present corporate file.
+  const root = withCorporate(mkRepo(), ONE_ARTIFACT);
+  try {
+    const out = derive(root, 'claude-code');
+    assert.equal(out.preferencesFound, false, 'precondition: no preferences.yml');
+    assert.equal(out.corporateArtifacts.declared, true);
+    assert.equal(out.corporateArtifacts.enabled, false, 'no file means no consent');
+    assert.equal(out.corporateArtifacts.declaredButDisabled, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

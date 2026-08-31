@@ -22,7 +22,7 @@
  *                            never duplicated.
  *
  * PLATFORM GATING
- *   caveman + memory + model_tiers + qa_gate + auto_commit + language are platform-agnostic
+ *   caveman + model_tiers + qa_gate + visual_companion + auto_commit + language are platform-agnostic
  *   (apply on every platform).
  *   The native-review variables exist only on their own platform:
  *     - claude_code.{simplify, code_review_final, code_review_effort} → Claude Code
@@ -38,9 +38,22 @@
  *   inheriting its own (over-provisioning) model. Surfaced here so the Session
  *   State Re-Entry Guard restores them after a compaction like every other var.
  *
+ * WHY corporateArtifacts IS A DISK PROBE, NOT A PREFERENCE
+ *   `session_has_corporate_artifacts` is the owner's CONSENT, read from preferences.yml.
+ *   Whether `.superpowers/corporate-artifacts.yml` actually exists is a separate fact, and
+ *   nothing used to establish it: the router is told to warn when the file is present while
+ *   the flag is off, but no step ever looked at the disk, so that branch could not fire and
+ *   a declared corporate document was ignored in total silence. This probe is what makes
+ *   the branch reachable, and what lets the Session Summary name the file.
+ *
+ *   The probe reports HOW MANY entries are declared and WHERE the file is. It does NOT
+ *   report the entries themselves: presence is not consent, corporate artifacts win on
+ *   conflict, and a path list in the controller's context is an invitation to act on an
+ *   unconsented declaration. Under consent the router reads the file itself anyway.
+ *
  * SCOPE
  *   Only PREFERENCES-DERIVED variables are emitted. Controller latches
- *   (session_caveman_in_effect, session_caveman_prompted, session_resync_completed)
+ *   (session_caveman_in_effect, session_caveman_prompted)
  *   are runtime bookkeeping, not configuration — they are NOT derived here.
  *
  * Usage:
@@ -51,7 +64,8 @@
  *   --repo-root <path>  Explicit repo root (else git detection, via read-preferences).
  *   --help              Show this help and exit 0.
  *
- * Output (JSON to stdout): { platform, preferencesFound, malformed, preferencesPath, sessionState }
+ * Output (JSON to stdout):
+ *   { platform, preferencesFound, malformed, preferencesPath, sessionState, corporateArtifacts }
  *
  * WHY IT ALSO CARRIES preferencesFound / malformed / has_corporate_artifacts
  *   The entry point used to run read-preferences.cjs AND this script back to back, one
@@ -70,6 +84,7 @@
 
 const path = require('path');
 const { DEFAULTS, loadPreferences } = require('./read-preferences.cjs');
+const { resolveCorporateArtifacts } = require('./lib/corporate-artifacts.cjs');
 
 const PLATFORMS = ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other'];
 
@@ -84,9 +99,12 @@ Options:
   --repo-root <path>  Explicit repo root (else git detection).
   --help              Show this help and exit 0.
 
-Output (JSON to stdout): { platform, preferencesFound, malformed, preferencesPath, sessionState }
+Output (JSON to stdout):
+  { platform, preferencesFound, malformed, preferencesPath, sessionState, corporateArtifacts }
+corporateArtifacts is a disk probe ({ declared, enabled, declaredButDisabled, configPath,
+count }); it never carries the declared entries themselves.
 sessionState holds only preferences-derived variables; controller latches
-(session_caveman_in_effect / _prompted / _resync_completed) are not derived here.
+(session_caveman_in_effect / _prompted) are not derived here.
 `.trimStart();
 
 /**
@@ -94,10 +112,16 @@ sessionState holds only preferences-derived variables; controller latches
  * IN-PROCESS (no subprocess spawn), so the YAML parse/merge/normalize logic lives in
  * exactly one place and this runs with one fewer node process. We drop the warnings
  * array — the previous spawn already discarded read-preferences' stderr (stdio:'ignore').
+ *
+ * `root` comes back too, because corporate-artifacts.yml is the SIBLING of the
+ * preferences.yml that granted consent. That is not always the root we were handed: inside
+ * a linked worktree the loader falls back to the main working tree (`.superpowers/` is
+ * gitignored, so a worktree has none). Probing the input root there would report "no
+ * corporate artifacts" for a repo that has them.
  */
 function readPreferences(repoRoot) {
-  const { result } = loadPreferences(repoRoot);
-  return result;
+  const { result, root } = loadPreferences(repoRoot);
+  return { result, root };
 }
 
 /**
@@ -109,8 +133,7 @@ function deriveSessionState(preferences, platform) {
   const isCopilot = platform === 'copilot';
 
   return {
-    // Platform-agnostic — caveman and memory apply on every platform.
-    session_memory_enabled: Boolean(preferences.memory.persistent_memory),
+    // Platform-agnostic — caveman applies on every platform.
     session_caveman_active: Boolean(preferences.optimization.caveman),
     session_caveman_level: preferences.optimization.caveman_level,
 
@@ -120,6 +143,10 @@ function deriveSessionState(preferences, platform) {
     // unaffected — it is always-on). auto_commit is surfaced for the session-state display
     // (the execution skills still read workflow.auto_commit directly at their commit gate).
     session_qa_gate_enabled: Boolean(preferences.workflow.qa_gate),
+    // visual_companion drives whether super.brainstorming may offer the browser companion at all;
+    // false skips the offer silently (no consent question, no browser mention), true leaves the
+    // existing consent-gated behaviour untouched.
+    session_visual_companion_enabled: Boolean(preferences.workflow.visual_companion),
     session_auto_commit: Boolean(preferences.workflow.auto_commit),
 
     // Platform-agnostic — whether the repo declares corporate artifacts. Surfaced here so the
@@ -154,6 +181,16 @@ function deriveSessionState(preferences, platform) {
   };
 }
 
+/**
+ * Declaration state of the repo's corporate artifacts, WITHOUT their values.
+ * See "WHY corporateArtifacts IS A DISK PROBE" above for why `entries` is dropped —
+ * the omission is the consent gate, not an oversight.
+ */
+function probeCorporateArtifacts(repoRoot, enabled) {
+  const { declared, declaredButDisabled, configPath, count } = resolveCorporateArtifacts(repoRoot, { enabled });
+  return { declared, enabled: Boolean(enabled), declaredButDisabled, configPath, count };
+}
+
 function main(argv) {
   const args = argv.slice(2);
 
@@ -178,8 +215,9 @@ function main(argv) {
   }
 
   let prefsResult;
+  let resolvedRoot;
   try {
-    prefsResult = readPreferences(repoRoot);
+    ({ result: prefsResult, root: resolvedRoot } = readPreferences(repoRoot));
   } catch (err) {
     process.stderr.write(`Failed to read preferences: ${err.message}\n`);
     process.exit(1);
@@ -191,13 +229,17 @@ function main(argv) {
     malformed: Boolean(prefsResult.malformed),
     preferencesPath: prefsResult.preferencesPath ?? null,
     sessionState: deriveSessionState(prefsResult.preferences, platform),
+    corporateArtifacts: probeCorporateArtifacts(
+      resolvedRoot,
+      Boolean(prefsResult.preferences.context?.has_corporate_artifacts),
+    ),
   };
 
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   process.exit(0);
 }
 
-module.exports = { PLATFORMS, deriveSessionState };
+module.exports = { PLATFORMS, deriveSessionState, probeCorporateArtifacts };
 
 if (require.main === module) {
   main(process.argv);

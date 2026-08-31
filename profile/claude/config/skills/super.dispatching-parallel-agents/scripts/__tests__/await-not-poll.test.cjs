@@ -38,7 +38,6 @@ const DISPATCH_AND_AWAIT_FILES = [
   'super.brainstorming/SKILL.md',
   'super.brainstorming/references/diagram-enrichment.md',
   'super.subagent-driven-development/SKILL.md',
-  'super.using-superpowers/references/memory-resync.md',
 ];
 
 for (const rel of DISPATCH_AND_AWAIT_FILES) {

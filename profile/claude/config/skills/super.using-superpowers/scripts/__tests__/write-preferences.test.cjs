@@ -59,7 +59,6 @@ test('a partial write preserves keys it does not name (no silent reset to defaul
     write(root, {
       communication: { language: 'en-US' },
       optimization: { caveman: true, caveman_level: 'ultra' },
-      memory: { persistent_memory: true },
       workflow: { auto_commit: true },
     });
     // A one-key partial write must change ONLY that key — never reset the rest.
@@ -69,7 +68,6 @@ test('a partial write preserves keys it does not name (no silent reset to defaul
     assert.equal(r.communication.language, 'en-US'); // preserved
     assert.equal(r.optimization.caveman, true); // preserved
     assert.equal(r.optimization.caveman_level, 'ultra'); // preserved
-    assert.equal(r.memory.persistent_memory, true); // preserved
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -81,7 +79,6 @@ test('custom values survive the write→read round-trip', () => {
     const input = {
       workflow: { auto_commit: false },
       communication: { language: 'en' },
-      memory: { persistent_memory: true },
       model_tiers: { cheap: 'haiku-x', standard: 'sonnet-x', capable: 'opus-x' },
     };
     write(root, input);
@@ -89,7 +86,6 @@ test('custom values survive the write→read round-trip', () => {
     assert.equal(r.workflow.auto_commit, false);
     assert.equal(r.workflow.confirm_destructive_actions, true); // default preserved
     assert.equal(r.communication.language, 'en');
-    assert.equal(r.memory.persistent_memory, true);
     assert.deepEqual(r.model_tiers, { cheap: 'haiku-x', standard: 'sonnet-x', capable: 'opus-x' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

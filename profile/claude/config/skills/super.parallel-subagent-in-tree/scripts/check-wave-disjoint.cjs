@@ -3,11 +3,15 @@
  * check-wave-disjoint.cjs — Deterministic pre-flight gate for the in-tree
  * (no-worktree) parallel execution mode of super.parallel-subagent-in-tree.
  *
- * The worktree-based parallel mode is safe by construction: every task gets its
- * own isolated working tree, so concurrent implementers physically cannot touch
- * each other's files. The in-tree mode trades that isolation for speed (no
- * per-worktree `pnpm install`, no N-way merge), so it needs a different
- * guarantee: no two tasks in the wave WRITE the same file. If their write-sets
+ * The worktree-based parallel mode is safe against write COLLISIONS by
+ * construction: every task gets its own isolated working tree, so concurrent
+ * implementers physically cannot clobber each other's files. It is NOT safe
+ * against a stale READ — a task that reads a file its sibling creates in another
+ * worktree gets the pre-change version and still merges clean — which is why the
+ * worktree skill runs this script too, for `readWriteHazards`. The in-tree mode
+ * trades the write isolation for speed (no per-worktree `pnpm install`, no N-way
+ * merge), so it additionally needs the write-set guarantee: no two tasks in the
+ * wave WRITE the same file. If their write-sets
  * are disjoint and the subagents are write-only/no-commit (enforced by the
  * skill, not this script), running them concurrently in one shared tree cannot
  * corrupt anyone's work.

@@ -120,7 +120,9 @@ subagents also use caveman. Deactivate caveman only after QA returns and **befor
 
 ```
 [QA Gate result received]
-→ Deactivate caveman: "normal mode"  (and set session_caveman_in_effect = false)
+→ Deactivate caveman: say the phrase "normal mode" in your own turn — do NOT re-invoke
+  the caveman skill (invoking it returns the activation text, which turns it back ON)
+  (and set session_caveman_in_effect = false)
 → Invoke super.finishing-a-development-branch
 ```
 
@@ -142,7 +144,8 @@ missed checkbox especially easy — check carefully.)
 
 ### 5. Finish the branch
 
-Deactivate caveman if active ("normal mode") and set `session_caveman_in_effect = false`
+Deactivate caveman if active by **saying** `"normal mode"` — never by re-invoking the caveman
+skill, whose output is activation text — and set `session_caveman_in_effect = false`
 (finishing requires clear human-facing communication), then invoke
 `super.finishing-a-development-branch`, passing the tasks index path (it re-runs the done-state
 gate as a backstop).

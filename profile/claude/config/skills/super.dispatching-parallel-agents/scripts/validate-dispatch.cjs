@@ -2,7 +2,7 @@
 /**
  * validate-dispatch.cjs — Pre-flight gate for parallel agent dispatches.
  *
- * Reads a dispatch manifest (JSON) and validates three invariants that prose
+ * Reads a dispatch manifest (JSON) and validates four invariants that prose
  * alone cannot enforce:
  *   1. Every agent has an explicit `model:` (non-empty string). Omitting it
  *      silently inherits the controller's model, burning expensive tokens on
@@ -36,6 +36,30 @@
  *          which is the risk a concurrent reader actually runs. Declaring both
  *          `readOnly: true` and a non-empty `writeFiles` is a contradiction and fails
  *          with `readonly_with_writeset`.
+ *   4. Runtime (port) isolation across a worktree fan-out. Worktrees isolate FILES,
+ *      not the loopback interface: two implementers booting the same stack collide on
+ *      EADDRINUSE, and the failure lands on whichever task started second, so it reads
+ *      as that task's bug. The audit that catches this (`allocate-ports.cjs --check`)
+ *      used to live in prose only — seventeen textual guards asserted the sentence was
+ *      present, and none of them could observe whether the command ran. A measured run
+ *      skipped it: the outcome happened to be correct (no ports.yml → nothing to audit)
+ *      but "I ran it and it reported nothing to do" and "I never ran it" left the exact
+ *      same trace, which is no trace. This gate closes that by making the verdict an
+ *      input rather than a step to remember:
+ *        - A worktree fan-out is 2+ agents carrying DISTINCT `workspace` paths.
+ *        - When one is detected, this script RUNS the audit itself (zero trust, zero
+ *          forgetting) via the sibling `super.using-git-worktrees` script, and records
+ *          `port_audit_autorun`. A manifest-declared `portAudit` is used only when the
+ *          sibling script cannot be resolved or executed — never in preference to a
+ *          real run.
+ *        - `conflicts` non-empty → `port_block_overlap` (the STOP, now mechanical).
+ *        - `enabled: false` → `port_isolation_off` WARNING. This is the "that is a pass,
+ *          not a skip" distinction turned into data: the pass now prints a named line
+ *          instead of being indistinguishable from silence.
+ *        - `leaseCount` below the number of distinct workspaces → `port_audit_scope_stale`:
+ *          the audit ran before every worktree existed, so it proved less than it claims.
+ *      Manifests with no `workspace` fields are wholly unaffected — an in-tree wave and an
+ *      ad-hoc dispatch never enter this branch.
  *
  * This script does NOT validate whether parallelism is appropriate for the
  * problem (that is a judgment call documented in the skill's "When to Use"
@@ -58,6 +82,9 @@
  *     },
  *     "enforceWriteSets": boolean, // optional — when true, every agent in a 2+ dispatch
  *                                  //   must declare a non-empty writeFiles (else unverifiable_writeset).
+ *     "portAudit": object,         // optional — verbatim JSON from `allocate-ports.cjs --check`.
+ *                                  //   Only consulted when this script cannot run that audit
+ *                                  //   itself. Ignored entirely when there is no worktree fan-out.
  *     "agents": [
  *       {
  *         "label":           string,    // required — human ID, used in error messages
@@ -69,9 +96,12 @@
  *                                       //   tier mismatch from error to a recorded warning
  *         "writeFiles":      string[],  // optional — files this agent will modify/create
  *         "readFiles":       string[],  // optional — files this agent reads; enables the read∩write gate
- *         "readOnly":        boolean    // optional — true for an agent that writes nothing
+ *         "readOnly":        boolean,   // optional — true for an agent that writes nothing
  *                                       //   (reviewer, verifier). Exempts it from the write-set
  *                                       //   proof it cannot supply; it still counts as a reader.
+ *         "workspace":       string     // optional — absolute path of the worktree this agent is
+ *                                       //   pinned to. 2+ DISTINCT values = worktree fan-out, which
+ *                                       //   arms the port-isolation gate above. Omit for in-tree.
  *       }
  *     ]
  *   }
@@ -93,10 +123,15 @@
  *   { type: "unverifiable_writeset", agent: string }
  *   { type: "readonly_with_writeset", agent: string }
  *   { type: "no_agents" }
+ *   { type: "port_block_overlap",  worktrees: string[], message: string }
+ *   { type: "missing_port_audit",  workspaces: string[], message: string }
+ *   { type: "port_audit_scope_stale", leaseCount: number, workspaceCount: number }
  *
  * Warning shapes:
  *   { type: "single_agent",   message: string }
  *   { type: "tier_escalation", agent: string, tier: string, expected: string, actual: string, reason: string }
+ *   { type: "port_audit_autorun",  source: string }
+ *   { type: "port_isolation_off",  message: string }
  */
 
 "use strict";
@@ -129,7 +164,8 @@ Manifest skeleton (copy this, then substitute every <...> placeholder):
         "goal": "what this agent must accomplish",
         "tier": "cheap",
         "writeFiles": ["src/a.ts", "src/a.test.ts"],
-        "readFiles": ["src/shared/types.ts"]
+        "readFiles": ["src/shared/types.ts"],
+        "workspace": "<absolute worktree path, or omit for in-tree>"
       }
     ]
   }
@@ -147,6 +183,13 @@ Manifest skeleton (copy this, then substitute every <...> placeholder):
   "escalationReason" (non-empty) downgrades a tier mismatch to a recorded warning.
   "readOnly": true marks a reviewer and must come with no writeFiles.
   "expectedModel" substitutes for "modelTiers" when no map is passed.
+
+  "workspace" is the absolute worktree path an agent is pinned to. Two or more
+  DISTINCT values make this a worktree fan-out, and this script then audits port
+  isolation itself (allocate-ports.cjs --check) before letting the dispatch pass.
+  You do not run that audit by hand and you cannot forget it. A repo with no
+  .superpowers/ports.yml comes back as the warning "port_isolation_off" — that is
+  a pass with a receipt, not a skipped gate. Omit "workspace" for in-tree waves.
 
   The verdict is "valid" in the JSON on stdout, never the exit code.
 `.trimStart();
@@ -212,6 +255,134 @@ function resolveTierModel(tier, modelTiers, agent) {
   const norm = typeof expected === "string" ? expected.trim() : "";
   if (!norm || norm.toLowerCase() === "auto") return "";
   return norm;
+}
+
+// Where the sibling skill keeps the port allocator. The superpowers skills are siblings in
+// one `skills/` directory, so this resolves without configuration — and when it does NOT
+// resolve (this skill vendored standalone), the caller falls back to a declared audit
+// rather than failing, because an absent sibling is not evidence of a port problem.
+const ALLOCATE_PORTS = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "super.using-git-worktrees",
+  "scripts",
+  "allocate-ports.cjs"
+);
+
+// Distinct, non-empty workspace paths across the agents, in first-seen order.
+// Two agents naming the SAME tree is not a fan-out (that is an in-tree wave).
+function distinctWorkspaces(agents) {
+  const seen = [];
+  for (const agent of agents) {
+    if (agent === null || typeof agent !== "object") continue;
+    const raw = typeof agent.workspace === "string" ? agent.workspace.trim() : "";
+    if (!raw) continue;
+    const resolved = path.resolve(raw);
+    if (!seen.includes(resolved)) seen.push(resolved);
+  }
+  return seen;
+}
+
+// Run the audit ourselves. Returning null (never throwing) is deliberate: every failure
+// mode here — sibling missing, worktree path not created yet, allocator erroring — means
+// "no audit available", and the caller turns that into a hard `missing_port_audit` unless
+// the manifest carried one. A thrown exception would instead abort the whole gate, which
+// is the one outcome worse than reporting the gap.
+function runPortAudit(anchorPath) {
+  if (!fs.existsSync(ALLOCATE_PORTS)) return null;
+  // An anchor that does not exist on disk is NOT an audit we can trust: the allocator
+  // falls back to git detection from the current directory and cheerfully reports on
+  // whatever repo that happens to be — `enabled:false` about the wrong tree reads exactly
+  // like a clean pass. Refusing here also catches the sequencing bug the prose names
+  // ("once all exist, audit them together"): validating the dispatch before the worktrees
+  // are created now fails loudly instead of auditing nothing.
+  if (!fs.existsSync(anchorPath)) return null;
+  let stdout;
+  try {
+    stdout = require("child_process").execFileSync(
+      process.execPath,
+      [ALLOCATE_PORTS, "--check", "--json-only", "--worktree", anchorPath],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }
+    );
+  } catch (err) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(stdout);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Port-isolation lens. Only ever entered on a worktree fan-out, so an in-tree wave and an
+ * ad-hoc dispatch pay nothing — not even the process spawn.
+ */
+function checkPortIsolation(manifest, agents, errors, warnings) {
+  const workspaces = distinctWorkspaces(agents);
+  if (workspaces.length < 2) return;
+
+  // Anchor on a workspace that exists. Every workspace missing means the fan-out has not
+  // been created yet, and no audit of it can be honest.
+  const anchor = workspaces.find((wt) => fs.existsSync(wt)) || workspaces[0];
+  let audit = runPortAudit(anchor);
+  let autorun = true;
+
+  if (audit === null) {
+    // Fall back to a declared verdict only when we could not produce one ourselves.
+    const declared = manifest.portAudit;
+    audit =
+      declared !== null && typeof declared === "object" && !Array.isArray(declared) ? declared : null;
+    autorun = false;
+  }
+
+  if (audit === null) {
+    errors.push({
+      type: "missing_port_audit",
+      workspaces,
+      message:
+        "Worktree fan-out with no port audit. Run allocate-ports.cjs --check once every worktree exists and carry its JSON in the manifest's \"portAudit\".",
+    });
+    return;
+  }
+
+  if (autorun) warnings.push({ type: "port_audit_autorun", source: ALLOCATE_PORTS });
+
+  const conflicts = Array.isArray(audit.conflicts) ? audit.conflicts : [];
+  if (conflicts.length > 0) {
+    for (const conflict of conflicts) {
+      const worktrees = Array.isArray(conflict && conflict.worktrees) ? conflict.worktrees : [];
+      const message =
+        typeof (conflict && conflict.message) === "string" ? conflict.message : "Port blocks overlap.";
+      errors.push({ type: "port_block_overlap", worktrees, message });
+    }
+    return;
+  }
+
+  // Port isolation switched off is a PASS, not a skip — and it now says so out loud, which
+  // is the whole point: before this line, "audited, nothing to audit" and "never audited"
+  // produced byte-identical output.
+  if (audit.enabled === false) {
+    warnings.push({
+      type: "port_isolation_off",
+      message:
+        "No .superpowers/ports.yml — the wave audit has nothing to check. This is a pass, not a skipped gate.",
+    });
+    return;
+  }
+
+  // Auditing before every worktree exists proves less than it appears to: the leases that
+  // would collide are the ones not on record yet.
+  const leaseCount = Number.isInteger(audit.leaseCount) ? audit.leaseCount : null;
+  if (leaseCount !== null && leaseCount < workspaces.length) {
+    errors.push({
+      type: "port_audit_scope_stale",
+      leaseCount,
+      workspaceCount: workspaces.length,
+    });
+  }
 }
 
 function validateManifest(manifest) {
@@ -358,6 +529,8 @@ function validateManifest(manifest) {
       }
     }
   }
+
+  checkPortIsolation(manifest, agents, errors, warnings);
 
   return { errors, warnings, agentCount: agents.length };
 }

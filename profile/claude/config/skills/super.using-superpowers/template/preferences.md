@@ -9,10 +9,14 @@
 #   — e.g. headless-browser Playwright E2E driven by QA subagents from the PRD. false disables it
 #   silently (QA never runs and is never mentioned, even at the PRD step). Independent verification
 #   (always-on) is unaffected.
+# visual_companion: offer the browser companion (mockups/diagrams) during super.brainstorming.
+#   true (default) keeps the consent question before anything opens; false skips the companion
+#   entirely — never offered, never mentioned.
 workflow:
   auto_commit: <true|false>
   confirm_destructive_actions: <true|false>
   qa_gate: <true|false>
+  visual_companion: <true|false>
 
 communication:
   language: <language-code>
@@ -53,13 +57,6 @@ context:
 optimization:
   caveman: false
   caveman_level: full
-
-# Persistent memory settings.
-# persistent_memory: true enables cross-session memory recall and persistence via .memory/ SQLite database.
-# When false (default), all super.persistent-memory operations (recall and persist) are skipped.
-# Disabling does NOT delete existing .memory/ data — it only prevents future reads/writes.
-memory:
-  persistent_memory: false
 
 # Model tier → concrete model mapping for THIS harness (optional).
 # Execution skills choose an abstract tier per task (see super.subagent-driven-development,

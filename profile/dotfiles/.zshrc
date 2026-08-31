@@ -120,6 +120,17 @@ load-nvmrc() {
   fi
 }
 
+# ...existing code...
+ai-tools-update() {
+  (
+    set -e
+    echo "==> headroom update"       && headroom update
+    echo "==> uv tool upgrade"       && uv tool upgrade serena-agent
+    echo "==> rtk install/update"    && curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    echo "==> codegraph upgrade"     && codegraph upgrade
+  ) && echo "==> concluído" || echo "==> falhou"
+}
+
 add-zsh-hook chpwd load-nvmrc
 load-nvmrc
 

@@ -26,11 +26,8 @@ const body = fs.readFileSync(SKILL, 'utf8');
 test('the skill has an active Branch Guard step in The Process', () => {
   assert.match(body, /^### Branch Guard$/m,
     'The Process must contain a "### Branch Guard" step');
-  // It must run before the first dispatch, and be skipped on resume.
   assert.match(body, /before the first implementer dispatch/i,
     'the guard must state it runs before the first implementer dispatch');
-  assert.match(body, /[Ss]kip on a session resume/,
-    'the guard must be resume-safe (skip when a task is already in progress/done)');
 });
 
 test('the Branch Guard does a deterministic branch check', () => {
@@ -78,5 +75,41 @@ for (const skill of EXECUTION_SKILLS) {
       `${skill} must stop and ask before working on the default branch`);
     assert.match(text, /git checkout -b/,
       `${skill} must offer to create a feature branch`);
+  });
+}
+
+/*
+ * The resume exemption used to be keyed on progress — "skip on a session resume, the branch
+ * is already established". Simulating a real entry against a consumer's finished feature
+ * showed what that costs: `current=main default=main`, all 8 tasks DONE, so the guard was
+ * skipped on the grounds that the branch was "established" — and the established branch was
+ * the default one. The finish tail still dispatches fix implementers, and those commit, so
+ * the exemption disarmed the guard in the one state where every remaining commit lands on
+ * `main` with nobody asked.
+ *
+ * The check is three git commands and prompts nothing by itself. So it runs always, and the
+ * QUESTION is gated on the check's result. That keeps the property the old wording was
+ * reaching for — no re-prompting mid-feature — because a non-default branch is silent either
+ * way, while removing the state where silence is wrong.
+ */
+for (const skill of EXECUTION_SKILLS) {
+  test(`${skill} runs the branch check on resume too, gating only the question`, () => {
+    const text = fs.readFileSync(path.join(SKILLS, skill, 'SKILL.md'), 'utf8');
+
+    assert.doesNotMatch(
+      text, /skip on (a )?resume|[Ss]kip on a session resume/,
+      `${skill}: the branch check must not be skipped because work is already in progress. `
+      + 'A resume sitting on the default branch is the case the STOP exists for — every '
+      + 'implementer from that point commits.',
+    );
+    assert.match(
+      text, /resume included/i,
+      `${skill}: state explicitly that the check runs on every session, resume included.`,
+    );
+    assert.match(
+      text, /the \*question\*, not the \*check\*|never on task status/i,
+      `${skill}: the exemption must be keyed on the check's RESULT (non-default branch), `
+      + 'not on progress state. Say which of the two a resume skips.',
+    );
   });
 }

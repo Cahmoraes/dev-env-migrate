@@ -21,7 +21,7 @@
  *                         the TRIGGER: the debt exists, it blocks, details are elsewhere.
  *   operation.md        — paid only on acceptance. Carries the RULES, the turn-end command,
  *                         the reason codes and the evidence.
- *   visual-companion.md — paid only on acceptance. Carries the operational loop.
+ *   references/visual-companion.md — paid only on acceptance. Carries the operational loop.
  *   reference.md        — paid only for bespoke layouts / platform notes.
  * Two earlier versions of this fix got this wrong: v1 restated everything in all three
  * files (+8456 bytes), v2 kept the full rule block in the always-paid tier (+2020 bytes
@@ -39,7 +39,7 @@ const path = require('node:path');
 const SKILL_DIR = path.join(__dirname, '..', '..');
 const skillMd = fs.readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8');
 const operationMd = fs.readFileSync(path.join(SKILL_DIR, 'references', 'visual-companion-operation.md'), 'utf8');
-const quickStartMd = fs.readFileSync(path.join(SKILL_DIR, 'visual-companion.md'), 'utf8');
+const quickStartMd = fs.readFileSync(path.join(SKILL_DIR, 'references', 'visual-companion.md'), 'utf8');
 
 // =================================================== always-paid tier: the TRIGGER only
 
@@ -129,8 +129,13 @@ test('operation.md keeps the table of things that do NOT settle the debt', () =>
 });
 
 test('operation.md documents every reason code the script can return', () => {
-  for (const reason of ['no-server', 'no-screen-rendered', 'terminal-parked', 'stale-screen', 'current']) {
-    assert.match(operationMd, new RegExp(reason));
+  // Derived from the script, not restated: a code added to ACTIONS and documented nowhere
+  // is the drift this guard exists to catch, and a hardcoded list cannot see it.
+  const { ACTIONS } = require(path.join(SKILL_DIR, 'scripts', 'check-visual-state.cjs'));
+  const reasons = Object.keys(ACTIONS);
+  assert.ok(reasons.length >= 6, `only ${reasons.length} reason codes found — the sweep lost its corpus`);
+  for (const reason of reasons) {
+    assert.match(operationMd, new RegExp(reason), `reason code ${reason} is undocumented in the acceptance tier`);
   }
 });
 
@@ -158,6 +163,71 @@ test('the documented waiting snippet carries the marker the script detects', () 
   assert.match(quickStartMd, /data-companion-placeholder/);
   const script = fs.readFileSync(path.join(SKILL_DIR, 'scripts', 'check-visual-state.cjs'), 'utf8');
   assert.match(script, /data-companion-placeholder/);
+});
+
+// =========================================== the ENTRY gate: when the offer may go out
+//
+// Second measured failure of this section, 2026-08-11 (transcript 22fdef80, 22:44-22:46).
+// The request was "refatorar o módulo de analytics do admin com novas informações". The
+// offer went out 52s later, before any answer — "analytics" matched the user-facing-UI
+// signal on vocabulary alone, while nobody yet knew whether "novas informações" meant new
+// backend metrics, new charts, or both. The user accepted; the only thing owed to them at
+// that moment was a scope question; so the scope question is what got rendered, as five
+// generator text cards. Every rule in this file was satisfied, and the user's verdict was
+// "essas perguntas conceituais poderiam ser respondidas no terminal sem abrir o servidor".
+//
+// So the gate has two halves, and both live in the always-paid tier because they decide
+// whether the acceptance-tier files are ever read: a signal fires on what the CONVERSATION
+// established, and a matched signal becomes an offer only when you can NAME the artifact.
+
+test('a signal fires on what the conversation established, not on the topic vocabulary', () => {
+  assert.match(skillMd, /established/);
+  assert.match(skillMd, /never on the topic's vocabulary/);
+  assert.match(skillMd, /Surface unknown = no signal fires/,
+    'the unknown-surface case needs a single branch, or the model picks the one that offers');
+});
+
+test('the unknown surface is resolved in the terminal, and the checklist re-runs later', () => {
+  assert.match(skillMd, /frontend, backend or both/);
+  assert.match(skillMd, /keeps the session text-only until the conversation reaches the frontend/);
+  // One-shot evaluation is the other half of the bug: a checklist that only ever runs at
+  // the opening turn cannot fire when the backend conversation later reaches a screen.
+  assert.match(skillMd, /re-run it whenever the conversation reaches a new decision/);
+  assert.match(skillMd, /re-run the checklist when the conversation reaches the UI/);
+});
+
+test('readiness is a named artifact, not a feeling of confidence', () => {
+  assert.match(skillMd, /Readiness test — name the artifact/);
+  assert.match(skillMd, /becomes an offer only when you can name the first thing you would draw/);
+  assert.match(skillMd, /options I could have typed in the terminal/,
+    'the failure has to be named in the shape it actually takes');
+  assert.match(skillMd, /\*\*name the artifact\*\* in the offer/,
+    'naming it in the offer is what makes the promise checkable by the user');
+});
+
+test('the always-paid tier states that text cards never settle the debt', () => {
+  // The Layout gate covers layout questions. It said nothing about a CONCEPTUAL question
+  // rendered as cards, which is precisely how the debt got "settled" in the measured run.
+  assert.match(skillMd, /\*\*Text cards never settle the debt\*\*/);
+  assert.match(skillMd, /a conceptual question with nothing up yet belongs in the terminal/);
+});
+
+test('the acceptance tier carries the evidence and the inverse-misfire diagnosis', () => {
+  assert.match(operationMd, /moving a terminal question into the browser/);
+  assert.match(operationMd, /a terminal message wearing a URL/);
+  assert.match(operationMd, /generated-only/);
+  assert.match(operationMd, /What settles it is the artifact you named in the offer/);
+});
+
+test('the settlement table names the text-card screen as a non-settlement', () => {
+  const table = operationMd.slice(operationMd.indexOf('| Not a settlement'), operationMd.indexOf('### The run these rules'));
+  assert.match(table, /render-screen\.cjs/,
+    'the table is where the model checks what counts — a row missing here is a rule nobody reads');
+});
+
+test('the generator licence in the loop tier is scoped to an already-visual thread', () => {
+  assert.match(quickStartMd, /raised \*inside\n?\s*an already-visual thread\*/);
+  assert.match(quickStartMd, /nothing visual up yet is a \*\*terminal\*\* question/);
 });
 
 // ------------------------------------------------------------ checklist integration
@@ -198,7 +268,7 @@ test('the browser-vs-terminal rule is stated once, in the file that also carries
   assert.match(quickStartMd, /## When browser, when terminal/);
   assert.match(quickStartMd, /Layout gate \(mandatory\)/);
   assert.doesNotMatch(operationMd, /Use the browser\*\* for content that IS visual/);
-  assert.match(operationMd, /live in `visual-companion\.md`, "When browser, when terminal"/);
+  assert.match(operationMd, /live in `references\/visual-companion\.md`, "When browser, when terminal"/);
 });
 
 test('the Layout gate names the mechanical signal that detects its own violation', () => {
@@ -225,9 +295,9 @@ test('no tier tells the model to render EVERY screen with the generator', () => 
   ];
   const tiers = {
     'SKILL.md': skillMd,
-    'visual-companion.md': quickStartMd,
+    'references/visual-companion.md': quickStartMd,
     'references/visual-companion-operation.md': operationMd,
-    'visual-companion-reference.md': referenceMd,
+    'references/visual-companion-reference.md': referenceMd,
   };
   for (const [name, text] of Object.entries(tiers)) {
     for (const claim of universalGeneratorClaims) {
@@ -257,7 +327,7 @@ test('no tier tells the model to render EVERY screen with the generator', () => 
  * "condition X holds → run this command".
  */
 
-const referenceMd = fs.readFileSync(path.join(SKILL_DIR, 'visual-companion-reference.md'), 'utf8');
+const referenceMd = fs.readFileSync(path.join(SKILL_DIR, 'references', 'visual-companion-reference.md'), 'utf8');
 
 test('the acceptance tier gives a positive condition for waiting, not just a prohibition', () => {
   assert.match(quickStartMd, /Wait for the confirmation when the screen IS the question/);
@@ -315,7 +385,7 @@ test('every "The loop" step pointer resolves to a step that exists', () => {
   assert.ok(stepCount >= 6, `anti-staleness floor: found only ${stepCount} steps`);
 
   const sources = {
-    'visual-companion-reference.md': referenceMd,
+    'references/visual-companion-reference.md': referenceMd,
     'references/visual-companion-operation.md': operationMd,
     'scripts/check-visual-state.cjs': fs.readFileSync(
       path.join(SKILL_DIR, 'scripts', 'check-visual-state.cjs'), 'utf8'

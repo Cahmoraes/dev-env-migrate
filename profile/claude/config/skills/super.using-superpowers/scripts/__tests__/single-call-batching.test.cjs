@@ -5,18 +5,22 @@
  * must be ordered as ONE tool call, not one call each.
  *
  * Background — what this locks:
- *   Every `node …cjs` / `pmem …` snippet a skill writes becomes one Bash round trip at
+ *   Every `node …cjs` / `python3 …` snippet a skill writes becomes one Bash round trip at
  *   runtime. Three places used to spend two round trips where one carries the same
  *   information, because two scripts read the SAME file with no user interaction and no
  *   data dependency between them:
  *
  *     1. Session start — read-preferences.cjs then derive-session-state.cjs. The second
  *        one calls the first's loader IN-PROCESS and now also emits `preferencesFound`,
- *        `malformed` and `session_has_corporate_artifacts`, so it returns a superset.
+ *        `malformed`, `session_has_corporate_artifacts` and the `corporateArtifacts` disk
+ *        probe, so it returns a superset.
  *        The first call became dead weight: a second parse of a file already parsed.
- *     2. Memory re-sync gate — check-resync.cjs then `pmem embedding-status`. Step 4 is
- *        unconditional and consumes nothing from step 1, so on the common `dirty:false`
- *        path they are two probes with nothing in between.
+ *     2. Brainstorming entry — feature-index.cjs then lessons.py. Two local reads of
+ *        already-digested content, neither consuming the other's output, both made in
+ *        the main thread before the research fan-out. RESOLVED BY REMOVAL, 2026-08-11:
+ *        the index moved into the recall subagent, so one call remains and there is
+ *        nothing left to batch. The assertion below now guards the other direction —
+ *        that the index does not come back into the main-thread block.
  *     3. Execution entry — parse-waves.cjs then parse-tasks.cjs. Same tasks index, one
  *        answers "what shape is the plan", the other "what is already done"; neither
  *        reads the other's output.
@@ -70,9 +74,8 @@ test('router loads the session in a single derive-session-state.cjs call', () =>
 test('router never invokes read-preferences.cjs as a second read', () => {
   const body = read(ROUTER);
 
-  // Naming the script in prose is required (it is the loader, the option-0 wizard's
-  // entry point, and the path anchor for check-resync.cjs). Ordering a RUN of it is the
-  // duplicate round trip that was removed.
+  // Naming the script in prose is required (it is the loader and the option-0 wizard's
+  // entry point). Ordering a RUN of it is the duplicate round trip that was removed.
   assert.doesNotMatch(
     body,
     /scripts\/read-preferences\.cjs/,
@@ -81,7 +84,7 @@ test('router never invokes read-preferences.cjs as a second read', () => {
   assert.match(
     body,
     /read-preferences\.cjs/,
-    'the router must still NAME read-preferences.cjs (loader / option-0 wizard / check-resync path anchor)',
+    'the router must still NAME read-preferences.cjs (loader / option-0 wizard entry point)',
   );
 });
 
@@ -90,7 +93,11 @@ test('the one-call read still carries every signal the router branches on', () =
 
   // The exact fields that made the second call look necessary. If any is dropped from
   // the prose, the router loses a branch and someone re-adds read-preferences.cjs.
-  for (const field of ['preferencesFound', 'malformed', 'session_has_corporate_artifacts']) {
+  // `corporateArtifacts` is the newest of them and the one most likely to be split back
+  // out: it is a DISK probe, not a preference, so it reads like a separate concern — but
+  // it answers a question about the same `.superpowers/` directory the loader already
+  // opened, and paying a second round trip for it would undo this whole file.
+  for (const field of ['preferencesFound', 'malformed', 'session_has_corporate_artifacts', 'corporateArtifacts']) {
     assert.match(
       body,
       new RegExp(`\\b${field}\\b`),
@@ -103,7 +110,7 @@ test('derive-session-state.cjs actually emits what the router now expects of it'
   // The prose promise above is only safe while the script keeps its side of it.
   // This is the seam where a script change would silently break the router.
   const script = read('super.using-superpowers/scripts/derive-session-state.cjs');
-  for (const field of ['preferencesFound', 'malformed', 'session_has_corporate_artifacts']) {
+  for (const field of ['preferencesFound', 'malformed', 'session_has_corporate_artifacts', 'corporateArtifacts']) {
     assert.match(
       script,
       new RegExp(`\\b${field}\\b`),
@@ -112,60 +119,65 @@ test('derive-session-state.cjs actually emits what the router now expects of it'
   }
 });
 
-// ─── 2. The two silent memory probes share one call ──────────────────────────
+// ─── 2. The bootstrap and the brainstorming entry are each ONE call ──────────
 
-test('memory re-sync gate runs check-resync.cjs and embedding-status in one call', () => {
-  const body = read(ROUTER);
-  const start = body.indexOf('### Memory Re-Sync Gate');
-  assert.ok(start >= 0, 'the router must have a Memory Re-Sync Gate section');
-  const region = body.slice(start, start + 4000);
-
-  assert.match(region, /check-resync\.cjs/, 'the gate must run check-resync.cjs');
-  assert.match(region, /pmem embedding-status/, 'the gate must probe pmem embedding-status');
-  assert.match(
-    region,
-    /same call/i,
-    'the gate must order both silent probes in the same call (step 4 consumes nothing from step 1)',
-  );
-});
-
-test('the bootstrap batches the state read AND both probes into one call', () => {
+test('the bootstrap batches the state read AND the session-start read into one call', () => {
   // Round trips dominate start time: measured transcripts ran 4 calls/45s, 3/52s, 2/21s
-  // while the three scripts together cost ~0.5s of CPU. So the batch must live in the
-  // bootstrap block, not just be described in the gate. A mutation that deleted the two
-  // probe lines from that block left the gate-side test above green — this closes it.
+  // while the scripts together cost well under a second of CPU. So the batch must live in
+  // the bootstrap block, not merely be described elsewhere.
   const body = read(ROUTER);
   const block = body.slice(body.indexOf('**Deterministic read'), body.indexOf('It emits JSON'));
 
   assert.match(block, /derive-session-state\.cjs/, 'the bootstrap call must derive session state');
-  assert.match(block, /check-resync\.cjs/,
-    'the bootstrap call must include the dirty probe (dropping it costs a round trip)');
-  assert.match(block, /pmem embedding-status/,
-    'the bootstrap call must include the embedding probe (dropping it costs a round trip)');
-  // The pmem path must be derivable from this skill's base dir. Leaving it as an
-  // unresolvable placeholder is what made a real run burn a whole call on `find`.
-  assert.match(block, /super\.persistent-memory\/scripts\/pmem/,
-    'the pmem path must be derived from the base dir, not left as a placeholder to hunt for');
-  assert.match(block, /never hunt for it with `find`/i,
-    'the block must explicitly rule out discovering the pmem path with find');
-  // Unconditional probing is the trade that makes one call possible — if a future edit
-  // re-gates the probes behind session_memory_enabled, the round trip comes back.
-  assert.match(block, /unconditionally/i,
-    'the block must justify running the probes unconditionally (0.5s CPU vs ~10s latency)');
+  assert.match(block, /cat \$B\/references\/session-start\.md/,
+    'the bootstrap call must include the session-start read (dropping it costs a round trip)');
+  assert.match(block, /One call, two outputs/i,
+    'the block must state how many outputs the one call carries, so a third does not creep in unnoticed');
 });
 
-test('the batched probe still re-runs embedding-status when the sync actually ran', () => {
-  // The ONE case batching is not equivalent: the sync prunes and adds notes, so the
-  // counts the pre-sync probe reported no longer describe the DB. Dropping this caveat
-  // would trade a round trip for a wrong re-embed decision.
-  const body = read(ROUTER);
-  const start = body.indexOf('### Memory Re-Sync Gate');
-  const region = body.slice(start, start + 4000);
-  assert.match(
-    region,
-    /re-?run `pmem embedding-status`|re-?probe/i,
-    'the gate must re-probe embedding-status after a sync that actually ran',
-  );
+test('brainstorming entry is ONE main-thread call, and the index is not in it', () => {
+  // This entry used to be a batched pair (feature-index.cjs + lessons.py) and is now
+  // deliberately unbatched — recorded here because the file's default reading is that two
+  // adjacent probes should be merged, and merging these back would undo two fixes at once.
+  //
+  // The index moved into the Feature history recall subagent: it is retrieval that grows
+  // with the repo (~27.000 chars measured), and an index sitting in the controller's
+  // context is what invited the inline artifact reads that followed it. Its removal from
+  // the block also removed the batching that let two skills' base-dirs collapse into one
+  // variable (base-dir-collapse.test.cjs). What is left is one call, which is the floor.
+  const body = read('super.brainstorming/references/research-fan-out.md');
+  const fences = bashFences(body);
+  const mainThread = fences.filter((f) => /^\s*(node|python3?)\s/m.test(f));
+  assert.equal(mainThread.length, 1,
+    `the entry must be exactly one main-thread call; found ${mainThread.length} fenced command blocks`);
+  assert.match(mainThread[0], /lessons\.py/, 'the surviving call is the confirmed-lessons load');
+  assert.doesNotMatch(mainThread[0], /feature-index\.cjs/,
+    'the index must not be re-batched into the main thread — it belongs to the recall subagent');
+});
+
+test('the lessons read is exempted from the RESEARCH-GATE in writing, not by assumption', () => {
+  // The gate forbids direct `bash` in the main agent during this phase. Without a written
+  // exemption a reader either hesitates or wraps a two-line read in a subagent.
+  const body = read('super.brainstorming/references/research-fan-out.md');
+  // Anchored to the load section itself: the exemption has to be where the call is
+  // written, not further down beside the gate, where a reader running the call is no
+  // longer looking.
+  const exemption = body.slice(body.indexOf('lessons.py'), body.indexOf('## Detect a pre-existing'));
+  assert.match(exemption, /RESEARCH-GATE/,
+    'the inline load must name the gate it is exempt from, above the gate itself');
+  assert.match(exemption, /it needs no subagent/i,
+    'the exemption must say this read runs inline, not through a subagent');
+  // Scope matters as much as the exemption itself: stated without a boundary, a reader
+  // carries it forward to whatever they open next (measured twice — a `find` plus a full
+  // design doc landed in the main thread right after this block, both times).
+  // The boundary is a COUNT, not a closing phrase: the phase legitimately has a second
+  // exempt call, and the earlier wording ("and nothing else") contradicted it, which is how
+  // a third call stopped reading as a violation of anything.
+  assert.match(exemption, /first of exactly two things outside the `<RESEARCH-GATE>`/i,
+    'the exemption must bound itself by counting the calls the phase is allowed');
+  assert.match(read('super.brainstorming/references/research-fan-out.md'),
+    /second and last thing outside the `<RESEARCH-GATE>`/i,
+    'the two exemptions must agree on the count, or neither bounds anything');
 });
 
 // ─── 3. Execution entry parses waves + tasks in one call ─────────────────────

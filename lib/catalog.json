@@ -135,6 +135,16 @@
         "all": "npm install -g @ast-grep/cli"
       },
       "note": "Distribuído como binário pré-compilado via npm — NÃO requer Rust/cargo. Requer node/npm no PATH (já presente com o Claude Code). O pacote instala dois binários: `ast-grep` e o alias `sg`. Detecção usa `ast-grep` porque `sg` colide com o comando nativo do Linux (shadow-utils: run command as group)."
+    },
+    "codegraph": {
+      "describe": "grafo de conhecimento do código (SQLite) para agentes de IA — go-to-definition, call paths e blast-radius via `codegraph explore`, indexado em `.codegraph/` por repo",
+      "detect": "codegraph",
+      "source": "https://github.com/colbymchenry/codegraph",
+      "verify": "codegraph --version",
+      "install": {
+        "all": "npm install -g @colbymchenry/codegraph"
+      },
+      "note": "Pacote npm `@colbymchenry/codegraph` funciona como bootstrapper: após a instalação o binário se auto-gerencia por versão em `~/.codegraph/versions/`, por isso pode não aparecer em `npm ls -g`. Indexação (`codegraph init`) é por projeto e fica em `.codegraph/` dentro de cada repo — não viaja via dotfiles, é decisão do usuário rodar em cada destino."
     }
   },
 

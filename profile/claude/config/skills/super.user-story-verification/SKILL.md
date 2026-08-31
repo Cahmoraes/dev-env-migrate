@@ -1,6 +1,6 @@
 ---
 name: super.user-story-verification
-description: "QA Gate that verifies each PRD user story against the live implementation via parallel subagents — running/creating acceptance tests and capturing UI screenshots (playwright-cli) — producing a PASSED/FAILED/PARTIAL report with evidence. Invoked by super.subagent-driven-development, super.parallel-subagent-in-tree, and super.parallel-subagent-development before super.finishing-a-development-branch, or directly to confirm all PRD user stories are implemented before merge/PR. Activate on 'rodar QA', 'verificar user stories', 'validar implementação contra PRD', 'run acceptance tests', 'generate QA report'."
+description: "Activate on 'rodar QA', 'verificar user stories', 'validar implementação contra PRD', 'run acceptance tests', 'generate QA report'. QA Gate that verifies each PRD user story against the live implementation. Invoked by super.subagent-driven-development, super.parallel-subagent-in-tree, and super.parallel-subagent-development before super.finishing-a-development-branch, or directly to confirm all PRD user stories are implemented before merge/PR."
 user-invocable: false
 ---
 
@@ -41,7 +41,7 @@ Extract user stories deterministically with `scripts/generate-slugs.cjs` — see
 
 From the PRD also extract:
 - All **Histórias de Usuário** (`Como [persona], eu quero [ação] para que [benefício]`)
-- All **Requisitos Funcionais** (`FR-001`, `FR-002`...) and their mapping to each story
+- Each story's **Requisitos Funcionais**: `generate-slugs.cjs` returns them per story in `requirements`, read from the PRD's `**FR-001** (US-01, US-02)` annotation. `requirementsMapped: false` → derive the mapping and **say in the report that you derived it**
 - The **Fora de Escopo** section — never verify excluded features
 
 ### Step 2: Set Up QA Directory
@@ -64,18 +64,20 @@ Gather this **before** dispatching so every subagent receives accurate context.
 **Test runner** — check in order: `package.json` `scripts.test` (vitest/jest/playwright) → `pyproject.toml` / `pytest.ini` (pytest) → `Cargo.toml` (cargo test) → `go.mod` (go test ./...).
 
 **Browser automation** — check in order:
-- `playwright-cli` available (`playwright-cli --version` or `npx playwright-cli --version`) → playwright-cli ✅ *(preferred — installs no new dependency)*. Task 3 below covers the minimal flow and when to reach for the fuller `/playwright-cli` skill instead.
+- `playwright-cli` available (`playwright-cli --version` or `npx playwright-cli --version`) → playwright-cli ✅ *(preferred — installs no new dependency)*.
 - `@playwright/test` in `devDependencies` → Playwright ✅
 - `puppeteer` in deps/devDeps → Puppeteer ✅
 - None found → screenshots unavailable ⚠️ (note in report, do not fail)
 
 **Never install** a browser automation library to enable screenshots; if none is found, mark screenshots unavailable and continue.
 
+**Is the story UI-facing? (not a judgment call).** Take `uiFacing` from `generate-slugs.cjs` — `true`/`false` when the PRD carried a `**UI:** sim|não` marker. `null` → decide **once for the whole feature**: UI-facing only if this feature's tasks wrote frontend files (`.tsx`/`.vue`/`.svelte`, `src/components`). PRD prose naming screens a *consumer* would build does not make a backend feature UI-facing. Say which input decided it.
+
 **Stack readiness for screenshots (decide once, before dispatch):** if browser automation is available and any story is UI-facing, the orchestrator — never a subagent — boots or confirms the stack (`docker compose up`, `pnpm dev`) and passes the resulting base URL to every subagent via **App base URL**, once for the whole wave. No UI-facing story, or no browser automation → skip this step, field is "not applicable." Boot fails or stack stays unreachable → same: field "not applicable," note it in the report, continue; never block the gate on it (the story degrades to `PARTIAL`). Rationale: `./references/gate-context.md`.
 
-**Acceptance test location (one rule, applies everywhere):** acceptance tests created by QA subagents go **only** in `docs/superpowers/<feature-name>/qa/evidence/<us-slug>/<us-slug>-<short-description>.acceptance.test.<ext>`. For JS/TS they run directly via full path (e.g. `npx vitest run docs/superpowers/.../us-001-foo.acceptance.test.tsx`). **Never** place new test files in the project source tree (`apps/`, `src/`, `lib/`, or any project test directory). For non-JS/TS ecosystems (Go, Rust, Python...), skip creating new test files — capture evidence through existing tests and playwright-cli screenshots instead.
+**Acceptance test location (one rule, applies everywhere):** new acceptance tests go **only** in `docs/superpowers/<feature-name>/qa/evidence/<us-slug>/`, **never** in the project source tree (`apps/`, `src/`, `lib/`, or any project test directory). Exact filename, run command and the non-JS/TS case: Task 2 below, which is what the subagent receives.
 
-**TypeScript path-alias resolution (JS/TS projects only):** before dispatching, run `node scripts/setup-qa-tsconfig.cjs --ensure-templates --repo-root "$(git rev-parse --show-toplevel)"` once — it writes/reuses `docs/superpowers/tsconfig.<frontend|backend>-qa.json` templates so acceptance tests saved in the evidence tree resolve `@/...`-style imports in the editor instead of showing false "Cannot find module" errors. See `references/qa-typescript-resolution.md` for the full design and the disambiguation flags for an `ambiguous` warning.
+**TypeScript path-alias resolution (JS/TS projects only):** before dispatching, run `node <super.user-story-verification-base-dir>/scripts/setup-qa-tsconfig.cjs --ensure-templates --repo-root "$(git rev-parse --show-toplevel)"` once, so acceptance tests in the evidence tree resolve `@/...` imports instead of showing false "Cannot find module". Design + the `ambiguous` disambiguation flags: `references/qa-typescript-resolution.md`.
 
 ### Step 4: Dispatch QA Subagents in Parallel
 
@@ -126,7 +128,7 @@ Summarize the results (pass/fail counts, relevant test names) into `result.json`
 
 If no existing test covers this story (or coverage is clearly partial), write a minimal acceptance test verifying its primary behavior end-to-end.
 
-- **JS/TS only** — before saving, run `node scripts/setup-qa-tsconfig.cjs --scaffold-evidence --repo-root "$(git rev-parse --show-toplevel)" --evidence-dir docs/superpowers/<feature-name>/qa/evidence/<us-slug> --kind <frontend|backend>` (pick the kind matching whichever app the test imports from) — this scaffolds a per-story `tsconfig.json` and `node_modules` symlink so the editor resolves the app's path aliases; see `references/qa-typescript-resolution.md`. Then save the file in the evidence directory as `<us-slug>-<short-description>.acceptance.test.<ext>` (e.g. `us-003-theme-persistence.acceptance.test.tsx`); run it immediately via its full path; record the path(s) in `evidence/<us-slug>/acceptance-tests-created.txt`.
+- **JS/TS only** — before saving, run `node <super.user-story-verification-base-dir>/scripts/setup-qa-tsconfig.cjs --scaffold-evidence --repo-root "$(git rev-parse --show-toplevel)" --evidence-dir docs/superpowers/<feature-name>/qa/evidence/<us-slug> --kind <frontend|backend>` (pick the kind matching whichever app the test imports from) — this scaffolds a per-story `tsconfig.json` and `node_modules` symlink so the editor resolves the app's path aliases; see `references/qa-typescript-resolution.md`. Then save the file in the evidence directory as `<us-slug>-<short-description>.acceptance.test.<ext>` (e.g. `us-003-theme-persistence.acceptance.test.tsx`); run it immediately via its full path; record the path(s) in `evidence/<us-slug>/acceptance-tests-created.txt`.
 - **Non-JS/TS** — skip; capture evidence via existing tests (Task 1) and playwright-cli screenshots (Task 3).
 - **Never** add test files to the project source tree (`apps/`, `src/`, `lib/`, or any project test directory).
 

@@ -85,8 +85,18 @@ test('the summary block is platform-invariant except the native-review row', () 
   // as "drop what looks foreign".
   const ref = read('super.using-superpowers/references/session-start.md');
 
-  assert.match(ref, /seven rows, in this order, on every platform/i,
+  assert.match(ref, /eight rows, in this order, on every platform/i,
     'the reference must fix the row count and order across platforms');
+  // The restated count and the example must not drift apart: count the rows that are
+  // actually there instead of trusting the sentence.
+  const block = ref.slice(ref.indexOf('> **Preferências desta sessão**'));
+  const rows = block.slice(0, block.indexOf('\n\n')).split('\n').filter((l) => l.startsWith('> - '));
+  assert.equal(rows.length, 8, `the worked example prints ${rows.length} rows, not the eight it claims`);
+  assert.ok(rows.some((l) => /Visual Companion/i.test(l)),
+    'the companion preference must be visible in the session summary, or the user cannot tell it is off');
+  assert.ok(rows.some((l) => /[Aa]rtefatos corporativos/.test(l)),
+    'corporate artifacts must be visible in the session summary — they OUTRANK the spec on conflict, '
+    + 'and a user who cannot see the switch cannot know the company documents are being ignored');
   assert.match(ref, /"Modelos por tier", which is\s*\n?\s*cross-platform/i,
     'the tier row must be called out as cross-platform — it is the row that got dropped');
   // The per-platform row has to be spelled out for BOTH harnesses, not described.
@@ -94,6 +104,41 @@ test('the summary block is platform-invariant except the native-review row', () 
     'the Claude Code native-review row must be given verbatim');
   assert.match(ref, /\| Copilot CLI \| .*Copilot review final/,
     'the Copilot CLI native-review row must be given verbatim');
+});
+
+test('the corporate row spells out all four declared x enabled states', () => {
+  // The row is the ONLY warning the "declared but not consented" branch gets — the router
+  // was changed to stop asking a separate question ahead of the triage, on the grounds
+  // that the block prints anyway. That trade only holds while the block actually says it.
+  //
+  // Before the disk probe existed this branch was unreachable: the router was told to warn
+  // when the yml is present with the flag off, but nothing ever looked at the disk. A repo
+  // with a declared corporate PRD ran in total silence.
+  const ref = read('super.using-superpowers/references/session-start.md');
+  const table = ref.slice(ref.indexOf('| `declared` | `enabled` | Row 8 |'));
+  assert.ok(table.length > 0, 'the reference must carry the row-8 state table');
+  const rows = table.split('\n\n')[0].split('\n').filter((l) => /^\| [✓✗] \| [✓✗] \|/.test(l));
+
+  // Floor: a table whose row pattern stops matching would report zero violations over zero
+  // rows and pass forever. Four states, no fewer.
+  assert.equal(rows.length, 4,
+    `the state table must enumerate all four declared x enabled combinations, found ${rows.length}`);
+
+  const byState = Object.fromEntries(rows.map((l) => {
+    const [, declared, enabled] = l.split('|').map((c) => c.trim());
+    return [`${declared}${enabled}`, l];
+  }));
+  assert.match(byState['✓✗'], /não carregados/,
+    'declared-but-disabled must be labelled NOT LOADED — the whole point of surfacing it');
+  assert.match(byState['✓✗'], /corporate-artifacts\.yml/,
+    'the row must name the file, so the user can go fix it');
+  assert.match(byState['✗✗'], /desligado/,
+    'with nothing declared the row still prints the preference state, like every other row');
+  assert.doesNotMatch(byState['✗✗'], /corporate-artifacts\.yml/,
+    'with no file there is no path to name');
+
+  assert.match(ref, /[Nn]ever list the declared\s*\n?\s*entries/,
+    'the reference must forbid printing the entries themselves — presence is not consent');
 });
 
 test('the activation orders the bootstrap BEFORE any printed block', () => {
@@ -142,9 +187,9 @@ test('SKILL.md prints a platform-filtered session-variable summary before the tr
     'the summary must omit the other platform\'s native-skill variables');
   assert.match(body, /add no detection logic/i,
     'the summary must not introduce platform-detection coupling');
-  // The summary is sequenced right before the triage, after the re-sync gate.
-  assert.match(body, /After the Memory Re-Sync Gate has been processed \(or skipped\)/i,
-    'the summary must be sequenced after the re-sync gate (and before Triagem)');
+  // The summary is sequenced right before the triage, after the preferences load.
+  assert.match(body, /Once preferences are loaded and right before the opening triage/i,
+    'the summary must be sequenced after the preferences load (and before Triagem)');
   // The re-sync gate's exit step must NOT print the summary itself — it only
   // proceeds to Triagem and defers the print to the sole-owner section. This is
   // the fix for the double-print.
@@ -168,9 +213,10 @@ test('the bootstrap prints at most one plain line before the Session Summary', (
   // stale_count: 0), então não há perguntas pendentes." → "Both probes vieram limpos,
   // então nada para perguntar.") but always survived, and each rewrite was already in
   // context when the next one was produced. Two lessons are locked here:
-  //   1. POSITION — the first two fixes lived at the END of the Memory Re-Sync Gate
-  //      subsection, too late: the first preamble is emitted during the *preference
-  //      load*, before that section is ever read.
+  //   1. POSITION — the first two fixes lived at the END of a later subsection, too
+  //      late: the first preamble is emitted during the *preference load*, before that
+  //      section is ever read. (The probes those transcripts narrated are gone with the
+  //      memory gate; the narration habit is not, so the budgeted line stays.)
   //   2. PRESCRIBE, don't forbid — the rule now budgets one short jargon-free line
   //      instead of banning the sentence, which also stops the anti-narration prose
   //      from growing on every failed round.
@@ -182,14 +228,16 @@ test('the bootstrap prints at most one plain line before the Session Summary', (
   assert.match(body, /Silent bootstrap/, 'SKILL.md must carry the Silent bootstrap rule');
   assert.match(rule, /at most one short line/i,
     'the rule must budget one line, not attempt a total ban (tried, did not hold)');
-  assert.match(rule, /Memória em dia/,
+  assert.match(rule, /Preferências carregadas/,
     'the rule must give the canonical wording of that line');
   assert.match(rule, /session language/i,
     'that line must be rendered in the session language, never hardcoded');
-  // The point of the rewrite the user asked for: "Both probes" means nothing to a reader.
+  // The point of the rewrite the user asked for: a field name means nothing to a reader.
+  // The list tracks the names the bootstrap actually produces today — a jargon ban that
+  // enumerates retired fields protects nothing.
   assert.match(rule, /jargon/i,
     'the rule must forbid internal jargon in the user-facing line');
-  for (const term of ['probes', '`dirty`', '`stale_count`']) {
+  for (const term of ['`preferencesFound`', '`sessionState`', '`session_*`']) {
     assert.ok(rule.includes(term),
       `the rule must name ${term} as jargon to keep out of the printed line`);
   }
@@ -197,12 +245,14 @@ test('the bootstrap prints at most one plain line before the Session Summary', (
   // (the preamble and between-probes lines disappeared once it was in the entry flow).
   assert.match(rule, /[Nn]ever narrate the commands/,
     'narrating the commands must stay forbidden');
-  // The gate must keep speaking where it has to ask, or "be brief" swallows the questions.
+  // The bootstrap must keep speaking where it has to ask, or "be brief" swallows the
+  // questions. Only one branch asks anything now that the memory gate is gone; naming it
+  // is what stops the brevity rule from silencing onboarding.
   assert.match(rule, /ask the user something/i,
     'branches that must ask the user something have to speak');
-  for (const branch of ['dirty: true', 'stale_count > 0']) {
+  for (const branch of ['missing preferences → onboarding']) {
     assert.ok(rule.includes(branch),
-      `the rule must name the ${branch} branch so the gate still speaks when it asks`);
+      `the rule must name the ${branch} branch so the bootstrap still speaks when it asks`);
   }
 
   // POSITION is the other half of the fix: the rule sits in the entry flow, not in the
@@ -214,13 +264,13 @@ test('the bootstrap prints at most one plain line before the Session Summary', (
   assert.ok(at < summarySection && at < gatesSection,
     'the rule must sit in the entry flow, not buried in the gates reference');
 
-  // The summary block still owns its own opening, and no longer duplicates the gate
-  // outcome now that the one-line opener carries it.
+  // The summary block still owns its own opening: the one-line opener above may not be
+  // repeated, expanded, or turned into a recap of what the bootstrap just ran.
   const summary = body.slice(summarySection, body.indexOf('## Opening Triage'));
   assert.match(summary, /block opens the turn/i,
     'the Session Summary section must state that the block opens the turn');
-  assert.match(summary, /\*\*Memória persistente\*\*: ativa$/m,
-    'the memory line must be plain again — the opener reports the gate, not this line');
+  assert.match(summary, /nothing precedes it/i,
+    'the Session Summary must state that nothing precedes the block — no lead-in, no recap');
 });
 
 test('brainstorming stays platform-agnostic (no platform tool name leaks in)', () => {
@@ -268,7 +318,7 @@ test('router gates onboarding on the presence flag, not on a populated object', 
 });
 
 test('onboarding asks model tiers as a REQUIRED step with suggestions + cost warnings', () => {
-  // The wizard makes model tiers a required Step 7a: it educates that `standard`
+  // The wizard makes model tiers a required Step 6a: it educates that `standard`
   // reviews `cheap` (one family up), suggests mappings, and warns when the mapping
   // would make an expensive model review mechanical code. Auto stays an explicit choice.
   const body = read('super.using-superpowers/references/onboarding-preferences.md');

@@ -136,6 +136,43 @@ function buildNotFoundResult() {
 	};
 }
 
+/**
+ * Story -> functional-requirement mapping, read from the PRD rather than inferred.
+ *
+ * The annotation lives on the REQUIREMENT line, not the story line: requirements are
+ * written after the stories exist, so naming the stories there is the natural authoring
+ * order -- and it keeps the "Como ..., eu quero ... para que ..." line untouched, whose
+ * greedy benefit group would otherwise swallow a trailing FR list.
+ *
+ *   - **FR-001** (US-01, US-02) - O sistema deve ...
+ *
+ * Many-to-many by construction: one FR can serve several stories and one story several
+ * FRs. A PRD with no annotations is valid and common (every PRD written before this
+ * existed) -- it yields empty arrays plus a warning, never an invented mapping.
+ */
+function extractRequirementMap(content) {
+	const byStory = new Map();
+	let annotated = false;
+	for (const line of content.split("\n")) {
+		const requirement = line.match(/\bFR-\d+\b/u);
+		if (!requirement) continue;
+		const stories = line.match(/\b(?:US|HU)-\d+\b/gu);
+		if (!stories) continue;
+		annotated = true;
+		for (const raw of stories) {
+			// Same HU- -> US- normalization the story parser applies, so an annotation
+			// written in the legacy Portuguese prefix still lands on its story.
+			const id = raw.toUpperCase().replace(/^HU-/u, "US-");
+			if (!byStory.has(id)) byStory.set(id, new Set());
+			byStory.get(id).add(requirement[0].toUpperCase());
+		}
+	}
+	return {
+		annotated,
+		requirementsOf: (id) => [...(byStory.get(id) || [])].sort(),
+	};
+}
+
 function main() {
 	const { prdPath } = parseArgs(process.argv);
 	if (!fs.existsSync(prdPath)) {
@@ -171,8 +208,16 @@ function main() {
 	const storyPattern =
 		/^\s*(?:[-*]\s+)?(?:\*\*\s*(?<idWholeBold>(?:US|HU)-\d+)\b[\s:.—–-]*[^*\n]+?\*\*\s*|\**\s*(?<id>(?:US|HU)-\d+)\b[*\s:.—–-]*(?:\*\*[^*\n]+\*\*[\s*:.—–-]*)?)?(?:\*\*\s*)?(?<full>Como\s+(?<role>.+?),\s*(?:eu\s+)?quero\s+(?<want>.+?)\s+para que\s+(?<benefit>.+?))(?:\s*\*\*)?\s*$/iu;
 	const matches = [];
+	// The optional `**UI:** sim|não` marker rides at the end of the story line, so it must
+	// come off BEFORE storyPattern runs: the benefit group is anchored to end-of-line and
+	// would otherwise swallow the marker into the story text and the slug.
+	const uiMarker =
+		/\s*[·|•—–-]?\s*\*{0,2}\s*UI\s*:?\s*\*{0,2}\s*[:\s]\s*\*{0,2}\s*(?<value>sim|s[ií]|yes|true|n[ãa]o|no|false)\s*\*{0,2}\s*$/iu;
+	const UI_TRUE = /^(?:sim|s[ií]|yes|true)$/iu;
 	mergeWrappedLines(content.split(/\r?\n/u)).forEach((line) => {
-		const match = line.match(storyPattern);
+		const ui = line.match(uiMarker);
+		const uiFacing = ui ? UI_TRUE.test(ui.groups.value) : null;
+		const match = (ui ? line.slice(0, ui.index) : line).match(storyPattern);
 		if (!match) return;
 		const rawId = match.groups.idWholeBold || match.groups.id;
 		// Normalize the legacy Portuguese prefix HU- to the canonical English US-.
@@ -183,6 +228,7 @@ function main() {
 		// greedy benefit group.
 		const full = normalizeWhitespace(match.groups.full).replace(/^\*\*|\*\*$/gu, "");
 		matches.push({
+			uiFacing,
 			explicitId,
 			role: normalizeWhitespace(match.groups.role).replace(/^\*\*|\*\*$/gu, ""),
 			want: normalizeWhitespace(match.groups.want).replace(/^\*\*|\*\*$/gu, ""),
@@ -194,13 +240,14 @@ function main() {
 	// anywhere in the PRD, not from array position -- otherwise an explicit ID
 	// (e.g. US-003) followed by an unlabeled story assigns the unlabeled one a
 	// lower/colliding ID (US-002) than one already in use.
+	const { requirementsOf, annotated } = extractRequirementMap(content);
 	const maxExplicitNum = matches.reduce((max, m) => {
 		if (!m.explicitId) return max;
 		const num = Number.parseInt(m.explicitId.replace(/^US-/u, ""), 10);
 		return Number.isNaN(num) ? max : Math.max(max, num);
 	}, 0);
 	let autoCounter = maxExplicitNum;
-	const userStories = matches.map(({ explicitId, role, want, benefit, full }) => {
+	const userStories = matches.map(({ explicitId, role, want, benefit, full, uiFacing }) => {
 		// Honor the PRD's explicit ID; otherwise number sequentially from
 		// maxExplicitNum so auto-generated IDs never collide with explicit ones.
 		const id = explicitId || `US-${String((autoCounter += 1)).padStart(3, "0")}`;
@@ -225,6 +272,11 @@ function main() {
 			want,
 			benefit,
 			slug: `${id.toLowerCase()}-${slugWords}`,
+			requirements: requirementsOf(id),
+			// true / false when the PRD declared it, null when it stayed silent. null is
+			// what sends the QA gate to its deterministic fallback instead of a judgment
+			// call that turned the same feature into PASSED on one run and PARTIAL on another.
+			uiFacing,
 		};
 	});
 	// Silent-failure guard: a PRD with a "## Histórias de Usuário" section but zero extractable
@@ -238,11 +290,37 @@ function main() {
 		warnings.push(warning);
 		process.stderr.write(`Warning: ${warning}\n`);
 	}
+	// The QA gate needs each story's FRs at four points (subagent context, result.json
+	// `requirements`, the no-IV fallback, the re-run trace). When the PRD annotates
+	// nothing, the controller reconstructs the mapping by reading intent -- which two
+	// measured sessions did differently for the same PRD. Say so instead of returning a
+	// confident empty array.
+	if (userStories.length > 0 && !annotated) {
+		const warning =
+			'No FR->US annotation found: no line carrying an "FR-NNN" id also names a "US-NN". Every story\'s "requirements" is therefore empty, and the QA gate will fall back to deriving the mapping by reading the PRD -- a judgment call that varies run to run. Annotate the requirement lines as "- **FR-001** (US-01, US-02) - ..." to make it a datum.';
+		warnings.push(warning);
+		process.stderr.write(`Warning: ${warning}\n`);
+	}
+	// Partial extraction is worse than zero extraction: zero trips the guard above, while
+	// "7 story lines in, 2 stories out" looks like a clean success and the QA gate silently
+	// verifies a subset of the feature. Measured on a real PRD whose other five stories end
+	// in "para evitar ...", "para poder ...", "para não ..." rather than "para que ...".
+	const storyish = content
+		.split("\n")
+		.filter((l) => /^\s*(?:[-*]\s+|>\s*)?\**\s*(?:(?:US|HU)-\d+\b[^\n]*?)?\bComo\b/iu.test(l) && /\bquero\b/iu.test(l))
+		.length;
+	if (userStories.length > 0 && storyish > userStories.length) {
+		const warning =
+			`${storyish} line(s) look like user stories but only ${userStories.length} matched the "Como ..., eu quero ... para que ..." shape — ${storyish - userStories.length} were dropped silently. The usual cause is a benefit clause written as "para <verbo>" instead of "para que ...". Fix the PRD lines, or extract the missing stories by hand (references/slug-extraction.md) before dispatching: the QA gate verifies only what comes out of here.`;
+		warnings.push(warning);
+		process.stderr.write(`Warning: ${warning}\n`);
+	}
 	const result = {
 		found: true,
 		featureName: deriveFeatureName(prdPath),
 		userStories,
 		count: userStories.length,
+		requirementsMapped: annotated,
 		warnings,
 	};
 	process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

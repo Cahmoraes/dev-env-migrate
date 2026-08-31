@@ -30,6 +30,12 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 const CODE_EXTENSIONS = new Set(['.cjs', '.mjs', '.js', '.sh', '.py']);
 const IGNORED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules']);
 
+// Um script de skill mora em `scripts/` ou em `evals/`, e cada árvore tem o seu `__tests__`.
+// Varrer só a primeira repetiria, um nível acima, a falha que este arquivo documenta: o
+// script não fica isento, fica invisível. Quem cobre o comando documentado é
+// `test-command-coverage.test.cjs`.
+const SCRIPT_TREES = ['scripts', 'evals'];
+
 // Untested on purpose. Each entry costs one line and one sentence, which is the price of
 // making the decision visible instead of implicit.
 const ALLOWLIST = new Map([
@@ -50,16 +56,18 @@ function collectScripts() {
       const relPath = `${rel}/${entry.name}`;
       if (entry.isDirectory()) { walk(abs, relPath); continue; }
       const ext = path.extname(entry.name);
-      // Extensionless files count only when executable — that is how `pmem` (a CLI with
-      // no suffix) gets in without dragging README fragments along with it.
+      // Extensionless files count only when executable, so a shell CLI with no suffix is
+      // swept while README fragments beside it are not.
       const isCode = CODE_EXTENSIONS.has(ext) ||
         (ext === '' && (fs.statSync(abs).mode & 0o111) !== 0);
       if (isCode) out.push(relPath);
     }
   };
   for (const skill of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
-    const scriptsDir = path.join(SKILLS, skill, 'scripts');
-    if (fs.existsSync(scriptsDir)) walk(scriptsDir, `${skill}/scripts`);
+    for (const tree of SCRIPT_TREES) {
+      const treeDir = path.join(SKILLS, skill, tree);
+      if (fs.existsSync(treeDir)) walk(treeDir, `${skill}/${tree}`);
+    }
   }
   return out;
 }
@@ -67,20 +75,22 @@ function collectScripts() {
 function collectTestText() {
   let blob = '';
   for (const skill of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
-    const testDir = path.join(SKILLS, skill, 'scripts', '__tests__');
-    if (!fs.existsSync(testDir)) continue;
-    const walk = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const abs = path.join(dir, entry.name);
-        if (entry.isDirectory()) { walk(abs); continue; }
-        // This file must not count as coverage for anything: it lists the allowlisted
-        // paths verbatim, so including it would make every exempted script look tested
-        // and would quietly disarm both checks below.
-        if (abs === __filename) continue;
-        if (/\.(test\.cjs|cjs|py)$/.test(entry.name)) blob += fs.readFileSync(abs, 'utf8');
-      }
-    };
-    walk(testDir);
+    for (const tree of SCRIPT_TREES) {
+      const testDir = path.join(SKILLS, skill, tree, '__tests__');
+      if (!fs.existsSync(testDir)) continue;
+      const walk = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const abs = path.join(dir, entry.name);
+          if (entry.isDirectory()) { walk(abs); continue; }
+          // This file must not count as coverage for anything: it lists the allowlisted
+          // paths verbatim, so including it would make every exempted script look tested
+          // and would quietly disarm both checks below.
+          if (abs === __filename) continue;
+          if (/\.(test\.cjs|cjs|py)$/.test(entry.name)) blob += fs.readFileSync(abs, 'utf8');
+        }
+      };
+      walk(testDir);
+    }
   }
   return blob;
 }

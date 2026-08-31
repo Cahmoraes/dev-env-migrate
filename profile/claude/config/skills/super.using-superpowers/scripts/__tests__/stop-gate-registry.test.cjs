@@ -53,6 +53,7 @@ const BRANCH_GUARD = `${SDD}/scripts/__tests__/branch-guard.test.cjs`;
 const AUTO_COMMIT = `${PSD}/scripts/__tests__/auto-commit-conflict-gate.test.cjs`;
 const GIT_SAFETY = `${FIN}/scripts/__tests__/finishing-git-safety.test.cjs`;
 const PORT_ISOLATION = 'super.using-git-worktrees/scripts/__tests__/port-isolation-contract.test.cjs';
+const RW_HAZARD = `${PSD}/scripts/__tests__/readwrite-hazard-gate.test.cjs`;
 
 const REGISTRY = [
   // --- controller never implements inline -------------------------------------------
@@ -89,9 +90,21 @@ const REGISTRY = [
   // Worktrees isolate files, not the loopback interface. Two implementers booting the
   // same stack collide on EADDRINUSE, and the failure lands on whichever task started
   // second — so it reads as that task's bug, not as a missing environment.
+  // Owner moved from prose to mechanism: the audit is now run by validate-dispatch.cjs on
+  // any worktree fan-out, so the STOP is a returned error code rather than a step the
+  // controller has to remember. The textual anchor stays because the SKILL.md still has to
+  // TELL the controller which verdict is fatal.
   { skill: PSD, what: 'overlapping port blocks block the wave dispatch',
-    anchor: /overlapping blocks are a \*\*STOP\*\*/,
-    owner: { test: PORT_ISOLATION, proof: /overlapping blocks are a \\\*\\\*STOP\\\*\\\*/ } },
+    anchor: /`port_block_overlap` is a \*\*STOP\*\*/,
+    owner: { test: PORT_ISOLATION, proof: /`port_block_overlap` is a \\\*\\\*STOP\\\*\\\*/ } },
+
+  // --- stale reads across a wave's worktrees ---------------------------------------------
+  // Isolation solves write∩write and nothing else. A task reading a file its sibling
+  // creates in another worktree gets the pre-change version, merges clean, and no gate
+  // downstream disagrees — so the pre-flight is the only place it can surface.
+  { skill: PSD, what: 'read∩write hazard halts the wave before dispatch',
+    anchor: /Non-empty `readWriteHazards` → \*\*STOP\*\*, serialize those tasks in dependency order/,
+    owner: { test: RW_HAZARD, proof: /read_write_hazard/ } },
 
   // --- written tier is binding ---------------------------------------------------------
   // Drift here is silent by construction: a more expensive model produces good work, so

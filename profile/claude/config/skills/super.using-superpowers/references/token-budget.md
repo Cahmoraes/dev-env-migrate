@@ -7,7 +7,7 @@ Every subagent dispatch carries a cost. Keep the context payload minimal without
 | Role | Max context | What to include | What to omit |
 |---|---|---|---|
 | **Implementer** | spec + task file + relevant existing files (~2-4 files) | Done-when criteria, exact file paths, code patterns to follow | Full session history, unrelated features, planning artifacts |
-| **Combined Verifier (Small/Medium)** | spec + diff + tests + checklist | AC list, `BASE_SHA..HEAD_SHA`, test command | Session transcript, task files, pmem |
+| **Combined Verifier (Small/Medium)** | spec + diff + tests + checklist | AC list, `BASE_SHA..HEAD_SHA`, test command | Session transcript, task files |
 | **Standalone IV (Large/Complex)** | spec + diff + tests + operating checklist | Same as combined Verifier | Same as combined Verifier |
 | **Research/explore** | bounded question + 2-3 files | Specific question, paths to inspect | Broad "understand the codebase" prompts |
 | **Task writer** | digest + decomposition + templates | Synthesized research, task list, templates | Raw codebase dumps |

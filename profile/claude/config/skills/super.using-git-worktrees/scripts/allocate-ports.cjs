@@ -247,8 +247,8 @@ function knownWorktreePaths(cwd) {
  *
  * Deliberately local rather than shared with super.using-superpowers' preferences
  * parser: skills are distributed independently, so a cross-skill `require` breaks the
- * moment someone installs this skill alone. Same reasoning as `lib/db-presence.cjs`
- * being duplicated on purpose. The grammar this file needs is a flat scalar map plus one
+ * moment someone installs this skill alone — the parser is small and is being duplicated
+ * on purpose. The grammar this file needs is a flat scalar map plus one
  * nested `services:` map — small enough that duplication is cheaper than coupling.
  */
 function parsePortsYaml(content) {

@@ -5,10 +5,10 @@
  * with no coupling between independent preferences. Companion to
  * native-review-flow.test.cjs (which covers the opt-in native review skills).
  *
- * Three preferences are guarded here:
- *   - optimization.caveman      → the subagent caveman block
- *   - memory.persistent_memory  → the memory gate / persistence steps
- *   - workflow.auto_commit      → the implementer's commit step
+ * Preferences guarded here, plus one retired key that must stay retired:
+ *   - optimization.caveman        → the subagent caveman block
+ *   - workflow.auto_commit        → the implementer's commit step
+ *   - workflow.visual_companion   → super.brainstorming's companion offer
  *
  * Two layers, same as the native-review guards:
  *   1. Data layer  — render-caveman-block.cjs and read-preferences.cjs return the
@@ -69,7 +69,7 @@ const EXECUTION_SKILLS = [
   'super.parallel-subagent-development/SKILL.md',
 ];
 
-// parallel-subagent-in-tree's Step 2 delegates its caveman/memory-gate policy
+// parallel-subagent-in-tree's Step 2 delegates its caveman policy
 // wholesale to parallel-subagent-development's Step 2 ("Apply the policy...
 // verbatim") instead of duplicating it — include the delegated body so the
 // guard sees the real content.
@@ -136,26 +136,31 @@ for (const rel of CAVEMAN_SURFACES) {
   });
 }
 
-// ─── persistent_memory — honored on, skipped off ─────────────────────────────
+// ─── a retired preference stays retired ──────────────────────────────────────
+//
+// `memory.persistent_memory` gated a memory database that no longer exists; recall now
+// derives from `docs/superpowers/` on every session with nothing to configure. The key
+// survives in the preferences.yml of every repo that ran the old onboarding, so the
+// contract is: read it, ignore it, never resurrect it as a session variable.
 
-test('persistent_memory data: off by default, honored when set true', () => {
+test('a legacy memory: key is dropped by the loader instead of read back', () => {
   const root = mkRepo();
   try {
-    writeYaml(root, 'communication:\n  language: pt-BR\n');
-    assert.equal(readPrefs(root).memory.persistent_memory, false, 'default must be off');
-    writeYaml(root, 'memory:\n  persistent_memory: true\n');
-    assert.equal(readPrefs(root).memory.persistent_memory, true, 'true must be honored');
+    writeYaml(root, 'communication:\n  language: pt-BR\nmemory:\n  persistent_memory: true\n');
+    const prefs = readPrefs(root);
+    assert.ok(!('memory' in prefs), 'the retired key must not come back through the loader');
+    assert.equal(prefs.communication.language, 'pt-BR', 'the rest of the file still parses');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 for (const rel of EXECUTION_SKILLS) {
-  test(`${rel}: the memory gate is conditioned on session_memory_enabled`, () => {
+  test(`${rel}: carries no memory gate to condition`, () => {
     const body = readSkillBody(rel);
     assert.ok(
-      body.includes('session_memory_enabled'),
-      `${rel} must gate memory steps on session_memory_enabled (skip them when off)`,
+      !/session_memory_enabled|persistent_memory|pmem/.test(body),
+      `${rel} still references the retired memory mechanism`,
     );
   });
 }
@@ -224,6 +229,83 @@ test('subagent-driven-development delegates the QA gate and keeps it conditional
     'the index must say the skip is silent, or QA gets announced before the reference is read');
 });
 
+// ─── visual_companion — offered when on, silently absent when off ────────────
+//
+// Two layers, because either one alone lets the preference through: the data layer
+// (the key exists, defaults on, honors false) and the prose layer (super.brainstorming
+// actually consults it BEFORE the visual-signals checklist that makes the offer
+// mandatory — a gate written after the checklist would never be reached).
+
+test('visual_companion data: on by default, honored when set false', () => {
+  const root = mkRepo();
+  try {
+    writeYaml(root, 'communication:\n  language: pt-BR\n');
+    assert.equal(readPrefs(root).workflow.visual_companion, true, 'default must be on');
+    writeYaml(root, 'workflow:\n  visual_companion: false\n');
+    assert.equal(readPrefs(root).workflow.visual_companion, false, 'false must be honored');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Checklist item 2 is where the gate has to live: a blind-executor probe (arm with
+// visual_companion:false) read a gate written only as prose in the Visual Companion section,
+// listed "run the preference gate" as a future action, and offered the companion in the SAME
+// turn. What changed the behaviour was the gate becoming item 2's first executable step, with
+// the command in a fence — a described command gets improvised, a fenced one gets run.
+function brainstormingItem2() {
+  const body = readFile('super.brainstorming/SKILL.md');
+  const start = body.indexOf('2. **Offer visual companion**');
+  assert.ok(start >= 0, 'checklist item 2 must exist');
+  return body.slice(start, body.indexOf('\n3. **Ask clarifying questions**', start));
+}
+
+test('checklist item 2 resolves the preference BEFORE evaluating any visual signal', () => {
+  const item2 = brainstormingItem2();
+  const gate = item2.indexOf('**Preference gate');
+  const checklist = item2.indexOf('**Visual signals**');
+  assert.ok(gate >= 0, 'item 2 must carry the preference gate — the offer is mandatory without it');
+  assert.ok(checklist > gate,
+    'the gate must precede the signals checklist inside item 2, or the offer fires before it is consulted');
+  assert.ok(item2.includes('session_visual_companion_enabled'),
+    'the gate must name the session variable a routed session already has');
+  assert.ok(item2.includes('workflow.visual_companion'),
+    'the gate must name the preference key it reads from the script output');
+});
+
+test('the gate carries the command as a runnable fence, not as a description', () => {
+  const item2 = brainstormingItem2();
+  const fence = item2.match(/```\n([\s\S]*?)```/);
+  assert.ok(fence, 'the gate needs a fenced command — a described command gets improvised, not run');
+  assert.match(fence[1], /read-preferences\.cjs/,
+    'the fenced command must be the preferences read');
+  assert.match(item2, /this turn/i,
+    'the read must happen in the same turn as the decision, or the offer goes out before the answer');
+});
+
+test('a disabled companion is skipped silently — no offer, no browser mentioned, on any re-run', () => {
+  const item2 = brainstormingItem2();
+  assert.match(item2, /no signal fires/i,
+    'with the companion off no visual signal may fire, or the checklist still makes the offer mandatory');
+  assert.match(item2, /no offer/i, 'the offer must be skipped');
+  assert.match(item2, /no mention of the browser/i,
+    'silence is part of the skip — announcing a disabled companion is the same defect');
+  assert.match(item2, /re-run/i,
+    'the checklist is permanent, so the gate must hold on every re-run, not just the first evaluation');
+  assert.match(item2, /default/i,
+    'an absent preferences file must keep the current behaviour (enabled), never disable by omission');
+});
+
+test('the Visual Companion section defers to the gate instead of restating it', () => {
+  const body = readFile('super.brainstorming/SKILL.md');
+  const section = body.slice(body.indexOf('## Visual Companion'));
+  const head = section.slice(0, section.indexOf('- The feature has a'));
+  assert.match(head, /preference gate \(checklist item 2\)/i,
+    'the section must name the gate that decides whether it applies at all');
+  assert.match(head, /workflow\.visual_companion/,
+    'a reader entering at this section must still learn which preference switches it off');
+});
+
 // ─── Corporate artifacts — the file on disk is NOT the consent signal ─────────
 //
 // The regression these lock out: `context.has_corporate_artifacts` was `false`, yet a
@@ -246,6 +328,43 @@ test('using-superpowers loads corporate artifacts only under the flag, never on 
     'the mismatch must still be surfaced — silence is the other failure mode');
 });
 
+test('the mismatch is warned by the summary row, not by a question ahead of the triage', () => {
+  // The other half of "presence is not consent": the branch has to be REACHABLE and it has
+  // to be CHEAP. It was neither. Nothing looked at the disk, so the warning never fired at
+  // all; and the written remedy was a yes/no question before the triage, which would have
+  // charged a round trip every session for a config state that does not change between them.
+  // The Session Summary already prints, so the row carries the warning for free.
+  const body = readFile('super.using-superpowers/SKILL.md');
+  const section = body.slice(body.indexOf('### Corporate Artifacts'));
+  const section_end = section.indexOf('\n## ');
+  const corporate = section_end > 0 ? section.slice(0, section_end) : section;
+
+  assert.match(corporate, /declaredButDisabled/,
+    'the router must branch on the disk probe, or it never learns the file is there');
+  assert.match(corporate, /Session Summary/,
+    'the router must name where the warning is delivered');
+  assert.match(corporate, /do not also ask before the triage|not also ask/i,
+    'the router must forbid stacking a question on top of the row');
+  assert.match(corporate, /triage option 0|option 0/,
+    'declining to ask only works if the user is told how to turn it on');
+
+  const ref = readFile('super.using-superpowers/references/session-start.md');
+  assert.match(ref, /não carregados/,
+    'the summary row must state that declared-but-unconsented artifacts are NOT loaded');
+});
+
+test('the bootstrap probe reports presence and count, never the declared paths', () => {
+  // A path list in the controller's context is an invitation to act on a declaration the
+  // user never made — the same failure the consent flag exists to prevent, one layer down.
+  const script = readFile('super.using-superpowers/scripts/derive-session-state.cjs');
+  const probe = script.slice(script.indexOf('function probeCorporateArtifacts'));
+  const body = probe.slice(0, probe.indexOf('\n}\n'));
+  assert.doesNotMatch(body, /\bentries\b/,
+    'probeCorporateArtifacts must not return the entries — count and path only');
+  assert.match(script, /never carries the declared entries|does NOT\n \* {2}report the entries/i,
+    'the omission must be documented as deliberate, or someone re-adds it as a convenience');
+});
+
 test('reviewing-specs gates Lens 5 on consent + declaration, and reports the mismatch instead', () => {
   const body = readFile('super.reviewing-specs/SKILL.md');
   assert.ok(body.includes('has_corporate_artifacts'),
@@ -258,16 +377,15 @@ test('reviewing-specs gates Lens 5 on consent + declaration, and reports the mis
 
 // ─── No coupling — one preference off does not disable another ────────────────
 
-test('preferences are independent: caveman off + memory on + auto_commit off coexist', () => {
+test('preferences are independent: caveman off + qa_gate on + auto_commit off coexist', () => {
   const root = mkRepo();
   try {
     writeYaml(root,
-      'workflow:\n  auto_commit: false\n' +
-      'memory:\n  persistent_memory: true\n' +
+      'workflow:\n  auto_commit: false\n  qa_gate: true\n' +
       'optimization:\n  caveman: false\n');
     const p = readPrefs(root);
     assert.equal(p.workflow.auto_commit, false);
-    assert.equal(p.memory.persistent_memory, true);
+    assert.equal(p.workflow.qa_gate, true);
     assert.equal(p.optimization.caveman, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

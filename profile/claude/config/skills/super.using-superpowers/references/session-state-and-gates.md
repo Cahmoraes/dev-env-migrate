@@ -35,14 +35,13 @@ latches start `false`:
 | Variable | Source | Meaning |
 |---|---|---|
 | `session_auto_commit` | sessionState | Platform-agnostic — whether subagents commit automatically after each task (from `workflow.auto_commit`). Surfaced for the session-state display; the execution skills still read `workflow.auto_commit` directly at their commit gate. |
+| `session_visual_companion_enabled` | sessionState | Platform-agnostic — whether `super.brainstorming` may offer the browser companion at all (from `workflow.visual_companion`). `false` skips the offer silently: no visual signal fires, nothing about the browser is mentioned. `true` is the default and keeps the consent question. |
 | `session_qa_gate_enabled` | sessionState | Platform-agnostic — whether the end-of-implementation QA gate (`super.user-story-verification`) runs at all (from `workflow.qa_gate`). `false` skips it silently and suppresses every QA mention, including at the PRD step. Independent verification is always-on and unaffected. |
 | `session_caveman_active` | sessionState | **Intent** — caveman should be on this session (from preferences or the dynamic question). Not "already invoked". |
 | `session_caveman_level` | sessionState | Intensity level (default `full`). |
 | `session_caveman_in_effect` | latch | **Liveness** — whether `/caveman` is currently loaded. Set `true` right after invoking, `false` on deactivation or after a compaction (which wipes live skill state). Idempotency guard — see the "Caveman Mode" section. |
 | `session_caveman_prompted` | latch | Whether the dynamic question was already asked this session. |
-| `session_memory_enabled` | sessionState | Whether persistent memory recall/persist is active. |
 | `session_language` | sessionState | Platform-agnostic — the human language every skill authors user-facing prose in: validation/QA report prose, spec/PRD text, subagent-authored notes (from `communication.language`, default `pt-BR`). The **structural skeleton** of machine-validated artifacts (report section headings, field labels, status tokens like `PASS ✅`/`FAIL ❌`, and FR/AC/US identifiers) stays canonical regardless — only prose follows this. |
-| `session_resync_completed` | latch | Whether the re-sync gate was already processed this session. |
 | `session_simplify_enabled` | sessionState | Claude Code only — whether `/simplify` runs at the per-task checkpoint. |
 | `session_code_review_final_enabled` | sessionState | Claude Code only — whether `/code-review` runs once at the **final** review as an extra bug pass (the default final reviewer always runs). |
 | `session_code_review_effort` | sessionState | Effort for the final `/code-review` (`low`/`medium`/`high`/`max`; `ultra` clamped to `medium`). |
@@ -57,15 +56,9 @@ ultra-compressed communication. Opt-in; never activated automatically.
 **Activation window:** ON from the `Planejando → Executando` gate, through all of
 `Executando`, and into `GateQA → Verificando`; OFF everywhere else (Explorando,
 Formalizando, Planejando, Finalizando, and the root `Depurando` state, which is
-investigative and needs clear prose). The `Planejando → Executando` gate has two
-mandatory exit actions:
-1. **Memory persistence** — if `session_memory_enabled = true`, `super.writing-plans`
-   calls `pmem add` (3 entries) before handing off (see its "Memory Persistence" section). If
-   memory is disabled, skip entirely.
-2. **Caveman activation** — if `session_caveman_active = true`, invoke `/caveman <level>`.
-
-Execution skills must **verify memory was persisted** before starting tasks (only if
-`session_memory_enabled = true`; otherwise skip and proceed).
+investigative and needs clear prose). The `Planejando → Executando` gate has one
+mandatory exit action: **caveman activation** — if `session_caveman_active = true`,
+invoke `/caveman <level>`.
 
 **Invocation:** invoke the `caveman` skill passing the level (e.g. `/caveman full`);
 deactivate with "normal mode" / "stop caveman". The execution skills own the actual
@@ -118,13 +111,24 @@ per-mode placement: `references/claude-code-tools.md` (Claude Code),
 
 When triage routes to execution, **the user — not you — chooses the execution mode.**
 Jumping straight into `super.subagent-driven-development` (or any other execution skill)
-because it "is the default" is the exact bug this section prevents. (Exception: the user
-already named a mode → invoke that skill directly with the tasks index path.) This
+because it "is the default" is the exact bug this section prevents.
+
+> **The exception is narrow, and reading it wide is the second bug.** It fires only when the
+> user named a **mode** — one of the three skill names. Words that describe *parallelism*
+> (*"in parallel"*, *"run them at the same time"*, *"the tasks are independent"*, *"speed this
+> up"*) name a **property that `super.parallel-subagent-in-tree` and
+> `super.parallel-subagent-development` both have**, so they select neither and you still owe
+> the user the three options. The decision also never precedes its input: `parse-waves.cjs`
+> runs first, and `executionRecommendation` is what the options are presented against. Both
+> parallel skills carry an election guard at their Step 1 as a backstop; the election itself
+> belongs here.
+
+This
 mirrors the Execution Handoff `super.writing-plans` offers right after creating the
 tasks index — same three options, same dynamically elected `(recommended)` tag.
 
 Steps:
-1. **Locate pending work:** `node <super.using-superpowers-base-dir>/scripts/superpowers-status.cjs --pending` returns the resumable features (`phase` `planned`/`executing`) with task progress (`tasks.done`/`tasks.total`) and a deterministic `nextAction`. More than one → list them and ask which; empty → tell the user and offer planning (option 4). (Drop `--pending` for the full pipeline view.)
+1. **Locate pending work:** `node <super.using-superpowers-base-dir>/scripts/superpowers-status.cjs --pending` returns the resumable features (`phase` `planned`/`executing`) with task progress (`tasks.done`/`tasks.total`) and a deterministic `nextAction`. **Exactly one → take it and go straight to step 2**, no question asked; more than one → list them and ask which; empty → tell the user and offer planning (option 4). (Drop `--pending` for the full pipeline view.)
 2. **Derive the recommendation:** `node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md` → read `executionRecommendation` and the wave summary (`waveCount`, `waveKinds`, `maxParallelWave`). (`parse-waves.cjs` lives in the sibling skill: swap the final `super.using-superpowers` segment of this skill's base dir for `super.parallel-subagent-development` — superpowers skills are siblings in one `skills/` directory.)
 3. **Present the three options:** render via `<super.writing-plans-base-dir>/references/execution-handoff-message.md` (Steps 1–3) — Subagent-Driven, Parallel in-tree, Parallel worktrees, with `(recommended)` elected by the rubric. Never hardcode the recommendation on option 1. Open with the triage variant: _"Found existing tasks index `tasks-<feature-name>.md` with N tasks (M pending)."_ That same Step 3 message also leads with option 0 (optional spec review via `super.reviewing-specs`) — if the user picks it, follow that reference's Step 4, which covers resolving the spec path from the `featureName` you already located here (rather than from `find-feature-files.cjs` at the start of `super.writing-plans`, which is not how you arrived).
 4. **Wait for the user's choice,** then invoke the chosen skill (`super.subagent-driven-development` / `super.parallel-subagent-in-tree` / `super.parallel-subagent-development`) with the tasks index path.

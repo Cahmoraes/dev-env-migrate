@@ -20,7 +20,7 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 
 > **Deterministic detection (preferred):**
 > ```bash
-> bash scripts/detect-git-env.sh
+> bash <super.using-git-worktrees-base-dir>/scripts/detect-git-env.sh
 > ```
 > Outputs JSON with `isWorktree`, `isBareRepo`, `currentBranch`, `gitRoot`, `worktrees[]`. If `isWorktree: true`, skip to Step 3 — already isolated. **Fallback:** the manual git commands below.
 
@@ -57,6 +57,8 @@ Do you already have a way to create a worktree? It might be a tool named like `E
 
 Native tools handle directory placement, branch creation, and cleanup automatically. Running `git worktree add` when a native tool exists creates phantom state your harness can't see or manage. Only proceed to Step 1b if you have no native tool.
 
+> **Scope of this preference: ONE workspace, that YOU work in.** That is what a native tool is built for, and it is the case this skill is about. It does not carry over to a caller that needs **several worktrees at once, none of which it enters** — the parallel wave in `super.parallel-subagent-development`. Three of the properties that make a native tool good here make it wrong there: it is usually one-per-session and refuses a second, it switches *the caller's* working directory into the tree, and it chooses the base ref and branch name itself (branching from the default branch is a common default). A caller that must have a branch named a specific way, off a specific base, for a tree it will not enter, goes to **Step 1b** — that is not "fighting the harness", it is a different job. Say which one you are doing before you pick.
+
 ### 1b. Git Worktree Fallback
 
 **Only if Step 1a does not apply** — no native worktree tool. Create a worktree manually with git.
@@ -87,8 +89,10 @@ Priority order — explicit user preference always beats observed filesystem sta
 **MUST verify the directory is git-ignored before creating the worktree** — prevents accidentally committing worktree contents to the repository:
 
 ```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
+git check-ignore -q .worktrees/ 2>/dev/null || git check-ignore -q worktrees/ 2>/dev/null
 ```
+
+**Keep the trailing slash.** A `.gitignore` entry written as `.worktrees/` only matches a path git already knows is a directory, and this check runs *before* the first `git worktree add` — so the bare `git check-ignore -q .worktrees` returns exit 1 on a repo that already ignores it, and the branch below then re-adds and commits a line that is already there.
 
 **If NOT ignored:** add to .gitignore, commit the change, then proceed. Global directories (`~/.config/superpowers/worktrees/`) need no verification.
 
@@ -216,7 +220,7 @@ Situation → action cheat-sheet (one row per decision, each mapping to a step a
 
 **Never:**
 - Create a worktree when Step 0 detects existing isolation (avoids nesting one inside another).
-- Use `git worktree add` when you have a native worktree tool (e.g. `EnterWorktree`) — **the #1 mistake**; if you have it, use it. Don't skip Step 1a by jumping straight to 1b's git commands.
+- Use `git worktree add` for **your own** workspace when you have a native worktree tool (e.g. `EnterWorktree`) — **the #1 mistake**; if you have it, use it. Don't skip Step 1a by jumping straight to 1b's git commands. (Creating N trees you will not enter, on prescribed branches, is Step 1b's job, not this mistake — see the scope note there.)
 - Create a project-local worktree without verifying it's ignored via `git check-ignore` (untracked-ignore prevents polluting git status).
 - Skip baseline test verification, or proceed with failing tests without asking (otherwise new bugs are indistinguishable from pre-existing ones).
 - Start a service in a worktree on a hard-coded port when `ports.env` exists (Step 3.5) — the collision it causes surfaces as a fake implementation bug.

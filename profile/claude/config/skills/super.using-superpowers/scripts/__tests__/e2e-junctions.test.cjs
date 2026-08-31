@@ -17,6 +17,7 @@
  *   parse-waves (PRODUZ)     -> manifesto (APLICA) -> validate-dispatch (VERIFICA)
  *   render-screen (ESCREVE)  -> check-visual-state (CLASSIFICA)
  *   validation-report-template.md -> check-verification-report
+ *   prd-template.md (SECOES) -> feature-index (RECALL)
  *   resolve-review-targets   -> build-review-dispatch -> validate-dispatch
  *
  * Por que um unico arquivo de teste: as fases sao dependentes por construcao (a fase 3
@@ -50,7 +51,7 @@ if (process.env.SUPERPOWERS_SKIP_E2E === '1') {
   require('./e2e/phase-2-planning.cjs');
   require('./e2e/phase-3-execution.cjs');
   require('./e2e/phase-4-verification.cjs');
-  require('./e2e/phase-5-memory.cjs');
+  require('./e2e/phase-5-recall.cjs');
   require('./e2e/phase-6-visual.cjs');
   require('./e2e/phase-7-integration.cjs');
 

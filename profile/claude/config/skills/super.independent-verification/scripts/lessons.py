@@ -55,6 +55,42 @@ PROMOTE_AFTER = 2
 STALE_AFTER_DAYS = 45
 QUARANTINE_AFTER = 2
 
+# A lesson is only ever loaded after the same rule recurred in two distinct features.
+# That requires the text to be a transferable RULE, not a report of one incident: a
+# sentence naming this feature's files, line numbers or classes can never recur, so it
+# ages out unread. Measured 2026-08-27 on a real store: 24 lessons, 9 features, every
+# one at recurrence=1, zero promoted, all 24 due to be pruned unread. 17 of the 24 ran
+# past MAX_TEXT_CHARS - length was the single best predictor of a feature-bound text.
+# These checks gate MINTING only; re-affirming an existing lesson is never blocked
+# (see cmd_add), or corroboration would be impossible for anything already recorded.
+MAX_TEXT_CHARS = 200
+
+_CODE_EXT = (
+    "tsx|ts|jsx|js|mjs|cjs|py|rb|go|java|kt|rs|php|vue|svelte"
+    "|css|scss|html|json|ya?ml|md|sql|sh"
+)
+# The incident belongs in --source and the area in --scope; both flags already exist.
+TEXT_REJECTIONS = (
+    (re.compile(r"\b[\w-]+\.(?:" + _CODE_EXT + r")\b"),
+     "names a file - put it in --source"),
+    (re.compile(r"\b[\w.-]+/[\w.-]+/[\w.-]+"),
+     "names a path - put it in --scope"),
+    (re.compile(r"\b[A-Za-z][\w.-]*:\d+\b"),
+     "names a line reference - put it in --source"),
+)
+
+
+def check_text(text):
+    """Return a list of reasons this text is too feature-bound to ever recur."""
+    reasons = []
+    if len(text) > MAX_TEXT_CHARS:
+        reasons.append("%d chars, max is %d - state the rule, not the incident"
+                       % (len(text), MAX_TEXT_CHARS))
+    for pattern, reason in TEXT_REJECTIONS:
+        if pattern.search(text):
+            reasons.append(reason)
+    return reasons
+
 STATUS_CANDIDATE = "candidate"
 STATUS_CONFIRMED = "confirmed"
 STATUS_QUARANTINED = "quarantined"
@@ -160,18 +196,42 @@ def save_store(root, store):
     write_render(root, store)
 
 
-def _fingerprint(signal, text):
-    """Two lessons are the same when their signal and normalized text match."""
-    normalized = re.sub(r"\s+", " ", text.strip().lower())
-    return signal + " " + normalized
+def _fingerprint(text):
+    """A lesson IS its rule, so the normalized text alone is its identity.
+
+    `signal` is provenance - it says how the rule was detected this time, not what the
+    rule is - and the same rule genuinely surfaces through different signals: a pinned
+    CSS class shows up as `spec_precision_gap` in one feature and `surviving_mutant` in
+    the next. Keying identity on the signal too made those two mint separate candidates
+    that could never corroborate each other. Observed 2026-08-27 in an end-to-end run:
+    the Verifier reused a recorded lesson's text verbatim, the signal differed, and the
+    reuse fell through to the mint path. Signals accumulate on the lesson instead.
+    """
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 
-def _find_by_fingerprint(store, signal, text):
-    target = _fingerprint(signal, text)
+def _find_by_fingerprint(store, text):
+    target = _fingerprint(text)
     for lesson in store["lessons"]:
-        if _fingerprint(lesson["signal"], lesson["text"]) == target:
+        if _fingerprint(lesson["text"]) == target:
             return lesson
     return None
+
+
+def _scopes(lesson):
+    """Every area this rule has bitten in. A rule confirmed in two areas must be findable
+    under both: `list --scope` is offered to the planning side, and keeping only the
+    first-recorded scope hides the lesson from every other area it applies to.
+    """
+    recorded = lesson.get("scopes")
+    if recorded:
+        return recorded
+    return [lesson["scope"]] if lesson.get("scope") else []
+
+
+def _signals(lesson):
+    """Every signal this rule has been detected through, oldest first."""
+    return lesson.get("signals") or [lesson["signal"]]
 
 
 def _find_by_id(store, lesson_id):
@@ -223,16 +283,34 @@ def cmd_add(root, args):
         return 2
 
     store = load_store(root)
-    prune(store)
     stamp = _iso(_now())
-    existing = _find_by_fingerprint(store, args.signal, args.text)
+    # Match BEFORE pruning. A lesson one day past the window is still in the store the
+    # Verifier just read, and reusing its text is exactly what corroborates it - pruning
+    # first deletes it, turns the reuse into a mint, and the generality gate then refuses
+    # a text the Verifier copied verbatim in good faith. The signal for that feature is
+    # lost twice over. Pruning happens below, after the merge has refreshed `updated`.
+    existing = _find_by_fingerprint(store, args.text)
 
     if existing is None:
+        # Minting a new lesson - it must be a rule general enough to recur. A reuse
+        # (exact fingerprint hit above) skips this deliberately: corroborating an
+        # already-recorded lesson is the whole point, and gating it would freeze the
+        # store at whatever was written before these checks existed.
+        problems = check_text(args.text)
+        if problems:
+            print("error: --text is too feature-bound to ever recur (%s)"
+                  % "; ".join(problems), file=sys.stderr)
+            print("hint: run `lessons.py list --status all` first - if a lesson already "
+                  "states this rule, reuse its --text verbatim instead of writing a new one.",
+                  file=sys.stderr)
+            return 2
         lesson = {
             "id": _mint_id(store),
             "signal": args.signal,
+            "signals": [args.signal],
             "text": args.text.strip(),
             "scope": (args.scope or "").strip(),
+            "scopes": [args.scope.strip()] if (args.scope or "").strip() else [],
             "features": [args.feature],
             "sources": [args.source.strip()],
             "status": STATUS_CANDIDATE,
@@ -241,23 +319,35 @@ def cmd_add(root, args):
             "updated": stamp,
         }
         store["lessons"].append(lesson)
+        prune(store)
         save_store(root, store)
         print("added %s (status=%s, recurrence=1)" % (lesson["id"], lesson["status"]))
         return 0
 
     # Same lesson resurfacing. Count distinct features; promote on corroboration.
     promoted = False
+    seen_signals = _signals(existing)
+    if args.signal not in seen_signals:
+        seen_signals = seen_signals + [args.signal]
+    existing["signals"] = seen_signals
     if args.feature not in existing["features"]:
         existing["features"].append(args.feature)
     if args.source.strip() not in existing["sources"]:
         existing["sources"].append(args.source.strip())
-    if args.scope and not existing.get("scope"):
-        existing["scope"] = args.scope.strip()
+    scope = (args.scope or "").strip()
+    if scope:
+        known = _scopes(existing)
+        if scope not in known:
+            known = known + [scope]
+        existing["scopes"] = known
+        if not existing.get("scope"):
+            existing["scope"] = scope
     existing["updated"] = stamp
     if existing["status"] == STATUS_CANDIDATE and _recurrence(existing) >= PROMOTE_AFTER:
         existing["status"] = STATUS_CONFIRMED
         promoted = True
 
+    prune(store)
     save_store(root, store)
     suffix = " -> promoted to confirmed" if promoted else ""
     print("updated %s (recurrence=%d, status=%s)%s" % (
@@ -283,8 +373,26 @@ def cmd_penalize(root, args):
     return 0
 
 
+STATUS_ACTIVE = "active"
+
+
+def _status_matches(lesson, wanted):
+    """`active` is candidate + confirmed: every lesson still worth corroborating.
+
+    The Verifier reads the store to find a text to reuse verbatim. A quarantined lesson
+    stopped being served, so reusing its wording writes into a dead record - the signal
+    is spent and never reaches planning. Excluding them mechanically beats asking the
+    Verifier to notice a status label in a list of dozens.
+    """
+    if wanted == "all":
+        return True
+    if wanted == STATUS_ACTIVE:
+        return lesson["status"] in (STATUS_CANDIDATE, STATUS_CONFIRMED)
+    return lesson["status"] == wanted
+
+
 def _matches_filters(lesson, scope, query):
-    if scope and lesson.get("scope") != scope:
+    if scope and scope not in _scopes(lesson):
         return False
     if query and query.lower() not in lesson["text"].lower():
         return False
@@ -292,14 +400,20 @@ def _matches_filters(lesson, scope, query):
 
 
 def cmd_list(root, args):
+    """Read-only on purpose. `list` used to prune and save, which made every read a
+    write: the planning-time load in super.brainstorming / super.writing-plans, and the
+    Verifier's own read-before-write, could each delete a stale candidate as a side
+    effect. The Verifier one is the damaging case - it reads the store precisely to find
+    a lesson to corroborate, and pruning first can delete the lesson it was about to
+    promote, sending it back to minting a fresh candidate. Pruning belongs on `add` and
+    on the explicit `prune` command, where a write is the point.
+    """
     store = load_store(root)
-    prune(store)
-    save_store(root, store)
 
     wanted = args.status
     selected = []
     for lesson in store["lessons"]:
-        if wanted != "all" and lesson["status"] != wanted:
+        if not _status_matches(lesson, wanted):
             continue
         if not _matches_filters(lesson, args.scope, args.query):
             continue
@@ -311,7 +425,8 @@ def cmd_list(root, args):
         return 0
 
     for lesson in selected:
-        scope = " [scope:%s]" % lesson["scope"] if lesson.get("scope") else ""
+        areas = _scopes(lesson)
+        scope = " [scope:%s]" % " ".join(areas) if areas else ""
         print("%s (%s, x%d)%s: %s" % (
             lesson["id"], lesson["status"], _recurrence(lesson), scope, lesson["text"]))
     return 0
@@ -354,9 +469,11 @@ def write_render(root, store):
             return
         lines.append("")
         for lesson in sorted(rows, key=lambda l: l["id"]):
-            scope = " `%s`" % lesson["scope"] if lesson.get("scope") else ""
+            areas = _scopes(lesson)
+            scope = " `%s`" % " ".join(areas) if areas else ""
             lines.append("- **%s**%s (%s, seen in %d feature(s)): %s" % (
-                lesson["id"], scope, lesson["signal"], _recurrence(lesson), lesson["text"]))
+                lesson["id"], scope, "/".join(_signals(lesson)),
+                _recurrence(lesson), lesson["text"]))
         lines.append("")
 
     section("Confirmed", STATUS_CONFIRMED)
@@ -380,7 +497,10 @@ def build_parser():
     p_add.add_argument("--feature", required=True, help="feature slug the signal came from")
     p_add.add_argument("--signal", required=True, help="one of: %s" % ", ".join(VALID_SIGNALS))
     p_add.add_argument("--source", required=True, help="grounding: file:line, AC id, or mutant id")
-    p_add.add_argument("--text", required=True, help="one actionable sentence")
+    p_add.add_argument("--text", required=True,
+                       help="the transferable rule, max %d chars, no file/path/line "
+                            "names (reuse an existing lesson's text verbatim to "
+                            "corroborate it)" % MAX_TEXT_CHARS)
     p_add.add_argument("--scope", default="", help="optional path/layer/tag")
 
     p_pen = sub.add_parser("penalize", help="mark a confirmed lesson as failed-when-applied")
@@ -388,8 +508,10 @@ def build_parser():
 
     p_list = sub.add_parser("list", help="print lessons for loading at planning time")
     p_list.add_argument("--status", default=STATUS_CONFIRMED,
-                        choices=[STATUS_CONFIRMED, STATUS_CANDIDATE, STATUS_QUARANTINED, "all"],
-                        help="filter by status (default: confirmed)")
+                        choices=[STATUS_CONFIRMED, STATUS_CANDIDATE, STATUS_QUARANTINED,
+                                 STATUS_ACTIVE, "all"],
+                        help="filter by status; `active` is candidate+confirmed, i.e. "
+                             "everything still worth corroborating (default: confirmed)")
     p_list.add_argument("--scope", default="", help="filter by scope")
     p_list.add_argument("--query", default="", help="substring filter on the lesson text")
 

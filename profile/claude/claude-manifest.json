@@ -45,7 +45,7 @@
     {
       "name": "frontend-design@claude-plugins-official",
       "enabled": false,
-      "version": "unknown",
+      "version": "ed404106fcd8",
       "gitCommitSha": null
     },
     {
@@ -81,7 +81,7 @@
     {
       "name": "commit-commands@claude-plugins-official",
       "enabled": false,
-      "version": "unknown",
+      "version": "ed404106fcd8",
       "gitCommitSha": null
     },
     {
@@ -93,7 +93,7 @@
     {
       "name": "security-guidance@claude-plugins-official",
       "enabled": true,
-      "version": "2.0.6",
+      "version": "2.0.7",
       "gitCommitSha": null
     },
     {
@@ -105,13 +105,13 @@
     {
       "name": "chrome-devtools-mcp@claude-plugins-official",
       "enabled": false,
-      "version": "1.6.0",
+      "version": "1.7.0",
       "gitCommitSha": "6e56c028cf80ac977c501a94d0958568dea901c2"
     },
     {
       "name": "exa@claude-plugins-official",
       "enabled": true,
-      "version": "3.4.0",
+      "version": "3.4.1",
       "gitCommitSha": "685aaa990c120a1e009fbbb8bc809128cedc957a"
     },
     {
@@ -148,7 +148,7 @@
       "@vtsls/language-server@0.3.0",
       "ctx7@0.4.0",
       "ntl@5.1.0",
-      "opencode-ai@1.15.3",
+      "opencode-ai@1.18.18",
       "pnpm@10.23.0",
       "typescript-language-server@5.3.0",
       "typescript@6.0.3"
@@ -157,7 +157,8 @@
       "@mermaid-js/mermaid-cli@11.16.0",
       "context-mode@1.0.169",
       "corepack@0.35.0",
-      "npm@11.16.0"
+      "npm@11.16.0",
+      "opencode-ai@1.18.18"
     ]
   },
   "security_flags": {
@@ -199,18 +200,31 @@
     ],
     "skills": [
       "architectural-analyzer",
+      "caveman",
+      "code-review",
+      "code-style",
       "commit-push-pr",
+      "component-test-generator",
       "context-mode-ops",
       "context7",
+      "create-controller",
       "deep-teach",
+      "dependency-updater",
       "design-doc-mermaid",
       "exa-web-search-free",
+      "figma-to-code",
+      "figma-visual-tester",
       "find-skills",
       "frontend-design",
+      "generate-release-tables",
       "git-rebase",
+      "grill-me",
       "handoff",
       "improve-codebase-architecture",
+      "lsp-setup",
       "mermaid-diagrams",
+      "mistica",
+      "mistica-docs-query",
       "no-workarounds",
       "playwright-cli",
       "refactoring",
@@ -225,7 +239,6 @@
       "super.independent-verification",
       "super.parallel-subagent-development",
       "super.parallel-subagent-in-tree",
-      "super.persistent-memory",
       "super.requesting-code-review",
       "super.reviewing-specs",
       "super.subagent-driven-development",
@@ -236,8 +249,17 @@
       "super.using-superpowers",
       "super.verification-before-completion",
       "super.writing-plans",
+      "tagging",
+      "tanstack-query-best-practices",
+      "test-antipatterns",
       "tlc-spec-driven",
       "to-adr",
+      "to-prompt",
+      "typescript-advanced",
+      "vercel-composition-patterns",
+      "vercel-react-best-practices",
+      "wcag-audit-patterns",
+      "webview-bridge",
       "xstate",
       "zod",
       "zustand"

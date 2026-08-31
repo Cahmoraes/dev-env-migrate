@@ -127,10 +127,13 @@ test('thin parallelism (one wave of 2) → parallel mode (option 3), medium conf
   }
 });
 
-test('high-fan-in task is surfaced as a coupling signal', () => {
+test('fan-in OUTSIDE every parallel wave is not a coupling signal', () => {
   const dir = mkdir();
   try {
-    // task 1 is depended on by 2, 3, 4 → fan-in 3; wave 2 = {2,3,4} is parallel.
+    // task 1 is depended on by 2, 3, 4 → fan-in 3, but it sits ALONE in wave 1
+    // (sequential). Wave 2 = {2,3,4} is the parallel one and its tasks have fan-in 0,
+    // so nothing about wave 2 is coupled. Reporting #1 here is what made readers
+    // downgrade a decoupled wave: `signals` is plan-wide, the decision is wave-scoped.
     const index = build(dir, [
       { n: 1, body: taskFile({ depends: 'N/A', files: ['`src/core.ts`'] }) },
       { n: 2, body: taskFile({ depends: 'task-01', files: ['`src/b.ts`'] }) },
@@ -138,8 +141,57 @@ test('high-fan-in task is surfaced as a coupling signal', () => {
       { n: 4, body: taskFile({ depends: 'task-01', files: ['`src/d.ts`'] }) },
     ]);
     const rec = runJson(index).executionRecommendation;
+    assert.equal(rec.optionNumber, 3);
     assert.equal(rec.decisionRequired, true);
-    assert.ok(rec.signals.some((s) => /high-fan-in/.test(s) && /#1/.test(s)));
+    assert.equal(rec.couplingCheck.tightlyCoupled, false);
+    assert.deepEqual(rec.couplingCheck.tasks, []);
+    assert.ok(!rec.signals.some((s) => /high-fan-in/.test(s)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('fan-in INSIDE a parallel wave is applied, not just reported → option 1', () => {
+  const dir = mkdir();
+  try {
+    // wave 1 = {1,2} parallel; task 1 is depended on by 3, 4, 5 → fan-in 3 INSIDE a
+    // parallel wave. The script settles the downgrade itself so the handoff rubric
+    // has nothing left to re-decide.
+    const index = build(dir, [
+      { n: 1, body: taskFile({ depends: 'N/A', files: ['`src/core.ts`'] }) },
+      { n: 2, body: taskFile({ depends: 'N/A', files: ['`src/b.ts`'] }) },
+      { n: 3, body: taskFile({ depends: 'task-01', files: ['`src/c.ts`'] }) },
+      { n: 4, body: taskFile({ depends: 'task-01', files: ['`src/d.ts`'] }) },
+      { n: 5, body: taskFile({ depends: 'task-01', files: ['`src/e.ts`'] }) },
+    ]);
+    const rec = runJson(index).executionRecommendation;
+    assert.equal(rec.mode, 'subagent-driven');
+    assert.equal(rec.optionNumber, 1);
+    assert.equal(rec.decisionRequired, false, 'the coupling call is settled — nothing left to refine');
+    assert.equal(rec.couplingCheck.tightlyCoupled, true);
+    assert.deepEqual(rec.couplingCheck.tasks, [1]);
+    assert.ok(rec.signals.some((s) => /INSIDE a parallel wave/.test(s) && /#1/.test(s)));
+    // The parallel modes stay available as explicit alternatives, never silently dropped.
+    assert.deepEqual(
+      rec.alternatives.map((a) => a.optionNumber),
+      [3, 2],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('every recommendation carries an applied couplingCheck', () => {
+  const dir = mkdir();
+  try {
+    const index = build(dir, [
+      { n: 1, body: taskFile({ depends: 'N/A' }) },
+      { n: 2, body: taskFile({ depends: 'task-01', files: ['`src/b.ts`'] }) },
+    ]);
+    const rec = runJson(index).executionRecommendation;
+    assert.equal(rec.optionNumber, 1, 'fully sequential');
+    assert.equal(rec.couplingCheck.applied, true);
+    assert.equal(rec.couplingCheck.scope, 'tasks inside a parallel wave');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

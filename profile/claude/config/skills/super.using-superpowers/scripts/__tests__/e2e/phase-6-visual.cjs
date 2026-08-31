@@ -128,22 +128,26 @@ check('render-screen grava a tela e carimba o marcador de gerado', () => {
   return `${r.json.bytes}B`;
 });
 
-check('tela real settla a divida e e classificada como GENERATED', () => {
+check('tela SO gerada nao settla a divida: e mensagem de terminal atras de uma URL', () => {
+  // Sessao real 2026-08-11: o companion abriu numa pergunta de escopo e serviu cinco text
+  // cards. Presenca sozinha dizia "current" — e o usuario tinha saido do terminal para ler
+  // uma lista numerada. Text card e tela real, mas nao e o artefato que a oferta prometeu.
   const s = estado();
-  eq(s.renderDebt, false, 'renderDebt');
-  eq(s.reason, 'current', 'reason');
+  eq(s.reason, 'generated-only', 'reason');
+  eq(s.renderDebt, true, 'renderDebt');
   eq(s.screens, 1, 'screens');
   eq(s.newestScreenKind, 'generated', 'newestScreenKind');
   assert(typeof s.ageSeconds === 'number', 'ageSeconds sempre reportado para o modelo julgar');
-  return 'presenca + tipo';
+  return 'presenca + tipo, e o tipo decide a divida';
 });
 
-check('mockup bespoke e classificado como BESPOKE', () => {
+check('mockup bespoke e classificado como BESPOKE, e e ele que paga a divida', () => {
   fs.writeFileSync(path.join(CONTENT, 'mockup-modal.html'),
     '<style>.sheet{position:fixed;bottom:0;height:60vh;border-radius:16px 16px 0 0}</style>' +
     '<div class="sheet" data-choice="a"><h3>Consumo do mes</h3><p>12,4 GB de 20 GB</p></div>');
   const s = estado();
   eq(s.newestScreenKind, 'bespoke', 'newestScreenKind');
+  eq(s.reason, 'current', 'reason');
   eq(s.renderDebt, false, 'renderDebt');
   eq(s.screens, 2, 'screens');
   return 'heuristica de forma distingue os dois';
@@ -158,10 +162,12 @@ check('LAYOUT GATE: tela generated numa pergunta de layout e violacao NOMEAVEL',
     items: [{ choice: 'a', heading: 'Bottom sheet', body: 'x' }, { choice: 'b', heading: 'Dialog', body: 'y' }],
   })]);
   const s = estado();
-  // presenca sozinha diria "current" — e dizia, antes do fix
-  eq(s.reason, 'current', 'presenca satisfeita');
   eq(s.newestScreenKind, 'generated', 'o sinal que denuncia a violacao');
-  assert(s.renderDebt === false, 'divida de PRESENCA esta paga; a violacao e de correspondencia');
+  // Duas leituras do mesmo arquivo, em eixos distintos: o gate de LAYOUT le o tipo da tela
+  // mais nova (correspondencia, semantica); a divida le o historico inteiro (presenca do
+  // artefato prometido, mecanica). Numa sessao so-gerada as duas apontam para o mesmo fix.
+  eq(s.reason, 'generated-only', 'nenhuma tela do historico e o artefato prometido');
+  eq(s.renderDebt, true, 'renderDebt');
   return 'sinal disponivel para o gate de prosa';
 });
 
@@ -169,9 +175,11 @@ setPhase('P6 companion: estacionamento e defasagem');
 
 check('placeholder DEPOIS de tela real = terminal-parked (estado legitimo)', () => {
   resetSessao();
-  run(`${BS}/render-screen.cjs`, ['--screen-dir', CONTENT, '--name', 'real.html', '--spec', JSON.stringify({
-    title: 'T', kind: 'options', items: [{ choice: 'a', heading: 'A', body: 'b' }],
-  })]);
+  // A tela real e um mockup bespoke de proposito: estacionar so e legitimo depois que o
+  // artefato prometido foi mostrado. Text cards + placeholder e a divida com um passo a
+  // mais, e o script responde generated-only.
+  fs.writeFileSync(path.join(CONTENT, 'real.html'),
+    '<style>.card{padding:16px}</style><div class="card" data-choice="a">Mockup</div>');
   // garante ordem temporal
   const wait = Date.now() + 1100; while (Date.now() < wait);
   fs.writeFileSync(path.join(CONTENT, 'waiting.html'), '<div>Continuando no terminal…</div>');
@@ -184,9 +192,10 @@ check('placeholder DEPOIS de tela real = terminal-parked (estado legitimo)', () 
 
 check('--max-age-seconds acusa tela defasada; sem a flag nao ha falso positivo', () => {
   resetSessao();
-  run(`${BS}/render-screen.cjs`, ['--screen-dir', CONTENT, '--name', 'antiga.html', '--spec', JSON.stringify({
-    title: 'T', kind: 'options', items: [{ choice: 'a', heading: 'A', body: 'b' }],
-  })]);
+  // Bespoke: o eixo sob teste aqui e a IDADE, e uma sessao so-gerada ja seria divida por
+  // outro motivo — a fixture ficaria medindo a coisa errada.
+  fs.writeFileSync(path.join(CONTENT, 'antiga.html'),
+    '<style>.card{padding:16px}</style><div class="card" data-choice="a">Mockup</div>');
   const velho = new Date(Date.now() - 3600 * 1000);
   fs.utimesSync(path.join(CONTENT, 'antiga.html'), velho, velho);
   const semFlag = estado();

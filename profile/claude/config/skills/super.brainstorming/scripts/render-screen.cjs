@@ -25,7 +25,7 @@
  * Output (stdout): {"written":true,"path":"<abs>","kind":"options","bytes":N}
  *
  * Escape hatch: for one-off layouts the generator does not cover (split views, bespoke
- * mockups), write the HTML file directly with the Write tool — see visual-companion.md.
+ * mockups), write the HTML file directly with the Write tool — see references/visual-companion.md.
  */
 
 const fs = require('fs')
@@ -113,7 +113,7 @@ function renderFragment(spec) {
   const body = kind === 'pros-cons' ? renderProsCons(spec) : renderOptionLike(spec, kind)
   // Stamp the output as generator-made. These kinds render TEXT CARDS and cannot draw a
   // layout, so the Layout gate forbids them for positioning/spacing/appearance questions
-  // (visual-companion.md). The marker lets check-visual-state.cjs report what is actually
+  // (references/visual-companion.md). The marker lets check-visual-state.cjs report what is actually
   // on screen — a real run answered "bottom sheet vs centered dialog" with these cards.
   // An HTML comment, so no rendered markup changes.
   return [GENERATED_MARKER].concat(head, '', body).join('\n') + '\n'

@@ -27,6 +27,10 @@
 
 const fs = require('fs');
 const path = require('path');
+// The shape of .superpowers/corporate-artifacts.yml has ONE definition, and it lives with
+// the skill that owns the .superpowers/ contract. Same dependency direction lite-reentry.cjs
+// already uses for read-preferences.cjs.
+const { resolveCorporateArtifacts } = require('../../super.using-superpowers/scripts/lib/corporate-artifacts.cjs');
 
 const HELP = `
 resolve-review-targets.cjs — locate a spec's companion artifacts for review.
@@ -135,33 +139,6 @@ function mockupsEntry(mockupsDir) {
   return { found: false, path: null, files: [] };
 }
 
-// Parse the flat `artifacts:` list in .superpowers/corporate-artifacts.yml. The file is
-// simple by contract (a top-level `artifacts:` key with `- path:`/`- url:` items), so we
-// hand-parse rather than pull in a YAML dep — and, crucially, we DON'T parse the corporate
-// documents themselves: corporate artifacts have no fixed format and are validated only
-// through OUR converted spec/PRD (convert-not-couple). We only surface WHERE they live so
-// the corporate lens can read the local ones and cross-check the conversion.
-function parseCorporateEntries(raw, repoRoot) {
-  const entries = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const noComment = line.replace(/(?:^|\s)#.*$/, ''); // strip only a real YAML comment (# at line start or after whitespace), so a path like /file#1.md survives
-    const m = noComment.match(/^\s*-\s*(path|url)\s*:\s*(\S.*?)\s*$/);
-    if (!m) continue;
-    const kind = m[1];
-    const value = m[2].replace(/^["']|["']$/g, '');
-    if (kind === 'url') {
-      // A read-only reviewer (Read/Grep/Glob/Bash) can't fetch a URL; flag it so the lens
-      // reports it as "not re-verified here" instead of silently skipping it.
-      entries.push({ kind: 'url', value, resolvedPath: null, exists: null, fetchable: false });
-    } else {
-      const resolvedPath = path.isAbsolute(value) ? value : path.join(repoRoot, value);
-      const exists = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile();
-      entries.push({ kind: 'path', value, resolvedPath, exists });
-    }
-  }
-  return entries;
-}
-
 // Read the owner's consent from <repoRoot>/.superpowers/preferences.yml: the
 // `has_corporate_artifacts` key nested under the top-level `context:` block. Same hand-parse
 // rationale as above (no YAML dep), but scoped: a top-level lookalike line does NOT count —
@@ -189,33 +166,18 @@ function corporateConsent(repoRoot) {
 
 // Resolve corporate artifacts declared in <repoRoot>/.superpowers/corporate-artifacts.yml.
 //
-// PRESENCE IS NOT CONSENT. The file being on disk says a document was declared once; it does
-// not say the repo owner wants it treated as the company's source of truth for THIS review —
-// and Lens 5 gives a corporate artifact precedence over the spec, so running it on a stale or
-// leftover declaration lets another feature's document outrank the spec under review. The gate
-// is therefore the owner's own flag (`context.has_corporate_artifacts` in preferences.yml),
-// the same "populated object != existence != consent" rule read-preferences.cjs already obeys.
+// PRESENCE IS NOT CONSENT — the rule, and the parse, live in the shared lib. What stays here
+// is the consent SOURCE: this skill reads the owner's flag straight off preferences.yml
+// (corporateConsent above) rather than through the session bootstrap, because a spec review
+// can be invoked with no session state on hand.
 //
-// `found` (the Lens 5 switch) requires BOTH consent and at least one declared entry.
-// `declaredButDisabled` reports the mismatch — entries exist while the flag is off — so the
-// caller surfaces it as an out-of-scope CONFIG observation instead of silently ignoring it.
-// Entries stay populated in that case: the caller needs them to name what it is disregarding.
+// The Lens 5 switch requires BOTH consent and at least one declared entry; the mismatch
+// (entries declared while the flag is off) comes back as declaredButDisabled so the caller
+// surfaces it as an out-of-scope CONFIG observation instead of silently ignoring it. Entries
+// stay populated in that case: the caller needs them to name what it is disregarding.
 function corporateArtifactsEntry(repoRoot) {
   if (!repoRoot) return { found: false, enabled: false, declaredButDisabled: false, configPath: null, entries: [] };
-  const enabled = corporateConsent(repoRoot);
-  const configPath = path.join(repoRoot, '.superpowers', 'corporate-artifacts.yml');
-  if (!fs.existsSync(configPath) || !fs.statSync(configPath).isFile()) {
-    return { found: false, enabled, declaredButDisabled: false, configPath: null, entries: [] };
-  }
-  const entries = parseCorporateEntries(fs.readFileSync(configPath, 'utf8'), repoRoot);
-  const declared = entries.length > 0;
-  return {
-    found: enabled && declared,
-    enabled,
-    declaredButDisabled: declared && !enabled,
-    configPath,
-    entries,
-  };
+  return resolveCorporateArtifacts(repoRoot, { enabled: corporateConsent(repoRoot) });
 }
 
 function main() {

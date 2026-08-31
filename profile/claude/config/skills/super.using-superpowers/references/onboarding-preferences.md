@@ -21,7 +21,7 @@ Every step offers a small set of fixed answers. **Present them with your platfor
 | Any other platform (unrecognized/unlisted harness) | none — use the prose-list Fallback below |
 
 - **Platform is resolved once for the whole wizard** (see `SKILL.md`, "Platform Adaptation") — never re-detected per question, and never inferred from where the skill files are installed (a shared deploy/symlink location read by several harnesses is not proof of identity). A harness not in this table resolves to `other`: use the prose-list Fallback for every question, and skip both the "Copilot CLI: Additional Steps" and "Claude Code: Native Skills Additional Steps" blocks below without asking or mentioning them — the same treatment a named-but-non-matching platform already gets. When a future platform gains its own dedicated onboarding steps, add its row here and its own step block; `other` then covers only the platforms still unlisted.
-- **One question per call.** The wizard branches on answers (caveman → level, code review → effort), so ask sequentially — never batch steps into one dialog, never bundle an onboarding step with the memory re-sync question or the opening triage.
+- **One question per call.** The wizard branches on answers (caveman → level, code review → effort), so ask sequentially — never batch steps into one dialog, never bundle an onboarding step with the opening triage.
 - **Respect the option cap: at most 4 options per question.** Claude Code's `AskUserQuestion` rejects more than 4 with a `too_big` error; other platforms are similarly limited. Every onboarding step fits. Questions with more options — e.g. the seven-option opening triage in `SKILL.md` — use the prose list instead, never the tool.
 - The bullet options under each step are the choices: **bold label** is the option, trailing dash text is its description, default stays marked.
 - **Fallback:** if the tool is unavailable (Codex `exec`/non-interactive, or any platform lacking it), present the same options as a prose list and wait for a typed reply. See `references/copilot-tools.md`, `references/gemini-tools.md`, `references/codex-tools.md`, `references/opencode-tools.md` for the per-platform mapping.
@@ -51,6 +51,18 @@ This step is **required** — always ask it to get an explicit choice; never ski
 > - **No** — never run the QA gate; QA is not mentioned at all, not even at the PRD step
 
 Record the answer as `workflow.qa_gate` (true/false).
+
+### Step 2b — Visual Companion (required)
+
+Ask (in the configured language):
+
+> "The **Visual Companion** is a lightweight local browser preview `super.brainstorming` can offer when a feature touches a screen — mockups, diagrams and side-by-side layout options instead of describing them in text. Enabling it here does not open anything: brainstorming still asks for consent before each session's first render."
+>
+> "Allow the **Visual Companion** to be offered during brainstorming?"
+> - **Yes** (default) — brainstorming offers it when the conversation reaches a visual decision
+> - **No** — never offered; brainstorming stays text-only
+
+Record the answer as `workflow.visual_companion` (true/false).
 
 ### Step 3 — Language
 
@@ -95,23 +107,7 @@ Record the answer as `optimization.caveman_level` (`lite`, `full`, or `ultra`). 
 
 If the user says **no**, record `optimization.caveman: false` and `optimization.caveman_level: full` (default).
 
-### Step 6 — Persistent Memory
-
-Present **both sides** so the choice is informed — do not let the default decide by omission; many users leave it off only because they never heard what it does:
-
-> "Would you like to enable **persistent memory**?
->
-> **What you gain:** the agent stores architectural decisions, feature scope, and artifact paths in a local SQLite database (`.memory/`), so future sessions recall them instead of re-deriving. Best for teams and long-lived features; all data stays local to this repository.
->
-> **The trade-off (why it's off by default):** it adds a recall/persist step at the start of brainstorming and end of planning, and on a repo with many unrelated features old memories can surface as noise — for a quick one-off it may not pay off. Recommendation: enable it for ongoing work on a real codebase; leave it off for a throwaway or exploratory session."
-> - **No** (default) — memory is not persisted between sessions
-> - **Yes** — enables persistent memory for cross-session recall
-
-Record the answer as `memory.persistent_memory` (true/false).
-
-> **Note:** Disabling persistent memory does NOT delete existing `.memory/` data — it only prevents future reads and writes. To remove stored data, delete `.memory/` manually.
-
-### Step 7 — Corporate Artifacts (Optional)
+### Step 6 — Corporate Artifacts (Optional)
 
 Ask:
 > "Do you have any corporate artifacts that could help me understand the project better? For example: PRDs, technical specs, UML diagrams, user stories, wikis, data mappings, API contracts, ADRs, or design mockups created by your team?"
@@ -131,10 +127,16 @@ For paths and URLs, create `.superpowers/corporate-artifacts.yml` in the reposit
 ```yaml
 # Superpowers Corporate Artifacts
 # Collected during onboarding. Edit manually or ask the agent to update.
-# Entries are local paths or public URLs to corporate documents.
-items:
-  - <path-or-url>
+# Entries are local paths (relative to the repo root) or public URLs.
+artifacts:
+  - path: <repo-relative-path>
+  - url: <public-url>
 ```
+
+**The key is `artifacts:` and every item is tagged `path:` or `url:` — this exact shape, not
+a list of bare scalars.** It is what `lib/corporate-artifacts.cjs` parses, and a file written
+in any other shape parses to **zero entries**: the wizard would report success while the
+declaration silently declares nothing.
 
 Then set `context.has_corporate_artifacts: true` in the preferences before saving in the next step.
 
@@ -142,7 +144,7 @@ If the user says **no** or provides nothing, leave `context.has_corporate_artifa
 
 > **Why this matters:** Corporate artifacts carry business constraints, validated user stories, design decisions, and domain context the agent cannot discover from the codebase alone — they significantly improve brainstorming questions, research, and PRD generation.
 
-### Step 7a — Model Tiers (required)
+### Step 6a — Model Tiers (required)
 
 This step is **required** — always ask it and get an explicit choice (a concrete mapping or "auto"); never skip it silently. Present the explanation and ask (in the configured language). Model names are **harness-specific**, so the concrete suggestions below are Claude Code examples — adapt them to the families your running harness exposes.
 
@@ -166,14 +168,14 @@ For **Auto**, leave `model_tiers` empty (`cheap`/`standard`/`capable` all unset)
 - **`standard` is the most-expensive family** (e.g. `standard: opus` while `cheap: haiku`) → warn: "`standard: opus` makes your mechanical (`cheap`) tasks reviewed by the most expensive model — usually **overkill**; a `sonnet`-class model already catches the failures. Proceed only if intentional." Proceed only on explicit confirmation.
 - **`capable` most-expensive** (e.g. `capable: opus`) → no warning, but state it so the choice is informed: `capable` only implements/reviews architecture tasks, never mechanical code.
 
-### Step 8 — Generate and Save
+### Step 7 — Generate and Save
 
 > **Deterministic write (preferred):** render the file with the validator script — it writes canonical YAML and refuses anything the reader cannot parse back (round-trip validation). Build a JSON object from the answers and pass it in:
 > ```bash
 > node <super.using-superpowers-base-dir>/scripts/write-preferences.cjs \
 >   --input-file <answers.json> --repo-root "$(git rev-parse --show-toplevel)"
 > ```
-> The input JSON mirrors the preferences shape (`workflow`, `communication`, `copilot`, `claude_code`, `context`, `optimization`, `memory`, `model_tiers`); omit any key to accept its default. Check the output: `written: true` and `roundTripValid: true` confirm success. **Fallback (if the script is unavailable):**
+> The input JSON mirrors the preferences shape (`workflow`, `communication`, `copilot`, `claude_code`, `context`, `optimization`, `model_tiers`); omit any key to accept its default. Check the output: `written: true` and `roundTripValid: true` confirm success. **Fallback (if the script is unavailable):**
 > 1. Read the YAML structure from `../template/preferences.md`
 > 2. Fill the placeholders with the answers collected in the previous steps
 > 3. Create the `.superpowers/` directory if needed, then save to `.superpowers/preferences.yml`
@@ -181,14 +183,14 @@ For **Auto**, leave `model_tiers` empty (`cheap`/`standard`/`capable` all unset)
 Then confirm:
 > "Preferences saved to `.superpowers/preferences.yml`. You can edit them manually at any time or ask me to update them."
 
-### Step 9 — Opening Triage
+### Step 8 — Opening Triage
 
 Immediately after saving preferences, decide whether to ask the opening question or route straight into a flow:
 
 - If the session started with a greeting, a generic request for help, or no concrete task yet, ask the opening question in the chosen language.
 - If the user's message already maps cleanly to a single superpowers flow, skip it and hand off directly using `super.using-superpowers` routing rules.
 
-Use the canonical numbered opening question defined in `session-start.md`, "Opening Triage — the numbered question" (⚙️ Preferences · 🔍 Research · 🧠 Brainstorming · 🐛 Debugging · 📋 Planning · ⚡ Execution · 🔎 Spec review · ✅ Review/QA). The user may reply with a number (`0`–`7`) or describe what they need. Do not paraphrase it here — that file is the single source of truth so the wording never drifts.
+Use the canonical numbered opening question defined in `session-start.md`, "Opening Triage — the numbered question" (Preferences · Research · Brainstorming · Debugging · Planning · Execution · Spec review · Review/QA). The user may reply with a number (`0`–`7`) or describe what they need. Do not paraphrase it here — that file is the single source of truth so the wording never drifts.
 
 ## Generated YAML Structure
 
@@ -200,6 +202,7 @@ The full YAML template is in `../template/preferences.md`; every key is document
 |-----|------|---------|-------------|
 | `workflow.auto_commit` | bool | `true` | Subagents commit automatically after each task |
 | `workflow.qa_gate` | bool | `true` | Run the end-of-implementation QA gate (`super.user-story-verification`) — offered when a PRD exists (e.g. Playwright E2E from user stories). When `false`, the QA gate never runs and QA is never mentioned, even at the PRD step. Independent verification is unaffected |
+| `workflow.visual_companion` | bool | `true` | Allow `super.brainstorming` to offer the browser companion (mockups/diagrams). `true` keeps the consent question before anything opens; `false` skips the companion entirely — never offered, never mentioned, and no visual signal fires |
 | `workflow.confirm_destructive_actions` | bool | `true` | Ask for confirmation before deleting/overwriting files |
 | `communication.language` | string | `pt-BR` | Language for agent communication |
 | `copilot.rubber_duck` | bool | `false` | Forces Rubber Duck at every critical checkpoint. When `false`/absent, Copilot CLI decides automatically — Copilot CLI only |
@@ -210,8 +213,7 @@ The full YAML template is in `../template/preferences.md`; every key is document
 | `context.has_corporate_artifacts` | bool | `false` | When `true`, the agent reads `.superpowers/corporate-artifacts.yml` for corporate artifact references in brainstorming and PRD generation |
 | `optimization.caveman` | bool | `false` | When `true`, activates caveman ultra-compressed communication during execution, review, and QA. Never during planning, brainstorming, or finalization |
 | `optimization.caveman_level` | string | `full` | Compression intensity: `lite` \| `full` \| `ultra` \| `wenyan-lite` \| `wenyan-full` \| `wenyan-ultra`. Onboarding only offers `lite`, `full`, `ultra`; wenyan levels are manual-only |
-| `memory.persistent_memory` | bool | `false` | When `true`, enables cross-session memory recall/persistence via `.memory/` SQLite. When `false`, all super.persistent-memory operations are skipped |
-| `model_tiers.cheap` / `.standard` / `.capable` | string | empty | **Required** wizard step (Step 7a) with model suggestions + cost warnings. Maps abstract model tiers used by execution skills (see super.subagent-driven-development, "Model Selection" section) to concrete model names for this harness. A `cheap` task is reviewed by `standard` (one family up), so onboarding warns if `standard` equals `cheap` or is the most-expensive family (opus reviewing mechanical code); `capable` is spent only on architecture. Empty = auto (harness picks); partial mapping valid. |
+| `model_tiers.cheap` / `.standard` / `.capable` | string | empty | **Required** wizard step (Step 6a) with model suggestions + cost warnings. Maps abstract model tiers used by execution skills (see super.subagent-driven-development, "Model Selection" section) to concrete model names for this harness. A `cheap` task is reviewed by `standard` (one family up), so onboarding warns if `standard` equals `cheap` or is the most-expensive family (opus reviewing mechanical code); `capable` is spent only on architecture. Empty = auto (harness picks); partial mapping valid. |
 
 ## Runtime Mutability
 
@@ -294,7 +296,7 @@ Reached when triage option 0 fires — the user wants to revise `.superpowers/pr
 1. **Load current values as defaults.** Run `read-preferences.cjs`; use each current value as the **pre-selected default** for its question so the user only changes what they want — do not show or name the raw `preferences` object.
 2. **Re-run the wizard questions.** Walk the same steps as `## Wizard Flow`, one question per turn, via the platform's structured-question tool (respecting the ≤4-option cap, prose fallback when unavailable). Skip steps that don't apply to the current resolved platform (`claude_code:` steps off Claude Code, `copilot:` steps off Copilot CLI — including when the resolved platform is `other`). The user may keep any answer by accepting its current default.
 3. **Save deterministically.** Build the full preferences object with the changed keys and write it via `write-preferences.cjs --input-file <obj.json> --repo-root "$(git rev-parse --show-toplevel)"` (round-trip validated). Confirm what changed in the configured language.
-4. **Refresh session state.** Re-derive the "Session State" section's variables from the new preferences (a changed `optimization.caveman`, `memory.persistent_memory`, etc. takes effect this session) — these are session-only; the save did not rewrite them.
+4. **Refresh session state.** Re-derive the "Session State" section's variables from the new preferences (a changed `optimization.caveman`, `workflow.qa_gate`, etc. takes effect this session) — these are session-only; the save did not rewrite them.
 5. **Return to triage.** Re-ask the opening question, or route directly if the user already stated their next task. Updating preferences is a setup step, not a destination.
 
 ## Corporate Artifacts
@@ -308,11 +310,13 @@ with `view` (not `glob`) and keep the paths/URLs in context. When routing to
 the handoff: _"Corporate artifacts are available: [list of paths/URLs]."_ If the file is
 missing despite the flag, warn the user once and continue without artifacts. Conversely,
 if the flag is `false` but `.superpowers/corporate-artifacts.yml` exists and lists
-artifacts, do not silently skip the company's source of truth: warn the user once that
-the file is present while the flag is off (so the artifacts are being ignored) and ask
-whether to enable `has_corporate_artifacts`, then proceed per their answer.
+artifacts (`corporateArtifacts.declaredButDisabled` in the bootstrap JSON), do not
+silently skip the company's source of truth. **The Session Summary's corporate row is that
+warning** — it names the file, the count, and that they are not loaded, and it costs no
+round trip because the block prints anyway. Do not add a question ahead of the triage on
+top of it; enable `has_corporate_artifacts` when the user asks, or through triage option 0.
 
-**Until they answer, the artifacts stay unloaded.** The flag is the user's declaration;
+**Until they do, the artifacts stay unloaded.** The flag is the user's declaration;
 the file is only a leftover of one. Loading it "because it is there" is how a document
 the pipeline itself wrote for an unrelated feature ends up outranking the current spec —
 corporate precedence is exactly what makes an unconsented artifact dangerous rather than

@@ -6,7 +6,7 @@ no turn after it, so keeping it inline paid twice per invocation (message + `inv
 attachment) and was dropped on every resume anyway. The router keeps the *rules* that govern
 this material; this file keeps the wording, the tables and the sub-flows.
 
-Read this file at session start, right after the Memory Re-Sync Gate has been processed.
+Read this file at session start, right after the preferences bootstrap has run.
 
 ## Session Summary — the printed block
 
@@ -22,14 +22,15 @@ line. Example (Claude Code, `session_language: pt-BR`):
 > **Preferências desta sessão** (de `.superpowers/preferences.yml`):
 > - **Commit automático**: ativo — subagentes commitam a cada task concluída
 > - **Gate de QA**: ativo — roda a verificação das user stories ao fim da implementação
+> - **Visual Companion**: ativo — o brainstorming pode oferecer o preview local em decisões visuais
 > - **Idioma das respostas**: pt-BR
 > - **Caveman** (compressão ~75% durante a execução): ativo, nível ultra
-> - **Memória persistente**: ativa
 > - **Revisões nativas extras** — simplify: desligado · code-review final: desligado (efeito: medium)
 > - **Modelos por tier**: cheap: haiku · standard: sonnet · capable: sonnet
+> - **Artefatos corporativos**: ativo — 2 em `.superpowers/corporate-artifacts.yml`
 
-**The block is these seven rows, in this order, on every platform.** Exactly one row varies:
-"Revisões nativas extras". Every other row — including **"Modelos por tier", which is
+**The block is these eight rows, in this order, on every platform.** Exactly one row varies **by
+platform**: "Revisões nativas extras" (row 8 varies by state, not by harness). Every other row — including **"Modelos por tier", which is
 cross-platform** — is printed unchanged everywhere. The example above is labelled Claude Code
 only because of that one row; it is not a Claude-Code-only block, and dropping a row because
 the example came from another harness is the failure this paragraph exists to prevent.
@@ -43,21 +44,42 @@ they are inert, always `false`):
 | Copilot CLI | `Copilot review final: <estado>` |
 | Any other | omit the row entirely — no native-review vars apply |
 
+Row 8 is a preference row like any other — **it is printed whether corporate artifacts are on
+or off**, because a user who cannot see that the switch is off cannot know the company's
+documents are being ignored. What varies is what it says. Read `corporateArtifacts` off the
+bootstrap JSON (`declared` = the file exists and lists at least one entry; `enabled` = the
+consent flag) and take the matching row:
+
+| `declared` | `enabled` | Row 8 |
+|---|---|---|
+| ✓ | ✓ | **Artefatos corporativos**: ativo — `<count>` em `.superpowers/corporate-artifacts.yml` |
+| ✓ | ✗ | **Artefatos corporativos**: desligado — `<count>` declarado(s) em `.superpowers/corporate-artifacts.yml`, **não carregados** (peça para ativar) |
+| ✗ | ✓ | **Artefatos corporativos**: ativo, mas `.superpowers/corporate-artifacts.yml` não existe |
+| ✗ | ✗ | **Artefatos corporativos**: desligado |
+
+Name the file by its **repo-relative** path, the way the block header names
+`.superpowers/preferences.yml` — `configPath` comes back absolute. **Never list the declared
+entries**: the row says that corporate documents exist and how many, never which. Under
+consent the router reads the file itself; without consent, a path list in context is an
+invitation to act on a declaration the user never made.
+
 ## Opening Triage — the numbered question
 
 Render the numbered list exactly like this (the user may reply with a number **or** describe
-their need in their own words). Ask it in the configured language, on its own turn:
+their need in their own words). Ask it in the configured language, on its own turn — **translate
+the bold labels and the dashes into that language; the digits `0`–`7`, their order, and the
+route each one maps to are fixed and never renumbered or reordered.**
 
   > How can I help? Pick a number or just tell me what you need:
   >
-  > 0. ⚙️ Preferences — update your preferences
-  > 1. 🔍 Research — technical research/investigation
-  > 2. 🧠 Brainstorming — new feature, refactor, migration, architecture change
-  > 3. 🐛 Debugging — bug, regression, failing test
-  > 4. 📋 Planning — approved spec/PRD → execution plan
-  > 5. ⚡ Execution — existing tasks → implementation
-  > 6. 🔎 Spec review — validate an existing spec/design (open points, inconsistencies, spec↔code/tasks)
-  > 7. ✅ Review/QA — review implemented work or verification
+  > 0. **Preferences** — update your preferences
+  > 1. **Research** — technical research/investigation
+  > 2. **Brainstorming** — new feature, refactor, migration, architecture change
+  > 3. **Debugging** — bug, regression, failing test
+  > 4. **Planning** — approved spec/PRD → execution plan
+  > 5. **Execution** — existing tasks → implementation
+  > 6. **Spec review** — validate an existing spec/design (open points, inconsistencies, spec↔code/tasks)
+  > 7. **Review/QA** — review implemented work or verification
 
 Map a bare numeric reply (`0`–`7`) via the **Option** column; free-form requests that skip the
 question via **Request shape**.
@@ -100,10 +122,8 @@ Use the exact enum strings from the table — a loose value throws. `micro` →
 ["deep-research"]`: offer `super.deep-research` first, defaulting to skip, route in only on
 consent.
 
-The table and the invocation used to live in the router, kept inline because deferring them
-would have traded tokens for a round trip. They no longer do: the bootstrap `cat`s this file
-in the same call as the state read, so session-start material costs nothing extra here and
-stops crowding the router's compaction window.
+The bootstrap `cat`s this file in the same call as the state read, so keeping the table and
+the invocation here costs no extra round trip.
 
 Depth is set by complexity, not run at full ceremony every time — full-ceremony provisioning
 is the dominant context cost on small changes. Take the lightest tier whose **all** criteria
@@ -159,8 +179,11 @@ section.
 
 When triage routes to execution, **the user — not you — chooses the execution mode** (never
 default to `super.subagent-driven-development` because it "is the default" — that is the exact
-bug this section prevents). Exception: the user already named a mode → invoke that skill
-directly with the tasks index path. Otherwise: locate pending work
+bug this section prevents). Exception, and it is narrow: the user named a **mode**, meaning the
+skill's name. *"In parallel"*, *"at the same time"*, *"they're independent"* name a **property
+two of the three modes share**, so they elect neither and the exception does not fire — that
+reading is how a plan the rubric sent to worktrees ends up running in-tree with nobody asked.
+Otherwise: locate pending work
 (`superpowers-status.cjs --pending`), derive the recommendation from wave shape
 (`parse-waves.cjs`), present the three options (Subagent-Driven / Parallel in-tree / Parallel
 worktrees) with `(recommended)` elected by the rubric — **never hardcoded on option 1** — and

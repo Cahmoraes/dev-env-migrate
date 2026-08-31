@@ -12,13 +12,13 @@
  * Input (JSON via --input-file <path> or stdin): a partial preferences object,
  * same shape as read-preferences.cjs `preferences`. Missing keys take defaults:
  *   {
- *     "workflow": { "auto_commit": bool, "confirm_destructive_actions": bool, "qa_gate": bool },
+ *     "workflow": { "auto_commit": bool, "confirm_destructive_actions": bool, "qa_gate": bool,
+ *                   "visual_companion": bool },
  *     "communication": { "language": str },
  *     "copilot": { "rubber_duck": bool, "review_final": bool },
  *     "claude_code": { "simplify": bool, "code_review_final": bool, "code_review_effort": str },
  *     "context": { "has_corporate_artifacts": bool },
  *     "optimization": { "caveman": bool, "caveman_level": str },
- *     "memory": { "persistent_memory": bool },
  *     "model_tiers": { "cheap": str|null, "standard": str|null, "capable": str|null }
  *   }
  *
@@ -123,10 +123,14 @@ function renderYaml(p) {
     '#   e.g. headless-browser Playwright runs driven by QA subagents from the PRD). false disables it',
     '#   silently — the gate never runs and QA is never mentioned, even at the PRD step. Independent',
     '#   verification (always-on) is unaffected.',
+    '# visual_companion: offer the browser companion (mockups/diagrams) during super.brainstorming.',
+    '#   true (default) keeps the consent question before anything opens. false skips the companion',
+    '#   entirely — it is never offered and never mentioned.',
     'workflow:',
     kv('auto_commit', p.workflow.auto_commit),
     kv('confirm_destructive_actions', p.workflow.confirm_destructive_actions),
     kv('qa_gate', p.workflow.qa_gate),
+    kv('visual_companion', p.workflow.visual_companion),
     '',
     'communication:',
     kv('language', p.communication.language),
@@ -159,10 +163,6 @@ function renderYaml(p) {
     kv('caveman', p.optimization.caveman),
     kv('caveman_level', p.optimization.caveman_level),
     '',
-    '# Persistent memory (.memory/ SQLite). false = recall/persist skipped (data not deleted).',
-    'memory:',
-    kv('persistent_memory', p.memory.persistent_memory),
-    '',
     '# Maps abstract model tiers (see super.subagent-driven-development, "Model Selection" section) to',
     '# concrete model names for THIS harness. Leave empty to let the harness pick.',
     'model_tiers:',
@@ -185,7 +185,7 @@ function main() {
   // Base the write on the EXISTING file when one is present, so a PARTIAL input
   // only changes the keys it names — it never silently resets untouched keys to
   // defaults. (A one-key edit like "set auto_commit false" would otherwise wipe
-  // language/caveman/memory back to defaults.) No file yet, or an unparseable
+  // language/caveman/tiers back to defaults.) No file yet, or an unparseable
   // one → fall back to DEFAULTS (first write / onboarding).
   let existing = {};
   if (targetPath && fs.existsSync(targetPath)) {

@@ -335,7 +335,7 @@ test('a timeout never claims nothing happened while an answer is on disk', () =>
 test('the loop tells the agent to drain a pending answer before parking', () => {
   // A mechanism nothing points at is dead prose. `pendingAnswer` is only checked if step
   // 6 of the loop says to check it, and only helps if it says so where parking happens.
-  const quickStart = fs.readFileSync(path.resolve(__dirname, '..', '..', 'visual-companion.md'), 'utf8');
+  const quickStart = fs.readFileSync(path.resolve(__dirname, '..', '..', 'references', 'visual-companion.md'), 'utf8');
   const step6 = quickStart.slice(quickStart.indexOf('6. **Unload when returning to the terminal'));
   assert.ok(step6.length > 0, 'step 6 must exist');
   assert.match(step6, /pendingAnswer/, 'step 6 names the field that guards the park');

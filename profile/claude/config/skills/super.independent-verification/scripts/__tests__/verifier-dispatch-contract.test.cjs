@@ -41,15 +41,15 @@ const body = fs.readFileSync(TEMPLATE, 'utf8');
  * to assert on.
  */
 function dispatchBlock() {
-  const m = body.match(/^```\nTask tool[\s\S]*?^```/m);
-  assert.ok(m, 'verifier.md must carry a fenced ``` block with the Task tool dispatch');
+  const m = body.match(/^```\nSubagent[\s\S]*?^```/m);
+  assert.ok(m, 'verifier.md must carry a fenced ``` block headed by the `Subagent (...)` dispatch');
   return m[0];
 }
 
 test('the dispatch header does not call the Verifier flatly read-only', () => {
   const header = dispatchBlock().split('\n')[1];
 
-  assert.match(header, /Verifier subagent/, 'anti-staleness: the header line must be the Verifier dispatch');
+  assert.match(header, /^Subagent \(Verifier/, 'anti-staleness: the header line must be the Verifier dispatch');
 
   // A bare "read-only" qualifier on the tool grant. The six reviewer templates carry this
   // legitimately; here it contradicts the mutation cycle ordered further down.

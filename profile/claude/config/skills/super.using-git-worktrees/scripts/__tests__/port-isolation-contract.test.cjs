@@ -96,11 +96,44 @@ test("the parallel wave audits every worktree's block once they all exist", () =
 
 test("the wave-level STOP survives verbatim in the parallel SKILL.md", () => {
   // Registered in stop-gate-registry.test.cjs with this file as its owner. The wording
-  // is the gate: "overlapping blocks are a STOP" is what makes it non-optional.
+  // is the gate: naming `port_block_overlap` a STOP is what makes it non-optional.
   assert.match(
     read(`${PSD}/SKILL.md`),
-    /overlapping blocks are a \*\*STOP\*\*/u,
+    /`port_block_overlap` is a \*\*STOP\*\*/u,
     "the wave-level port audit must remain a STOP, not a suggestion",
+  );
+});
+
+test("the SKILL.md hands the audit to the mechanical pre-flight, not to the model's memory", () => {
+  // The defect this replaced: the SKILL.md ordered a hand-run audit ("audit them
+  // together") and seventeen guards proved that sentence existed. None could observe
+  // whether it ran, and a measured run skipped it with a correct-by-accident outcome.
+  // The obligation now lives in a manifest field that validate-dispatch.cjs rejects.
+  const skill = read(`${PSD}/SKILL.md`);
+  assert.match(
+    skill,
+    /Never audit the port blocks by hand/u,
+    "a step the controller must remember is the failure mode; say it is not one",
+  );
+  assert.match(
+    skill,
+    /`workspace` = its worktree path/u,
+    "the manifest field that ARMS the gate must be named where the manifest is built — without it the fan-out is invisible and the audit never fires",
+  );
+});
+
+test("the pass-with-a-receipt warning is documented in the reference, not lost", () => {
+  // `port_isolation_off` is the whole point of the redesign: before it, "audited, nothing
+  // to audit" and "never audited" were byte-identical. It lives in the reference rather
+  // than the SKILL.md because that file is at its compaction ceiling — but it has to live
+  // SOMEWHERE, or the verdict reads as noise the first time a controller sees it.
+  assert.match(
+    read(`${PSD}/references/integrating-worktrees.md`),
+    /`port_isolation_off`/u,
+  );
+  assert.match(
+    read(`${PSD}/references/integrating-worktrees.md`),
+    /You do not run this audit by hand, and you cannot forget it/u,
   );
 });
 

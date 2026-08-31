@@ -4,10 +4,13 @@
     "pr": ""
   },
   "permissions": {
+    "allow": [
+      "mcp__codegraph__*"
+    ],
     "defaultMode": "bypassPermissions",
     "skipDangerousModePermissionPrompt": true
   },
-  "model": "sonnet",
+  "model": "sonnet[1m]",
   "skillOverrides": {
     "architectural-analyzer": "off",
     "commit-push-pr": "off",
@@ -21,7 +24,9 @@
     "to-adr": "off",
     "xstate": "off",
     "zod": "off",
-    "zustand": "off"
+    "zustand": "off",
+    "tlc-spec-driven": "off",
+    "mermaid-diagrams": "off"
   },
   "hooks": {
     "PermissionRequest": [
@@ -74,13 +79,22 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codegraph prompt-hook"
+          }
+        ]
+      }
     ]
   },
   "worktree": {
     "baseRef": "fresh"
   },
   "disableWorkflows": true,
-  "enableArtifact": false,
   "enableWorkflows": false,
   "workflowKeywordTriggerEnabled": false,
   "statusLine": {
@@ -129,13 +143,21 @@
     }
   },
   "language": "português pt-br",
-  "effortLevel": "high",
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "high"
+    },
+    "claude-sonnet-5": {
+      "effortLevel": "high"
+    }
+  },
   "autoMemoryEnabled": true,
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "editorMode": "normal",
   "autoCompactEnabled": true,
-  "remoteControlAtStartup": true,
+  "remoteControlAtStartup": false,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true

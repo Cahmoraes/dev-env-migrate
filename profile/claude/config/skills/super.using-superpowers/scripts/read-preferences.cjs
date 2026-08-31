@@ -7,8 +7,13 @@
  *
  * Root resolution (in order):
  *   1. --repo-root flag
- *   2. git rev-parse --show-toplevel (git root of cwd)
+ *   2. working-tree root of cwd (in-process walk; same answer as --show-toplevel)
  *   3. If not in a git repo → return {found: false, repo_not_found: true}
+ *
+ * Then, ONLY if no preferences.yml exists at that root and the root is a LINKED
+ * WORKTREE: retry in the main working tree. `.superpowers/` is gitignored, so
+ * `git worktree add` leaves a tree without it, and the parallel-worktree mode runs
+ * every implementer inside one. A worktree carrying its own file still wins.
  *
  * Exit codes:
  *   0 — success (including "file not found" or "not a git repo")
@@ -26,7 +31,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { detectRepoRoot } = require('./lib/repo-root.cjs');
+const { detectRepoRoot, mainRepoRoot } = require('./lib/repo-root.cjs');
 
 const HELP = `
 read-preferences.js — Read .superpowers/preferences.yml from the repository root.
@@ -42,6 +47,7 @@ Output (JSON to stdout): { found, repo_not_found, malformed, preferencesPath, pr
 where preferences merges file values over defaults:
   workflow.auto_commit (true), workflow.confirm_destructive_actions (true),
     workflow.qa_gate (true; when false the end-of-implementation QA gate is skipped silently),
+    workflow.visual_companion (true; when false super.brainstorming never offers the browser companion),
   communication.language ("pt-BR"), copilot.rubber_duck (false),
   copilot.review_final (false; native review skill as an extra bug pass at the final review),
   claude_code.simplify (false),
@@ -49,7 +55,6 @@ where preferences merges file values over defaults:
   claude_code.code_review_effort ("medium"; low/medium/high/max — ultra unsupported),
   context.has_corporate_artifacts (false),
   optimization.caveman (false), optimization.caveman_level ("full"),
-  memory.persistent_memory (false),
   model_tiers.cheap/standard/capable (null — harness decides when unset)
 
 Exit codes:
@@ -64,6 +69,9 @@ const DEFAULTS = {
     auto_commit: true,
     confirm_destructive_actions: true,
     qa_gate: true,
+    // The browser companion offered during super.brainstorming. false skips the offer entirely
+    // (no consent question, no browser mention); true keeps the consent-gated offer.
+    visual_companion: true,
   },
   communication: {
     language: 'pt-BR',
@@ -91,9 +99,6 @@ const DEFAULTS = {
   optimization: {
     caveman: false,
     caveman_level: 'full',
-  },
-  memory: {
-    persistent_memory: false,
   },
   // Maps the abstract model tiers used by execution skills (see
   // super.subagent-driven-development, "Model Selection" section) to concrete model names
@@ -271,10 +276,16 @@ function detectGitRoot() {
 function loadPreferences(repoRoot) {
   const warnings = [];
   const root = repoRoot ? path.resolve(repoRoot) : detectGitRoot();
-  // wrap keeps the three exits DRY and exposes the already-resolved `root` alongside
-  // `result`, so callers never re-derive it from preferencesPath. `root` is a wrapper
-  // field, NOT part of `result` — `result` stays the exact frozen JSON the CLI prints.
-  const wrap = (result) => ({ result, warnings, root });
+  // Declared before `wrap` closes over it: the `!root` exit below calls wrap, and a `let`
+  // declared further down would still be in its temporal dead zone there.
+  let resolvedRoot = root;
+  // wrap keeps the three exits DRY and exposes the already-resolved root alongside
+  // `result`, so callers never re-derive it from preferencesPath. It reports
+  // `resolvedRoot`, which the worktree fallback below may move to the main working tree —
+  // callers that resolve sibling paths from it must follow the file, not the input.
+  // `root` is a wrapper field, NOT part of `result` — `result` stays the exact frozen
+  // JSON the CLI prints.
+  const wrap = (result) => ({ result, warnings, root: resolvedRoot });
 
   if (!root) {
     return wrap({
@@ -286,7 +297,26 @@ function loadPreferences(repoRoot) {
     });
   }
 
-  const prefsPath = path.join(root, '.superpowers', 'preferences.yml');
+  let prefsPath = path.join(resolvedRoot, '.superpowers', 'preferences.yml');
+
+  // Absent here and `root` is a LINKED WORKTREE → look in the main working tree before
+  // giving up. `.superpowers/` is gitignored, so `git worktree add` produces a tree
+  // without it, and the parallel-worktree mode runs every implementer inside one of
+  // those. Resolving the way `--show-toplevel` does lands in the worktree, finds
+  // nothing, and returns defaults for the whole preference set — indistinguishable, in
+  // the output, from a repo that never configured any. The fallback is deliberately
+  // one-directional: a worktree that DOES carry its own file still wins, so this can
+  // only turn a false `found:false` into a true `found:true`.
+  if (!fs.existsSync(prefsPath)) {
+    const main = mainRepoRoot(resolvedRoot);
+    if (main !== resolvedRoot) {
+      const mainPath = path.join(main, '.superpowers', 'preferences.yml');
+      if (fs.existsSync(mainPath)) {
+        resolvedRoot = main;
+        prefsPath = mainPath;
+      }
+    }
+  }
 
   // File does not exist — not an error.
   if (!fs.existsSync(prefsPath)) {

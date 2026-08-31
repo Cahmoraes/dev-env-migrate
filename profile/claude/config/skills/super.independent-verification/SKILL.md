@@ -1,6 +1,6 @@
 ---
 name: super.independent-verification
-description: Always-on independent verification gate that runs once after the final code review, before the QA gate and before finishing a branch. A fresh, blind Verifier subagent (author != verifier) re-derives requirement coverage from the spec with an evidence-or-zero rule, runs a spec-anchored outcome check (each acceptance criterion mapped to file:line + the exact assertion expression and its spec-defined value), and runs a discrimination sensor (mutation testing in a git-scratch state) proving the tests actually kill regressions. Writes a persisted validation report, turns surviving mutants and spec-precision gaps into fix tasks (bounded fix->re-verify loop), and distills grounded lessons. Use after all tasks are implemented and the final code review passed, when verifying an implementation against its spec/PRD, or when asked to prove the tests catch bugs (mutation testing). Complements super.verification-before-completion (controller self-check) with a blind, independent second pair of eyes.
+description: "Use after all tasks are implemented and the final code review passed, when verifying an implementation against its spec/PRD, or when asked to prove the tests catch bugs (mutation testing). Always-on verification gate that runs once after the final code review, before the QA gate and before finishing a branch, via a fresh blind Verifier subagent (author != verifier). Complements super.verification-before-completion (controller self-check) with an independent second pair of eyes."
 user-invocable: false
 ---
 
@@ -52,7 +52,7 @@ controller reviews its own work". Two outcomes are acceptable; pretending is not
   re-run by a fresh verifier before `super.finishing-a-development-branch`.
 
 The failure this closes: with no stated fallback, a runtime that cannot dispatch improvises an
-inline gate and self-declares PASS. Measured consequence (benchmark 2026-07-25, brief C): the
+inline gate and self-declares PASS. The consequence: the
 sensor degenerated from *executed* to *argued* — the report reasoned about what a mutation "would"
 break instead of injecting one — and a module carrying 27 live mutants shipped as "no blocking
 defects found".
@@ -144,7 +144,7 @@ logic file, its own branch/operator count alongside its mutation count (`**Senso
 mutations across <M> logic files — <file>: <mutations>/<branches> branches, …`); each file's
 minimum is `max(1, min(5, ceil(branches / 3)))` — roughly one mutation per three branches/operators
 in that file, capped at 5. A file with 12 branches cannot satisfy depth with the same single
-mutation a 1-branch file uses to clear the floor. Measured consequence (benchmark 2026-07-25):
+mutation a 1-branch file uses to clear the floor. The consequence:
 `hash-to-bucket.ts` and `lru-ttl-cache.ts` each concentrated 5 survivors out of ~8 mutants while
 meeting the old per-file floor — the floor was satisfied, the file was not actually probed.
 `check-verification-report.cjs` validates the breakdown: entry count matches the declared logic
@@ -200,8 +200,8 @@ Gaps (uncovered AC, wrong-value assertion, surviving mutant) become **fix tasks*
 
 1. **Register the lesson first** — record one grounded lesson per signal (Distill Lessons below,
    `scripts/lessons.py`) before fixing, so recurrence is prevented even if the fix churns. Bug/gap
-   feedback goes to the lessons channel only — not `super.persistent-memory` (which is for
-   decisions, specs, PRDs, and artefact summaries, never implementer or bug feedback).
+   feedback goes to the lessons channel only — the validation report already carries the
+   verdict and the evidence, so nothing else needs to restate them.
 2. **Decide by complexity — fix or delegate.** A *simple, localized* gap (a missing test, a
    one-line assertion fix, a single-file slip) the controller may fix inline itself. A *complex or
    cross-cutting* gap (design gap, multi-file change, architecture fork) is dispatched to a fresh

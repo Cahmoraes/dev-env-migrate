@@ -1,6 +1,6 @@
 # Execution Handoff Message
 
-After saving the index and task files, offer the message below (fill in feature name, task count, wave summary).
+After saving the index and task files, offer the message below (fill in feature name, task count, wave summary, and the elected option's skill name — same as any other `<placeholder>` in this template: replace it with the real value, never leave the bracketed token in your output).
 
 > **The `(recommended)` tag is dynamic — never hardcode it on option 1.** Run `parse-waves.cjs` (already run in self-review), read `executionRecommendation`, and place `(recommended)` on the option matching the mode you elect per the rubric below. Tagging the same option every time is the bug this prevents.
 
@@ -15,17 +15,21 @@ After saving the index and task files, offer the message below (fill in feature 
   "confidence": "high|medium",
   "decisionRequired": true|false,    // true → you MAY refine the in-tree/worktrees pick
   "signals": [ "..." ],              // structural facts about THIS plan
+  "couplingCheck": { "tightlyCoupled": true|false, "tasks": [ 1 ], "applied": true },
   "alternatives": [ { "mode": "...", "optionNumber": 2, "when": "..." } ]
 }
 ```
 
 ## Step 2 — Elect the mode (the rubric)
 
-- **`decisionRequired: false`** (no parallelizable wave) → decidable from the artifacts alone. Tag the named option (`optionNumber`) `(recommended)`, give the one-line reason from `signals`, done — parallel modes add no speedup here.
+> **The coupling call is already made — never re-derive it.** `couplingCheck` in the JSON is the verdict (`tightlyCoupled`, and the `tasks` behind it), computed over the tasks that actually sit **inside a parallel wave**, and it is already reflected in `optionNumber`. `signals` is plan-wide prose *about* that verdict, not a second opinion to weigh against it: a high-fan-in task in a **sequential** wave is not a reason to downgrade the parallel one. Override `optionNumber` only for coupling the dependency graph cannot see — a design trap named in research/brainstorming, or one task's shape dictating the others — and then say, in the recommendation paragraph, that you overrode it and why.
 
-- **`decisionRequired: true`** (≥1 parallel wave) → `parse-waves` already recommends a **parallel mode — option 3 (worktrees)** (wave structure shows parallelism; worktrees are safe regardless of write-set disjointness). It does **not** fall back to option 1. Confirm or refine for THIS plan before tagging, in order:
-  1. **Tightly coupled?** If the parallel-wave tasks are tightly coupled (high fan-in in `signals`, one task's shape dictates the others, a known design trap from research/brainstorming) so an early error would cascade, the per-task review checkpoint of **option 1 (subagent-driven)** can outweigh the parallelism → move `(recommended)` to option 1 and say why.
-  2. **Disjoint writes + expensive isolation?** If the wave's tasks write **disjoint files** (confirm `check-wave-disjoint.cjs --tasks-index <tasks-index> --wave N` → `safeForInTreeParallel: true`; `--tasks-index` is required — `--wave` alone is rejected) **and** worktree isolation is expensive — a pnpm/npm/yarn monorepo where each worktree needs its own heavy `node_modules`, or a sandbox that forbids extra checkouts — move `(recommended)` to **option 2 (in-tree)**. Note `check-wave-disjoint.cjs` lives in the sibling skill `super.parallel-subagent-in-tree` (not alongside `parse-waves.cjs`); resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-in-tree`.
+- **`decisionRequired: false`** → the call is settled by the artifacts alone: either no parallelizable wave, or `couplingCheck.tightlyCoupled: true` already moved it to option 1. Tag the named option (`optionNumber`) `(recommended)` and give the one-line reason from `signals`. Still run the safety pre-flight below if the plan has any parallel wave.
+
+- **`decisionRequired: true`** (≥1 parallel wave, not tightly coupled) → `parse-waves` recommends **option 3 (worktrees)**: worktrees hold regardless of write-set **overlap** (each task writes in its own tree). They do **not** neutralize a stale **read** — see the pre-flight. Before tagging, in order:
+
+  1. **Safety pre-flight — run it for every parallel wave, whatever mode you are leaning toward.** `check-wave-disjoint.cjs --tasks-index <tasks-index> --tasks <the wave's task numbers>` (`--tasks-index` is always required; `--wave N` is the alternative but needs an explicit `## Execution Waves` section in the index, so `--tasks` is the safe form). It lives in the sibling skill `super.parallel-subagent-in-tree`, not alongside `parse-waves.cjs`: resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-in-tree`. **This is the only gate in the pipeline that sees a `readWriteHazard`** — one task reading a file a sibling task writes in the same wave — and a hazard is a property of the *plan*, not of the mode, so "I already know I am not picking option 2" is never a reason to skip it. Non-empty `readWriteHazards` → say so in the recommendation paragraph, name the tasks and the file, and offer to add the missing `**Depends on:**` in the plan before executing; both parallel modes will otherwise run a stale read. `writeOverlap` and `unverifiable` matter only for step 2.
+  2. **Disjoint writes + expensive isolation?** If step 1 came back `safeForInTreeParallel: true` **and** worktree isolation is expensive — a pnpm/npm/yarn monorepo where each worktree needs its own heavy `node_modules`, or a sandbox that forbids extra checkouts — move `(recommended)` to **option 2 (in-tree)**.
   3. **Otherwise** keep `(recommended)` on the recommended **option 3 (worktrees)**.
 - Whichever you elect, **move `(recommended)` there** and give your reasoning in one short paragraph (raw material: `signals`, `alternatives[].when`). Then flag environment chokepoints (e.g. a wave needing Postgres up or `generate:types`) that serialize regardless of mode.
 
@@ -63,11 +67,11 @@ After saving the index and task files, offer the message below (fill in feature 
 - Best when the plan has at least one parallel wave and full isolation is wanted (e.g. wave tasks that must mutate shared files); offers no speedup for a fully sequential chain
 - Pass the tasks index path to the execution skill
 
-**To resume in a later session** — the plan is on disk; invoke the mode's skill with the tasks index:
+**To resume in a later session** — the plan is on disk; invoke the elected option's skill with the tasks index, prefixed with `/`. `<elected-skill>` below is a placeholder like `<feature-name>` — copy the exact `REQUIRED SUB-SKILL` value you already wrote next to `(recommended)` a few lines above into its place; the fence you render must contain a real skill name, never the literal characters `<elected-skill>`:
 ```
-super.subagent-driven-development docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
+/<elected-skill> docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
 ```
-- Same shape for options 2 and 3, with that skill's name
+- Never hardcode this to `/super.subagent-driven-development` — render whichever of `/super.subagent-driven-development`, `/super.parallel-subagent-in-tree`, `/super.parallel-subagent-development` matches the option tagged `(recommended)`; the fence and the `(recommended)` tag must name the same option
 - Or just start and ask to execute: triage finds the pending index and re-offers these options
 
 > **If `workflow.auto_commit` is `false`:** only **option 1** honors it (its implementers leave each task uncommitted). Options 2 and 3 commit as part of how they integrate — the in-tree barrier commits once per wave, and each worktree task commits on its branch so it can be merged — so a parallel mode **will commit even when `auto_commit` is false**. If the user set `auto_commit: false` and leans toward a parallel mode, tell them their work will still be committed (per wave / per task) before they choose.
