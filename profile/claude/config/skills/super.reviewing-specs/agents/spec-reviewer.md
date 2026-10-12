@@ -1,8 +1,6 @@
 # Spec Reviewer Prompt Template
 
-Use this template when dispatching one spec-review lens as a subagent. Dispatch **one subagent per lens** so they run in parallel and each stays focused.
-
-**Dispatch as a read-only subagent** — allowed tools are file reading, searching and the shell (no editing, writing or dispatching). A spec reviewer reads the spec, its companions, and the real codebase, then returns findings; it never modifies files, so withholding the write/dispatch tools keeps their schemas out of its context window. `grep` / `find` / `cat` (via `Bash`) is the default way to confirm a named symbol exists — anchor the query to the class/file name, not just the bare method, to avoid false positives (a same-named method in another module, a match inside a comment or test decoy) — and it is also the right tool for reading whole-file context, scanning many files for a pattern, non-code files (spec, config, i18n keys), and literal strings. If the platform's symbol-lookup tool (`LSP`, or Serena's `find_symbol` / `get_symbols_overview` / `find_referencing_symbols`) is already loaded, one opportunistic attempt for a named symbol is fine — but abandon it after that single try (no extra tool-loading calls, no retries, no re-scoping) and fall back to `grep` immediately if it doesn't resolve. If the platform cannot scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
+**Purpose:** one review lens per subagent, dispatched in parallel so each stays focused; read-only (file reading, searching and the shell). Confirm a named symbol exists with whatever search capability the session already has, anchoring the query to the class/file name, not the bare method, to dodge a same-named decoy; read whole-file context when a claim depends on it. No tool-loading calls to find a specific search tool, no retries of a lookup that did not resolve. No per-dispatch tool scoping on this platform → the default subagent.
 
 **Model:** the resolved `capable` model, passed explicitly (see `references/capable-tier-dispatch.md`). Never dispatch a reviewer with `model:` omitted.
 
@@ -27,10 +25,10 @@ Subagent (read-only):
     the other lenses. Your value is domain-expert precision, not breadth.
 
     ## Language
-    Write the ENTIRE review — every field label included (Severity/Section/What/
+    Write the ENTIRE review — every field label included (Severity/Kind/Section/What/
     Why/Suggested fix) and all prose — in {LANGUAGE}. The English labels in the
     Output format below are a STRUCTURAL template, not the output language: if
-    {LANGUAGE} is pt-BR, emit "Severidade / Seção / O quê / Por que importa /
+    {LANGUAGE} is pt-BR, emit "Severidade / Tipo / Seção / O quê / Por que importa /
     Correção sugerida", and so on. Do not hard-code English.
 
     ## Spec under review
@@ -63,14 +61,15 @@ Subagent (read-only):
       and rule-out-with-reason are all valid closures) — see `../references/honest-reporting.md`,
       "Over-building is a YAGNI defect", for the full rule on recommending unneeded machinery.
     - Verify claims against the REAL code (Lens 2/3/4 especially). A method the spec
-      names must exist — grep for it (anchored to the class/file name). A single
-      opportunistic symbol-lookup call is fine if the tool is already loaded; don't
-      chase it further. Do not take the spec's word for current behavior. This
+      names must exist — search for it, anchored to the class/file name. Do not take the spec's word for current behavior. This
       extends to literal code blocks a task gives as "code to write" (Lens 3):
       an implementer may copy it verbatim, so a constructor/function call shown
       must match the real signature's arity, not just the symbol's existence.
     - Distinguish a correct fact in misleading prose (fix the prose) from a wrong
-      decision (change the decision). Say which.
+      decision (change the decision). Say which — that is the finding's Kind.
+    - A decision is only closed if it can be built ONE way. Weak words ("adequado",
+      "rápido", "algumas"), an unquantified retry/timeout/limit, or a passive voice
+      that hides the actor is an open fork dressed as a decision, not a closure.
     - CORPORATE PRECEDENCE (Lens 5 especially): corporate artifacts are the company's
       source of truth and WIN on conflict. Where the spec contradicts one, the fix is to
       align the spec to the corporate value — or make the spec state the deviation
@@ -101,6 +100,10 @@ Subagent (read-only):
     For each finding, emit these fields, then a `---` separator line before the next
     finding (so consecutive findings are visually separated and easy to read):
     - **Severity:** Critical | Important | Minor
+    - **Kind:** prose | decision — `prose` when the fix is correcting a fact stated
+      wrong (stale sentence, ghost name, one edit); `decision` when the fix is a choice
+      only the spec's owner can make (an open fork) — then the Suggested fix MUST spell
+      out the closure you propose (resolve / tolerate / rule-out, with the concrete value)
     - **Section:** where in the spec — name the heading or number and line, in words
       (e.g. `"2.2 Componentes", line 83`); do NOT use the `§` glyph
     - **What:** the defect, concretely
@@ -126,7 +129,7 @@ Subagent (read-only):
     findings list. Omit this block entirely when there is nothing to observe.
 
     ## Rules
-    DO: judge by real severity; cite section + file:line; verify symbols against code via grep;
+    DO: judge by real severity; cite section + file:line; verify symbols against the code;
         give a clear per-finding fix. (The "Famílias verificadas" list already records
         what is sound — do not also add prose praising well-closed decisions.)
     DON'T: invent findings; inflate Minor to Critical; recommend machinery the design
@@ -137,8 +140,8 @@ Subagent (read-only):
 - `{DOMAIN_EXPERTISE}` — a short phrase naming the spec's domain/stack so the reviewer embodies the matching specialist (e.g. "segurança de aplicações e LGPD", "frontend React + Mistica, acessibilidade e i18n", "migração de schema TypeORM"). If the controller cannot name it, pass "generic" and the reviewer infers it from the spec + repo stack.
 - `{LENS_NAME}` — e.g. "Coerência interna & completude"
 - `{LENS_PROBES}` — the probe list for this lens, from `references/review-lenses.md`
-- `{LANGUAGE}` — the session's `communication.language` (e.g. `pt-BR`), so the report and its labels come out in the user's language. Never hard-code a language here.
+- `{LANGUAGE}` — the user's language: the one they write to you in, or the one their harness instructions set (e.g. `pt-BR`), so the report and its labels come out in it. Never hard-code a language here.
 - `{SPEC_PATH}`, `{PRD_PATH_OR_NONE}`, `{TASKS_INDEX_OR_NONE}`, `{TASK_FILES_OR_NONE}`, `{REPO_ROOT}` — from `resolve-review-targets.cjs`
 - `{CORPORATE_ARTIFACTS_OR_NONE}` — for Lens 5: the local paths of `corporateArtifacts.entries` (and a note for any URL entries that they are not fetchable). "none" for the other lenses.
 
-**Reviewer returns:** per-lens findings (severity · section · what · why · fix) or an explicit "clean on this lens".
+**Reviewer returns:** per-lens findings (severity · kind · section · what · why · fix) or an explicit "clean on this lens".

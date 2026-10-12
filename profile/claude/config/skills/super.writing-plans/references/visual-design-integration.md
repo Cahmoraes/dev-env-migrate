@@ -36,7 +36,7 @@ mockup set is incomplete; flag it rather than guessing.
    screenshot — whatever this project used; the user may have named it during
    brainstorming), and (b) which **visual-fidelity capabilities** are available in
    *this* environment (design-to-code or visual-regression skills/MCPs). Discover them
-   the same way you discover domain skills for "Conformidade com as Skills Padrão" —
+   the same way you discover domain skills for "Skills a invocar" —
    inspect the consuming repo's available skills and connected MCP tools,
    match by capability/description, and **never hardcode a tool name**. This is the
    single discovery pass; the execution-time Step 0 only *confirms with the user and

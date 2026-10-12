@@ -137,7 +137,7 @@ function proseFiles() {
     const skillMd = path.join(SKILLS, dir, 'SKILL.md');
     if (fs.existsSync(skillMd)) out.push(skillMd);
 
-    // Skill-root .md (plan-document-reviewer-prompt.md, root-cause-tracing.md) and agents/
+    // Skill-root .md (root-cause-tracing.md) and agents/
     // templates carry the dispatch allowlists — the exact place a tool name becomes an
     // instruction to go find that tool.
     for (const sub of ['.', 'references', 'agents']) {

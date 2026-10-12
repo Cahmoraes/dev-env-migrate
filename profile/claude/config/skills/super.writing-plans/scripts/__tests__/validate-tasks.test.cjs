@@ -3,7 +3,7 @@
 /**
  * Tests for validate-tasks.cjs — index format + deep per-file validation.
  *
- * Run with: node --test super.writing-plans/scripts/__tests__/
+ * Run with: node --test super.writing-plans/scripts/__tests__/validate-tasks.test.cjs
  */
 
 const test = require('node:test');
@@ -25,14 +25,13 @@ function runJson(args) {
   return JSON.parse(out);
 }
 
-function taskFile({ status = 'PENDING', prd = '`../prd/prd-x.md`', spec = '`../specs/x-design.md`', depends = 'N/A', title = '# Task 1: Do the thing', rfBody = '' } = {}) {
+function taskFile({ status = 'PENDING', prd = '`../prd/prd-x.md`', spec = '`../specs/x-design.md`', title = '# Task 1: Do the thing', rfBody = '' } = {}) {
   return [
     title,
     '',
     `**Status:** ${status}`,
     `**PRD:** ${prd}`,
     `**Spec:** ${spec}`,
-    `**Depends on:** ${depends}`,
     '',
     '## Passos',
     rfBody,
@@ -76,83 +75,80 @@ test('flags a referenced task file that does not exist on disk', () => {
 test('flags missing required headers in a task file', () => {
   const dir = mkdir();
   try {
-    // Task file missing **Spec:** and **Depends on:**
+    // Task file missing **Spec:**
     const body = ['# Task 1: Partial', '', '**Status:** PENDING', '**PRD:** `../prd/prd-x.md`', '', '## Passos'].join('\n');
     fs.writeFileSync(path.join(dir, 'task-01.md'), body, 'utf8');
     const index = writeIndex(dir, ['- [ ] 1. Partial headers → `task-01.md`']);
     const r = runJson(['--tasks-index', index]);
     assert.equal(r.valid, false);
-    assert.deepEqual(r.taskFiles[0].missingHeaders.sort(), ['**Depends on:**', '**Spec:**']);
+    assert.deepEqual(r.taskFiles[0].missingHeaders.sort(), ['**Spec:**']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('flags RF declared in index but not traceable in the task file', () => {
-  const dir = mkdir();
-  try {
-    // Index declares RF-003 but the task file never mentions it.
-    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint' }), 'utf8');
-    const index = writeIndex(dir, ['- [ ] 1. Endpoint [RF-003] → `task-01.md`']);
-    const r = runJson(['--tasks-index', index]);
-    assert.equal(r.valid, false);
-    assert.ok(r.errors.some((e) => /RF-003 is declared in the index.*not traceable/.test(e.message)));
-    assert.deepEqual(r.taskFiles[0].rfMissingInFile, ['RF-003']);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('RF traceable when present in the task file title is valid', () => {
-  const dir = mkdir();
-  try {
-    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint [RF-003]' }), 'utf8');
-    const index = writeIndex(dir, ['- [ ] 1. Endpoint [RF-003] → `task-01.md`']);
-    const r = runJson(['--tasks-index', index]);
-    assert.equal(r.valid, true);
-    assert.deepEqual(r.taskFiles[0].rfMissingInFile, []);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('canonical FR- token is traceable (English prefix, going-forward default)', () => {
+test('an FR tag on the index line is an ERROR that points to the task file title', () => {
   const dir = mkdir();
   try {
     fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint [FR-003]' }), 'utf8');
     const index = writeIndex(dir, ['- [ ] 1. Endpoint [FR-003] → `task-01.md`']);
     const r = runJson(['--tasks-index', index]);
-    assert.equal(r.valid, true);
-    assert.deepEqual(r.taskFiles[0].rfInIndex, ['FR-003']);
-    assert.deepEqual(r.taskFiles[0].rfMissingInFile, []);
+    assert.equal(r.valid, false);
+    assert.ok(r.errors.some((e) => /index line carries FR tags \(FR-003\).*task file's title/.test(e.message)));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('flags FR declared in index but not traceable in the task file', () => {
+test('legacy RF tag on the index line is the same ERROR (dual-accept token)', () => {
   const dir = mkdir();
   try {
-    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint' }), 'utf8');
-    const index = writeIndex(dir, ['- [ ] 1. Endpoint [FR-003] → `task-01.md`']);
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint [RF-003]' }), 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Endpoint [RF-003] → `task-01.md`']);
     const r = runJson(['--tasks-index', index]);
     assert.equal(r.valid, false);
-    assert.ok(r.errors.some((e) => /FR-003 is declared in the index.*not traceable/.test(e.message)));
-    assert.deepEqual(r.taskFiles[0].rfMissingInFile, ['FR-003']);
+    assert.ok(r.errors.some((e) => /index line carries FR tags \(RF-003\)/.test(e.message)));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('dual-accept: legacy RF and canonical FR tokens coexist in one plan', () => {
+test('canonical FR- token in the task file title is declared (English prefix, going-forward default)', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint [FR-003]', rfBody: 'Covers FR-003.' }), 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Endpoint → `task-01.md`']);
+    const r = runJson(['--tasks-index', index]);
+    assert.equal(r.valid, true);
+    assert.deepEqual(r.taskFiles[0].rfInTitle, ['FR-003']);
+    assert.equal(r.warnings.filter((w) => /not declared in its title/.test(w.message)).length, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an FR cited only in the task body (not in its title) is a WARNING naming the title', () => {
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint', rfBody: 'Implements FR-003.' }), 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Endpoint → `task-01.md`']);
+    const r = runJson(['--tasks-index', index]);
+    assert.equal(r.valid, true);
+    assert.deepEqual(r.taskFiles[0].rfInTitle, []);
+    assert.ok(r.warnings.some((w) => /FR-003 appears in task-01\.md but is not declared in its title/.test(w.message)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dual-accept: legacy RF and canonical FR tokens coexist in one task title', () => {
   const dir = mkdir();
   try {
     fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile({ title: '# Task 1: Endpoint [RF-001] [FR-002]' }), 'utf8');
-    const index = writeIndex(dir, ['- [ ] 1. Endpoint [RF-001] [FR-002] → `task-01.md`']);
+    const index = writeIndex(dir, ['- [ ] 1. Endpoint → `task-01.md`']);
     const r = runJson(['--tasks-index', index]);
     assert.equal(r.valid, true);
-    assert.deepEqual(r.taskFiles[0].rfInIndex, ['RF-001', 'FR-002']);
-    assert.deepEqual(r.taskFiles[0].rfMissingInFile, []);
+    assert.deepEqual(r.taskFiles[0].rfInTitle, ['RF-001', 'FR-002']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -391,7 +387,7 @@ const BRIEFING = 'task-writer-briefing.md';
 
 function writeBriefing(dir) {
   const p = path.join(dir, BRIEFING);
-  fs.writeFileSync(p, '# transient briefing\n\ndigest + decomposition\n', 'utf8');
+  fs.writeFileSync(p, '# transient briefing\n\n## Runner de testes\n\n- app · unit: `npx vitest run <arquivo>` (verificado)\n\n## Digest\n\ndigest + decomposition\n', 'utf8');
   return p;
 }
 
@@ -466,6 +462,74 @@ test('cleanup is a no-op (not an error) when no briefing exists', () => {
     assert.equal(r.valid, true);
     assert.equal(r.briefingCleanup.existed, false);
     assert.equal(r.briefingCleanup.removed, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ─── Briefing runner (the pre-dispatch --index-only run) ──────────────────────
+// The writer copies every Run: line from the briefing's ## Runner de testes; measured over 12 real
+// briefings, 4 carried no per-file command once the index stopped holding **Tech Stack:**.
+
+function briefingRun(briefing) {
+  const dir = mkdir();
+  try {
+    if (briefing !== null) fs.writeFileSync(path.join(dir, BRIEFING), briefing, 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    return runJson(['--tasks-index', index, '--index-only']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+const runnerErrors = (r) => r.errors.filter((e) => /Runner de testes/.test(e.message));
+
+test('briefing runner: per-file commands per kind, a not-to-use form and config spans pass', () => {
+  const r = briefingRun([
+    '# B', '', '## Runner de testes', '',
+    '- `apps/frontend` · unit: `pnpm --filter frontend test <caminho>` (verificado: 1 arquivo; config `vitest.config.ts`, `globals: true`)',
+    '- `apps/frontend` · e2e: `pnpm --filter frontend e2e e2e/<spec>` (não verificado)',
+    '- não usar `pnpm --filter frontend test -- --run <caminho>` — não coleta nada: o script já é `vitest run`',
+    '', '## Digest', '', '- `pnpm build` belongs to the final gate, outside the runner section', '',
+  ].join('\n'));
+  assert.deepEqual(runnerErrors(r), []);
+  assert.equal(r.valid, true);
+  assert.equal(r.briefingRunner.checked, true);
+  assert.equal(r.briefingRunner.commands.length, 4, 'the explanation span is read, and forgiven: its line has a target');
+});
+
+test('briefing runner: a briefing without the section is an ERROR that teaches the shape', () => {
+  // measured: weather-globe-clima named only the vitest config, no command at all
+  const r = briefingRun('# B\n\n## Digest\n\n- Config: `apps/frontend/vitest.config.ts`\n');
+  assert.equal(r.valid, false);
+  const errs = runnerErrors(r);
+  assert.equal(errs.length, 1);
+  assert.match(errs[0].message, /has no `## Runner de testes` section/);
+  assert.match(errs[0].message, /<command> <arquivo>/);
+});
+
+test('briefing runner: a whole-suite command is an ERROR naming it; a section with no command too', () => {
+  // measured: notificacoes-scroll-infinito carried only `pnpm --filter frontend test -- --run`
+  const suite = runnerErrors(briefingRun('# B\n\n## Runner de testes\n\n- frontend · unit: `pnpm --filter frontend test -- --run`\n'));
+  assert.equal(suite.length, 1);
+  assert.match(suite[0].message, /no per-file target: `pnpm --filter frontend test -- --run`/);
+  assert.match(suite[0].message, /final gate/);
+  const empty = runnerErrors(briefingRun('# B\n\n## Runner de testes\n\nvitest, happy-dom\n\n## Digest\n'));
+  assert.equal(empty.length, 1);
+  assert.match(empty[0].message, /names no command/);
+});
+
+test('briefing runner: no briefing (Medium tier) and a full run are not checked', () => {
+  const none = briefingRun(null);
+  assert.equal(none.briefingRunner.checked, false);
+  assert.deepEqual(runnerErrors(none), []);
+  const dir = mkdir();
+  try {
+    fs.writeFileSync(path.join(dir, 'task-01.md'), taskFile(), 'utf8');
+    fs.writeFileSync(path.join(dir, BRIEFING), '# legacy briefing, no runner section\n', 'utf8');
+    const index = writeIndex(dir, ['- [ ] 1. Do the thing → `task-01.md`']);
+    const full = runJson(['--tasks-index', index, '--keep-briefing']);
+    assert.equal(full.briefingRunner, null, 'after the writer ran, the task files carry the runner; the briefing is not re-judged');
+    assert.equal(full.valid, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

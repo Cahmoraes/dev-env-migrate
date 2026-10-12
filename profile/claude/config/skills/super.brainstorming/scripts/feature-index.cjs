@@ -55,7 +55,7 @@
  *     "degraded": null,
  *     "features": [
  *       { "slug": "...", "objective": "...", "outOfScope": ["..."],
- *         "artifacts": { "spec": true, "prd": true, "plan": true, "qa": false, "iv": true },
+ *         "artifacts": { "spec": true, "prd": true, "plan": true, "qa": false },
  *         "sources": { "objective": "prd:overview", "outOfScope": "prd" } }
  *     ],
  *     "warnings": []
@@ -79,6 +79,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const DOCS_DIR = path.join('docs', 'superpowers')
+const FENCE = /^\s*(```|~~~)/
 const DETAIL_LEVELS = ['slugs', 'brief', 'full']
 
 const DEFAULTS = {
@@ -109,7 +110,7 @@ const LADDER = [
 // ─── Heading vocabulary ──────────────────────────────────────────────────────
 //
 // The artifact templates fix these headings in pt-BR and they are structural skeleton:
-// `communication.language` governs prose, never the section names. The English aliases
+// the user's language governs prose, never the section names. The English aliases
 // and the accent-insensitive matching are tolerance for hand-edited artifacts, not a
 // second supported spelling — normalization is one-way, so `Visao Geral` and
 // `Visão Geral` are the same key here.
@@ -170,12 +171,13 @@ function sectionsOf(markdown) {
   let current = null
   let inFence = false
   for (const raw of String(markdown).split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(raw)) {
+    // Cheap pre-checks before the regexes: this loop runs once per line of every artifact.
+    if ((raw.includes('```') || raw.includes('~~~')) && FENCE.test(raw)) {
       inFence = !inFence
       if (current) current.body.push(raw)
       continue
     }
-    if (!inFence) {
+    if (!inFence && raw.charCodeAt(0) === 35 /* # */) {
       const heading = /^(#{1,6})\s+(.*)$/.exec(raw)
       if (heading) {
         const level = heading[1].length
@@ -209,7 +211,7 @@ function leadParagraph(bodyLines) {
   const buf = []
   let inFence = false
   for (const raw of bodyLines) {
-    if (/^\s*(```|~~~)/.test(raw)) {
+    if (FENCE.test(raw)) {
       inFence = !inFence
       if (buf.length) break
       continue
@@ -236,7 +238,7 @@ function listItems(bodyLines) {
   const out = []
   let inFence = false
   for (const raw of bodyLines) {
-    if (/^\s*(```|~~~)/.test(raw)) {
+    if (FENCE.test(raw)) {
       inFence = !inFence
       continue
     }
@@ -251,20 +253,35 @@ function listItems(bodyLines) {
 
 // ─── Artifact discovery ──────────────────────────────────────────────────────
 
-function listFiles(dir) {
+/**
+ * Per-call memo of directory listings and parsed sections. The budget ladder rebuilds the
+ * index once per rung, and `locateArtifacts` asks the same directory up to three times
+ * per feature; without the memo a 60-feature repo re-reads and re-parses every artifact
+ * on every rung. Scoped to one build (never module-level) so a caller that edits disk
+ * between two `buildIndex` calls still sees fresh files.
+ */
+function createCache() {
+  return { listings: new Map(), sections: new Map(), extracted: new Map() }
+}
+
+function listFiles(dir, cache) {
+  if (cache && cache.listings.has(dir)) return cache.listings.get(dir)
+  let names
   try {
-    return fs.readdirSync(dir, { withFileTypes: true })
+    names = fs.readdirSync(dir, { withFileTypes: true })
       .filter((e) => e.isFile())
       .map((e) => e.name)
       .sort()
   } catch {
-    return []
+    names = []
   }
+  if (cache) cache.listings.set(dir, names)
+  return names
 }
 
 /** Pick `<slug>`-named file first, then any file matching the pattern. */
-function pickFile(dir, preferred, pattern) {
-  const names = listFiles(dir)
+function pickFile(dir, preferred, pattern, cache) {
+  const names = listFiles(dir, cache)
   if (preferred && names.includes(preferred)) return path.join(dir, preferred)
   const match = names.find((n) => pattern.test(n))
   return match ? path.join(dir, match) : null
@@ -280,17 +297,24 @@ function readTextFile(file, warnings) {
   }
 }
 
-function locateArtifacts(featureDir, slug) {
+/** `sectionsOf(readTextFile(file))`, parsed once per file per build. */
+function readSections(file, warnings, cache) {
+  if (cache && cache.sections.has(file)) return cache.sections.get(file)
+  const sections = sectionsOf(readTextFile(file, warnings) || '')
+  if (cache) cache.sections.set(file, sections)
+  return sections
+}
+
+function locateArtifacts(featureDir, slug, cache) {
   const specsDir = path.join(featureDir, 'specs')
   const prdDir = path.join(featureDir, 'prd')
   const plansDir = path.join(featureDir, 'plans')
   const qaDir = path.join(featureDir, 'qa')
   return {
-    spec: pickFile(specsDir, `${slug}-design.md`, /-design\.md$/i) || pickFile(specsDir, null, /\.md$/i),
-    prd: pickFile(prdDir, `prd-${slug}.md`, /^prd-.*\.md$/i) || pickFile(prdDir, null, /\.md$/i),
-    plan: pickFile(plansDir, `tasks-${slug}.md`, /^tasks-.*\.md$/i),
-    qa: pickFile(qaDir, `qa-report-${slug}.md`, /^qa-report-.*\.md$/i),
-    iv: pickFile(qaDir, `validation-${slug}.md`, /^validation-.*\.md$/i),
+    spec: pickFile(specsDir, `${slug}-design.md`, /-design\.md$/i, cache) || pickFile(specsDir, null, /\.md$/i, cache),
+    prd: pickFile(prdDir, `prd-${slug}.md`, /^prd-.*\.md$/i, cache) || pickFile(prdDir, null, /\.md$/i, cache),
+    plan: pickFile(plansDir, `tasks-${slug}.md`, /^tasks-.*\.md$/i, cache),
+    qa: pickFile(qaDir, `qa-report-${slug}.md`, /^qa-report-.*\.md$/i, cache),
   }
 }
 
@@ -329,9 +353,26 @@ function extractOutOfScope(prdSections, specSections) {
   return { items: [], source: null }
 }
 
+/**
+ * Untruncated objective + out-of-scope for one feature, extracted once per build: every
+ * ladder rung only re-truncates these, so re-running the extraction per rung is waste.
+ */
+function extractFeature(files, warnings, cache) {
+  const key = `${files.prd}\0${files.spec}`
+  if (cache && cache.extracted.has(key)) return cache.extracted.get(key)
+  const prdSections = files.prd ? readSections(files.prd, warnings, cache) : new Map()
+  const specSections = files.spec ? readSections(files.spec, warnings, cache) : new Map()
+  const extracted = {
+    objective: extractObjective(prdSections, specSections),
+    scope: extractOutOfScope(prdSections, specSections),
+  }
+  if (cache) cache.extracted.set(key, extracted)
+  return extracted
+}
+
 // ─── Index build ─────────────────────────────────────────────────────────────
 
-function buildIndex(options) {
+function buildIndex(options, cache = createCache()) {
   const warnings = []
   const docsPath = path.join(options.repoRoot, DOCS_DIR)
   const result = {
@@ -364,7 +405,8 @@ function buildIndex(options) {
 
   if (options.featureFilter) {
     const wanted = new Set(options.featureFilter)
-    const missing = options.featureFilter.filter((s) => !slugs.includes(s))
+    const present = new Set(slugs)
+    const missing = options.featureFilter.filter((s) => !present.has(s))
     for (const slug of missing) warnings.push(`no such feature: ${slug}`)
     slugs = slugs.filter((s) => wanted.has(s))
   }
@@ -373,7 +415,7 @@ function buildIndex(options) {
 
   for (const slug of slugs) {
     const featureDir = path.join(docsPath, slug)
-    const files = locateArtifacts(featureDir, slug)
+    const files = locateArtifacts(featureDir, slug, cache)
     const entry = {
       slug,
       objective: '',
@@ -383,21 +425,16 @@ function buildIndex(options) {
         prd: Boolean(files.prd),
         plan: Boolean(files.plan),
         qa: Boolean(files.qa),
-        iv: Boolean(files.iv),
       },
       sources: { objective: null, outOfScope: null },
     }
 
     if (options.detail !== 'slugs') {
-      const prdSections = files.prd ? sectionsOf(readTextFile(files.prd, warnings) || '') : new Map()
-      const specSections = files.spec ? sectionsOf(readTextFile(files.spec, warnings) || '') : new Map()
-
-      const objective = extractObjective(prdSections, specSections)
+      const { objective, scope } = extractFeature(files, warnings, cache)
       entry.objective = truncate(objective.text, options.objectiveChars)
       entry.sources.objective = objective.source
 
       if (options.detail === 'full') {
-        const scope = extractOutOfScope(prdSections, specSections)
         const kept = scope.items.slice(0, options.maxOutOfScope)
         if (kept.length < scope.items.length) result.truncated = true
         entry.outOfScope = kept.map((item) => truncate(item, options.scopeChars))
@@ -419,13 +456,18 @@ function buildIndex(options) {
 function buildIndexWithinBudget(options) {
   const requested = DETAIL_LEVELS.indexOf(options.detail)
   const rungs = LADDER.filter((r) => DETAIL_LEVELS.indexOf(r.detail) <= requested)
-  let index = buildIndex(options)
+  const cache = createCache()
+  let index = buildIndex(options, cache)
   if (!options.budgetChars || !index.featureCount) return index
   if (renderMarkdown(index).length <= options.budgetChars) return index
 
+  // Later rungs read through the cache, so only the first build sees read failures;
+  // carry its warnings forward instead of silently dropping them on a degraded index.
+  const { warnings } = index
   for (let i = 1; i < rungs.length; i += 1) {
     const rung = rungs[i]
-    index = buildIndex({ ...options, ...rung })
+    index = buildIndex({ ...options, ...rung }, cache)
+    index.warnings = warnings
     index.degraded = {
       from: options.detail,
       to: rung.detail,
@@ -443,7 +485,7 @@ function buildIndexWithinBudget(options) {
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
 function artifactFlags(artifacts) {
-  return ['spec', 'prd', 'plan', 'qa', 'iv'].filter((k) => artifacts[k]).join(' ')
+  return ['spec', 'prd', 'plan', 'qa'].filter((k) => artifacts[k]).join(' ')
 }
 
 function renderMarkdown(index) {

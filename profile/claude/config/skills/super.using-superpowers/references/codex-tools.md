@@ -9,7 +9,6 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | `Bash` (run commands) | The shell tool your session exposes — **the name varies by model**, see "The shell tool has no single name" |
 | file-content search | `grep_files` |
 | file-name search | `list_dir` / the shell tool ⚠️ see "Checking files in hidden directories" |
-| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep_files` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep_files` if it doesn't resolve immediately. |
 | session task list (task tracking, optional) | `update_plan` |
 | `AskUserQuestion` (structured user question) | `request_user_input` — **interactive sessions only**, see "Asking the user structured questions" |
 | `Skill` tool (invoke a skill) | Skills load natively — see "Skills" below |
@@ -30,7 +29,7 @@ Codex does not expose one canonical shell tool. Which one your session holds dep
 
 ## Subagent dispatch
 
-Multi-agent collaboration is **stable and enabled by default** — `[features] multi_agent` in `~/.codex/config.toml` defaults to `true`, and a second gate `agents.enabled` also defaults to `true`. You normally need no configuration to dispatch subagents for `super.dispatching-parallel-agents`, `super.subagent-driven-development`, and the parallel execution modes. Only set it explicitly if the feature was turned off in the user's config:
+Multi-agent collaboration is **stable and enabled by default** — `[features] multi_agent` in `~/.codex/config.toml` defaults to `true`, and a second gate `agents.enabled` also defaults to `true`. You normally need no configuration to dispatch subagents for `super.dispatching-parallel-agents` and `super.subagent-driven-development`. Only set it explicitly if the feature was turned off in the user's config:
 
 ```toml
 [features]
@@ -51,7 +50,7 @@ The multi-agent tools exist in **two incompatible schema versions**, selected by
 
 ### Model tiers
 
-The execution skills require that every dispatch names its model explicitly, so a task whose plan header says `**Tier:** cheap` runs on `model_tiers.cheap` rather than inheriting the orchestrator's model.
+The execution skill requires that every dispatch names its model explicitly, so a task whose plan header says `**Tier:** cheap` runs on `model_tiers.cheap` rather than inheriting the orchestrator's model.
 
 - **On the v1 surface** this maps directly: pass the tier's model as `spawn_agent`'s `model` argument.
 - **On the v2 surface there is no `model` argument.** When that is what your session exposes, the tier cannot be set at dispatch time. Say so explicitly in the thread rather than dispatching silently and letting the manifest claim a tier it did not enforce, and record the actual model in the `validate-dispatch.cjs` manifest. The tier rules themselves are unchanged — the written `**Tier:**` is still binding and escalation still requires a recorded reason.
@@ -64,9 +63,9 @@ Interactive Codex sessions expose **`request_user_input`**. Use it for onboardin
 
 > There is **no `ask_user_question` tool** — that name does not exist in Codex. If a skill's prose says `AskUserQuestion`, the Codex equivalent is `request_user_input`.
 
-**`codex exec` / non-interactive runs do not support it** — a scripted run must never hang waiting for input, and the tool is stripped in exec mode. When it is absent, fall back to a numbered prose list; if no human can reply, proceed with the documented default for each question.
+**`codex exec` / non-interactive runs do not support it** — a scripted run must never hang waiting for input, and the tool is stripped in exec mode. When it is absent, fall back to a numbered prose list of the same options — every consent gate in the skills does, `super.reviewing-specs`' "which findings to apply" included; if no human can reply, proceed with the documented default for each question.
 
-**`request_user_input` is a consent tool, never a synchronization primitive.** Do not call it to "wait for" a dispatched subagent or to ask "continue?" between phases — use `wait_agent` to await a subagent. The only legitimate calls are the flow's explicit, named gates: the Branch Guard, the QA gate, the auto-commit suggestion, and the execution-mode election.
+**`request_user_input` is a consent tool, never a synchronization primitive.** Do not call it to "wait for" a dispatched subagent or to ask "continue?" between phases — use `wait_agent` to await a subagent. The only legitimate calls are the flow's explicit, named gates: the Branch Guard's two exceptions (the feature branch already exists, or the repo pins work to the default branch), the auto-commit suggestion, and the execution-mode election (always asked, every plan). The QA gate is preference-decided, never asked.
 
 ## Skills
 
@@ -114,9 +113,9 @@ See `super.using-git-worktrees` Step 0 and `super.finishing-a-development-branch
 
 ## No native review skills
 
-Codex has no equivalent of Claude Code's `/simplify` and `/code-review`, or Copilot CLI's `review` and Rubber Duck Agent. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are silently ignored, and `derive-session-state.cjs --platform codex` resolves every native-review variable to its safe default. **During onboarding, skip those platform-specific steps entirely** — do not ask about them, do not mention them.
+Codex has no equivalent of Claude Code's `/code-review` or Copilot CLI's `review`. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are silently ignored, and `derive-session-state.cjs --platform codex` resolves every native-review variable to its safe default. **During onboarding, skip those platform-specific steps entirely** — do not ask about them, do not mention them.
 
-The per-task spec compliance review and code quality review gates always run, on every platform, as do the default final code reviewer and the always-on `super.independent-verification` gate.
+The per-task spec compliance review and code quality review gates always run, on every platform, as does the default final code reviewer.
 
 ## Codex App finishing
 

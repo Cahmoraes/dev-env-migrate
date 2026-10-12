@@ -22,11 +22,12 @@
  *                            never duplicated.
  *
  * PLATFORM GATING
- *   caveman + model_tiers + qa_gate + visual_companion + auto_commit + language are platform-agnostic
+ *   model_tiers + qa_gate + visual_companion + auto_commit
+ *   are platform-agnostic
  *   (apply on every platform).
  *   The native-review variables exist only on their own platform:
- *     - claude_code.{simplify, code_review_final, code_review_effort} → Claude Code
- *     - copilot.review_final                                          → Copilot CLI
+ *     - claude_code.{review_final, review_effort} → Claude Code
+ *     - copilot.review_final                      → Copilot CLI
  *   Off their platform they resolve to their safe default, so a session can never
  *   try to run a native skill the current platform does not have.
  *
@@ -37,6 +38,16 @@
  *   model that fits each task's tier from whatever the harness offers, instead of
  *   inheriting its own (over-provisioning) model. Surfaced here so the Session
  *   State Re-Entry Guard restores them after a compaction like every other var.
+ *
+ *   The tiers emitted here are RESOLVED for the running platform, not echoed: the same
+ *   preferences.yml is read by every harness, so a mapping written on one names models
+ *   another does not serve (`capable: gpt-5` configured from Copilot CLI, then read in a
+ *   Claude Code session). A tier naming a model this platform cannot serve resolves to
+ *   null — the same `auto` an unset tier already means — so no dispatch is ever built on
+ *   a model that does not exist here. `lib/model-tiers.cjs` owns that rule and only falls
+ *   back on a CONFIDENTLY foreign vendor; an unrecognized name passes through verbatim.
+ *   Every fallback is reported in top-level `unavailableModelTiers` so the Session
+ *   Summary can say why a configured mapping is not in effect instead of hiding it.
  *
  * WHY corporateArtifacts IS A DISK PROBE, NOT A PREFERENCE
  *   `session_has_corporate_artifacts` is the owner's CONSENT, read from preferences.yml.
@@ -51,11 +62,6 @@
  *   conflict, and a path list in the controller's context is an invitation to act on an
  *   unconsented declaration. Under consent the router reads the file itself anyway.
  *
- * SCOPE
- *   Only PREFERENCES-DERIVED variables are emitted. Controller latches
- *   (session_caveman_in_effect, session_caveman_prompted)
- *   are runtime bookkeeping, not configuration — they are NOT derived here.
- *
  * Usage:
  *   node scripts/derive-session-state.cjs [--platform <name>] [--repo-root <path>]
  *
@@ -65,7 +71,18 @@
  *   --help              Show this help and exit 0.
  *
  * Output (JSON to stdout):
- *   { platform, preferencesFound, malformed, preferencesPath, sessionState, corporateArtifacts }
+ *   { platform, preferencesFound, malformed, preferencesPath, sessionState,
+ *     corporateArtifacts, unavailableModelTiers, projectProfile }
+ *
+ * WHY projectProfile IS TOP-LEVEL AND CARRIES `declared`
+ *   The project profile (stack + manifest) is read by execution skills, not by the router's
+ *   gates, so it is not a session_* variable — it rides next to corporateArtifacts as its
+ *   own object. `declared` is the disk fact the values cannot carry: an older
+ *   preferences.yml (written before the section existed) reads found:true with both values
+ *   null, and a consumer that saw only the nulls would conclude "stack not decided" instead
+ *   of "nobody was asked yet". The router runs ONLY the project step of the wizard when
+ *   preferencesFound && !projectProfile.declared. The commands (test, setup, format) are
+ *   deliberately NOT here: the repo's instructions file and manifest carry them.
  *
  * WHY IT ALSO CARRIES preferencesFound / malformed / has_corporate_artifacts
  *   The entry point used to run read-preferences.cjs AND this script back to back, one
@@ -85,6 +102,7 @@
 const path = require('path');
 const { DEFAULTS, loadPreferences } = require('./read-preferences.cjs');
 const { resolveCorporateArtifacts } = require('./lib/corporate-artifacts.cjs');
+const { resolveDispatchModel, resolveModelTiers } = require('./lib/model-tiers.cjs');
 
 const PLATFORMS = ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other'];
 
@@ -100,29 +118,16 @@ Options:
   --help              Show this help and exit 0.
 
 Output (JSON to stdout):
-  { platform, preferencesFound, malformed, preferencesPath, sessionState, corporateArtifacts }
+  { platform, preferencesFound, malformed, preferencesPath, sessionState,
+    corporateArtifacts, unavailableModelTiers, projectProfile }
+projectProfile is { declared, stack, manifest }; declared:false means the project: section
+  is absent and the wizard's project step still has to run (values are then null). The
+  commands (test, setup, format) are not here: read the repo's instructions file/manifest.
+unavailableModelTiers lists tiers configured with a model this platform cannot serve;
+each resolved to null (auto) in sessionState instead.
 corporateArtifacts is a disk probe ({ declared, enabled, declaredButDisabled, configPath,
 count }); it never carries the declared entries themselves.
-sessionState holds only preferences-derived variables; controller latches
-(session_caveman_in_effect / _prompted) are not derived here.
 `.trimStart();
-
-/**
- * Read the merged preferences by calling read-preferences.cjs's loadPreferences
- * IN-PROCESS (no subprocess spawn), so the YAML parse/merge/normalize logic lives in
- * exactly one place and this runs with one fewer node process. We drop the warnings
- * array — the previous spawn already discarded read-preferences' stderr (stdio:'ignore').
- *
- * `root` comes back too, because corporate-artifacts.yml is the SIBLING of the
- * preferences.yml that granted consent. That is not always the root we were handed: inside
- * a linked worktree the loader falls back to the main working tree (`.superpowers/` is
- * gitignored, so a worktree has none). Probing the input root there would report "no
- * corporate artifacts" for a repo that has them.
- */
-function readPreferences(repoRoot) {
-  const { result, root } = loadPreferences(repoRoot);
-  return { result, root };
-}
 
 /**
  * Map merged preferences to the session_* variables, applying platform gating.
@@ -131,53 +136,57 @@ function readPreferences(repoRoot) {
 function deriveSessionState(preferences, platform) {
   const isClaudeCode = platform === 'claude-code';
   const isCopilot = platform === 'copilot';
+  const { resolved } = resolveModelTiers(preferences.model_tiers, platform);
+  const modelTiers = {
+    cheap: resolveDispatchModel(resolved.cheap, 'cheap', platform),
+    standard: resolveDispatchModel(resolved.standard, 'standard', platform),
+    capable: resolveDispatchModel(resolved.capable, 'capable', platform),
+  };
 
   return {
-    // Platform-agnostic — caveman applies on every platform.
-    session_caveman_active: Boolean(preferences.optimization.caveman),
-    session_caveman_level: preferences.optimization.caveman_level,
-
-    // Platform-agnostic workflow gates. qa_gate drives whether the end-of-implementation
-    // QA gate (super.user-story-verification) runs at all; false skips it silently and
-    // suppresses every QA mention, including at the PRD step (independent verification is
-    // unaffected — it is always-on). auto_commit is surfaced for the session-state display
-    // (the execution skills still read workflow.auto_commit directly at their commit gate).
-    session_qa_gate_enabled: Boolean(preferences.workflow.qa_gate),
+    // Platform-agnostic workflow gates. qa_gate drives whether the end-of-implementation QA gate (super.user-story-verification)
+    // exists at all; false skips it silently and suppresses every QA mention, including at the
+    // PRD step. `true` and `ask` both keep the gate in the flow — `ask` only moves the consent
+    // from the preference to one question at the gate (PRD present), so it is surfaced as its
+    // own flag instead of a third value in the boolean every consumer already branches on.
+    // auto_commit is surfaced for the session-state
+    // display (the execution skills still read workflow.auto_commit directly at their commit gate).
+    session_qa_gate_enabled: preferences.workflow.qa_gate !== false,
+    session_qa_gate_ask: preferences.workflow.qa_gate === 'ask',
     // visual_companion drives whether super.brainstorming may offer the browser companion at all;
     // false skips the offer silently (no consent question, no browser mention), true leaves the
     // existing consent-gated behaviour untouched.
     session_visual_companion_enabled: Boolean(preferences.workflow.visual_companion),
     session_auto_commit: Boolean(preferences.workflow.auto_commit),
+    // finish_action is the destination declared before the work starts: `ask` (default) keeps
+    // the finishing menu; merge/pr/keep let super.finishing-a-development-branch run that option
+    // without a question. Already clamped by the loader, so only the four valid values arrive.
+    session_finish_action: preferences.workflow.finish_action,
 
     // Platform-agnostic — whether the repo declares corporate artifacts. Surfaced here so the
     // entry point learns it from THIS call instead of spending a second tool call on
     // read-preferences.cjs just for one boolean (the rest of that object is already mapped above).
     session_has_corporate_artifacts: Boolean(preferences.context?.has_corporate_artifacts),
 
-    // Platform-agnostic — the human-language every skill writes its user-facing artifacts in
-    // (validation/QA reports, spec/PRD prose, subagent-authored notes). Defaults to pt-BR.
-    // The structural skeleton of machine-validated artifacts (report section headings, field
-    // labels, status tokens like PASS ✅/FAIL ❌, and FR/AC/US identifiers) stays canonical
-    // regardless — only human-readable prose follows this. See the report-producing skills
-    // (super.independent-verification, super.user-story-verification) for that split.
-    session_language: preferences.communication.language,
-
     // Claude Code native — resolve to safe defaults off Claude Code.
-    session_simplify_enabled: isClaudeCode ? Boolean(preferences.claude_code.simplify) : false,
-    session_code_review_final_enabled: isClaudeCode ? Boolean(preferences.claude_code.code_review_final) : false,
+    session_code_review_final_enabled: isClaudeCode ? Boolean(preferences.claude_code.review_final) : false,
     session_code_review_effort: isClaudeCode
-      ? preferences.claude_code.code_review_effort
-      : DEFAULTS.claude_code.code_review_effort,
+      ? preferences.claude_code.review_effort
+      : DEFAULTS.claude_code.review_effort,
 
     // Copilot CLI native — resolve to safe default off Copilot CLI.
     session_copilot_review_final_enabled: isCopilot ? Boolean(preferences.copilot.review_final) : false,
 
-    // Platform-agnostic — abstract model tiers → concrete model names for the
-    // harness. null = "auto" (controller picks least-powerful-sufficient per task,
-    // never inherits its own model). See subagent-driven-development, "Model Selection" section.
-    session_model_tier_cheap: preferences.model_tiers?.cheap ?? null,
-    session_model_tier_standard: preferences.model_tiers?.standard ?? null,
-    session_model_tier_capable: preferences.model_tiers?.capable ?? null,
+    // Abstract model tiers → the concrete model name a dispatch may carry on this
+    // platform. An unset tier and a tier naming a model this harness cannot serve both land
+    // on the platform's own rung alias; only a platform publishing no aliases leaves "auto"
+    // here, and there the controller picks the rung by role and passes it explicitly. These
+    // variables are copied verbatim onto dispatches, so "auto" reaching one is not a neutral
+    // default: the dispatch tool rejects the word, and a controller resolves it to its own
+    // model. See subagent-driven-development, "Model Selection".
+    session_model_tier_cheap: modelTiers.cheap,
+    session_model_tier_standard: modelTiers.standard,
+    session_model_tier_capable: modelTiers.capable,
   };
 }
 
@@ -189,6 +198,15 @@ function deriveSessionState(preferences, platform) {
 function probeCorporateArtifacts(repoRoot, enabled) {
   const { declared, declaredButDisabled, configPath, count } = resolveCorporateArtifacts(repoRoot, { enabled });
   return { declared, enabled: Boolean(enabled), declaredButDisabled, configPath, count };
+}
+
+/**
+ * The project profile as the skills consume it: the two project.* values (stack, manifest)
+ * plus the `declared` flag from the reader. See "WHY projectProfile IS TOP-LEVEL" above.
+ */
+function deriveProjectProfile(prefsResult) {
+  const project = (prefsResult.preferences && prefsResult.preferences.project) || DEFAULTS.project;
+  return { declared: Boolean(prefsResult.projectDeclared), ...DEFAULTS.project, ...project };
 }
 
 function main(argv) {
@@ -214,16 +232,27 @@ function main(argv) {
     process.exit(1);
   }
 
-  let prefsResult;
-  let resolvedRoot;
+  let result;
   try {
-    ({ result: prefsResult, root: resolvedRoot } = readPreferences(repoRoot));
+    result = buildSessionReport({ platform, repoRoot });
   } catch (err) {
     process.stderr.write(`Failed to read preferences: ${err.message}\n`);
     process.exit(1);
   }
 
-  const result = {
+  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  process.exit(0);
+}
+
+// The whole bootstrap JSON as one object — the CLI prints it; render-preferences-view.cjs
+// renders it. One builder, so the view can never disagree with the JSON the router read.
+function buildSessionReport({ platform = 'claude-code', repoRoot = null } = {}) {
+  // In-process loader (no `node read-preferences.cjs` spawn); warnings are dropped. `root` is
+  // the root the loader resolved — inside a linked worktree it falls back to the main working
+  // tree, and corporate-artifacts.yml is the SIBLING of the preferences.yml that granted consent,
+  // so probing the input root there would report "no corporate artifacts" for a repo that has them.
+  const { result: prefsResult, root: resolvedRoot } = loadPreferences(repoRoot);
+  return {
     platform,
     preferencesFound: Boolean(prefsResult.found),
     malformed: Boolean(prefsResult.malformed),
@@ -233,13 +262,12 @@ function main(argv) {
       resolvedRoot,
       Boolean(prefsResult.preferences.context?.has_corporate_artifacts),
     ),
+    unavailableModelTiers: resolveModelTiers(prefsResult.preferences.model_tiers, platform).unavailable,
+    projectProfile: deriveProjectProfile(prefsResult),
   };
-
-  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-  process.exit(0);
 }
 
-module.exports = { PLATFORMS, deriveSessionState, probeCorporateArtifacts };
+module.exports = { PLATFORMS, deriveSessionState, probeCorporateArtifacts, buildSessionReport };
 
 if (require.main === module) {
   main(process.argv);

@@ -1,154 +1,91 @@
 ---
 name: super.writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code. If a PRD exists alongside the spec, uses it to map tasks to user stories and functional requirements for better traceability.
+description: Decompose an approved spec (and PRD, if any) into ordered task files, each naming what it consumes from earlier ones. Use before executing a multi-step change.
 argument-hint: "[path-to-<feature>-design.md] [path-to-prd-<feature>.md]"
 ---
 
 # Writing Plans
 
-> **The entry-phase procedure lives in `./references/entry-phase.md`** (overview, scope/YAGNI, research fan-out, task-file writing). The rules a resume still needs are inline under "# Entry Phase".
+> The entry procedure (scope/YAGNI, research fan-out, task-file writing) is `./references/entry-phase.md`; the three rules a resume still needs are under "# Entry Phase" at the end of this file.
+
+**What to read when:** entering → `./references/entry-phase.md`; cutting the plan into tasks → `./references/task-decomposition-granularity.md` and the two templates; only when the spec has an **Especificação Visual** section or `specs/mockups/` exists → `./references/visual-design-integration.md`; closing → `./references/self-review-checklist.md`, then `./references/execution-handoff-message.md`.
 
 ## PRD Integration
 
-Before planning, check if a PRD exists.
+Discover the feature's files deterministically:
 
-> **Deterministic file discovery:** run the script from this skill's `scripts/` folder:
-> ```bash
-> node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>
-> ```
-> It outputs `prd`, `spec`, `tasksIndex`, `mockups`, and `warnings`. Confirm files exist before referencing them. **If `warnings` contains `visual-spec-without-artifact`**, resolve it before decomposing tasks (create the curated artifact or drop the spec section); otherwise the visual-fidelity gate is silently skipped.
->
-> **Precedence:** if `super.generating-prd` ran this session, the PRD path it passed forward wins over the script. **Fallback (script unavailable):** look for `docs/superpowers/<feature-name>/prd/prd-<feature-name>.md`, then any `prd-`-prefixed file in that `prd/` directory.
+```bash
+node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>
+```
 
-**If a PRD is found:**
+It outputs `prd`, `spec`, `tasksIndex`, `mockups`, `warnings`. A PRD path handed forward by `super.generating-prd` this session wins over the script; without the script, look under `docs/superpowers/<feature-name>/prd/`. **If `warnings` contains `visual-spec-without-artifact`**, resolve it before decomposing tasks (create the curated artifact or drop the spec section) — otherwise the visual-fidelity gate is silently skipped.
 
-1. Use its **user stories** and **functional requirements** (FR-001...) as the primary source for task decomposition.
-2. Include the requirement ID in each task header (e.g. `### Task 3: User Login Flow [FR-003, FR-004]`).
-3. Aim for a **bijection**: every FR covered by ≥1 task (add one if missing), every task linked to a valid FR (an orphan signals scope creep or a PRD gap). `validate-tasks.cjs` verifies this mapping at self-review — get it right while writing.
-4. Use the PRD's "Fora de Escopo" section to avoid planning excluded work.
-
-**If no PRD exists:** derive tasks from the design spec and conversation. Note in the plan header: "Spec-only planning; no FR traceability available." The PRD is an enrichment, not a hard dependency. Omit `[FR-XXX]` tags everywhere.
+**With a PRD:** its user stories and functional requirements (`FR-001`…) are the primary decomposition source; every task file's title carries its FR ids (`# Task 3: User Login Flow [FR-003, FR-004]`) — the index line never does — every FR is covered by ≥1 task and every task maps to a valid FR — `validate-tasks.cjs --prd` checks the bijection at self-review, so get it right while writing. Its "Fora de Escopo" section bounds the plan. **Without a PRD:** derive tasks from the spec and the conversation, and omit `[FR-XXX]` tags everywhere. **Either way:** each spec `AC-NN`/`INV-NN`, and a migration's **Mecanismo:**/**Critério de fim:**, is a line of its owning task's `## Critérios de Sucesso` with the spec's text verbatim — `- AC-03 [unit|int|db|unverified]: <texto>` — and a spec `**Contrato:**` row is copied into the task that implements its operation.
 
 ## Visual & Design-Source Integration
 
-A mockup is a **norte** — a directional approximation, not pixel-final; final fidelity is built by the implementation task, ideally against the **original design source** when one exists. Superpowers stays **tool-agnostic**: never assume a specific design tool, design-to-code skill, or MCP. Discover visual inputs alongside the PRD/spec — `find-feature-files.cjs` returns a `mockups` entry (`found`, `path`, `files`) for `specs/mockups/`, and the spec may carry an **Especificação Visual** section.
-
-**If mockups or a visual spec exist, read `./references/visual-design-integration.md`** — it defines which tasks count as UI tasks, how to map mockup files to tasks, and the per-UI-task recording procedure (curated-artifact fidelity baseline; one-pass discovery of the original design source and visual-fidelity tools, never hardcoding a tool name; the `### Fidelidade Visual` subsection verified by `validate-tasks.cjs --mockups`). If none exist, omit all of it — enrichment, never a hard dependency.
+A mockup is a **norte** — directional, not pixel-final; final fidelity is the implementation task's, ideally against the original design source. Stay tool-agnostic (no design tool, design-to-code skill or MCP assumed). When `mockups.found` or the spec carries an **Especificação Visual** section, `./references/visual-design-integration.md` defines the UI tasks, the mockup→task mapping and the `### Fidelidade Visual` subsection that `validate-tasks.cjs --mockups` verifies. Otherwise omit all of it.
 
 ## Task Tracking Artifacts
 
-After writing the plan, generate persistent tracking files so the execution skills can track progress across sessions. This is the management layer, separate from the detailed plan.
-
-### Path Derivation
-
-All paths derive from the feature name (kebab-case slug defined during brainstorming):
-
-```
-Feature root:     docs/superpowers/<feature-name>/
-Spec:             docs/superpowers/<feature-name>/specs/<feature-name>-design.md
-PRD:              docs/superpowers/<feature-name>/prd/prd-<feature-name>.md
-Tasks index:      docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
-Individual tasks: docs/superpowers/<feature-name>/plans/task-01.md, task-02.md, ...
-```
-
-Everything lives inside the feature directory. Tasks are flat in `plans/` (no subfolders, no date prefixes). No aggregated plan file — the tasks index + individual task files ARE the plan.
+Everything lives under `docs/superpowers/<feature-name>/`: `specs/<feature-name>-design.md`, `prd/prd-<feature-name>.md`, `plans/tasks-<feature-name>.md` (the index) and `plans/task-01.md`, `task-02.md`… (flat, no subfolders, no date prefixes). The index plus the task files **are** the plan — there is no aggregated plan file. Generate them immediately after decomposing tasks and before the execution handoff; if tasks change, regenerate.
 
 ### Tasks Index (`tasks-<feature-name>.md`)
 
-**Before writing the tasks index, read `./templates/tasks-template.md` and copy its structure exactly.** The index MUST start with that template's exact header — the title, the `**Spec:**`/`**PRD:**` pointers, and the `---` separator. Fill in feature-specific content: goal, architecture, tech stack, and the flat task list with FR-XXX mappings (only when a PRD exists; omit them entirely when planning from spec alone). Task file paths are relative to the index's directory (flat in `plans/`).
+Copy the structure of `./templates/tasks-template.md` exactly — its header (title, `**Spec:**` and `**PRD:**` pointers with a blank line between them — a Markdown preview joins adjacent lines —, `---` separator), the flat task list (checkbox, number, title, file — no FR tags), then the two sections the reviewers receive verbatim: `## Restrições Globais` (the spec's project-wide rules and exact values, verbatim — every reviewer's attention lens) and `## Foco de Revisão` (the inputs the spec implies but no task tests, each owned by a task that pins it with a test step — the template's comment is the standard; the final reviewer gets it). Nothing else goes in the index — no command inventory, no answer to a validator warning, no note to the executor; `validate-tasks.cjs` fails an unknown heading or prose outside a bullet. Task paths are relative to the index's directory. **The test runner is resolved, never guessed:** stack from `projectProfile`, framework and test runner from the repo's instructions file, else the manifest at `projectProfile.manifest` — where the toolchain owns the runner, the manifest's declared kind settles it even before the file exists (`pubspec.yaml` → `flutter test`, `go.mod` → `go test`, `Cargo.toml` → `cargo test`, `mix.exs` → `mix test`); any other kind needs the file's test config, and a universal launcher never settles the framework it launches (`dotnet test`, `npm test`) — else the spec's Testes section; all silent → ask the user now, before any task file exists. It goes in the task-writer briefing's `## Runner de testes` (a plan of at most four tasks, which has no writer, puts it straight into the task files' `Run:` lines), never in the index (`validate-tasks.cjs` fails a `**Tech Stack:**` line there): per workspace, stack · framework · the per-file command. The task writer copies the runner from the briefing into every `Run:` line; a runner guessed here is pasted verbatim into every implementer prompt.
 
 ### Individual Task Files (`task-NN.md`)
 
-**The task-writer subagent (the "Task File Writing — One Sequential Writer Subagent" section) reads `./templates/task-file-template.md` and preserves all required headers exactly.** Each task file is self-contained — an engineer (or subagent) must be able to implement it without reading other task files. Content comes from the corresponding task in the plan.
+The task-writer subagent (`./agents/task-writer.md` — it authors documents and never builds, tests or reverts anything) copies `./templates/task-file-template.md` and keeps every required header verbatim; each file is self-contained — implementable without reading other task files. Parser-critical fields: `**Status:** PENDING` (`PENDING` → `IN_PROGRESS` → `DONE`; the index's `[x]` is the management view), `**PRD:**` (`N/A` without one), `**Spec:**`, `**Tier:**` (`cheap` | `standard` | `capable` — the abstract execution tier, never a model name; default from `parse-plan.cjs`'s `suggestedTier`, override when a task is harder or simpler than its signals; policy in `super.subagent-driven-development`, "Model Selection") — one per line, a blank line between them, or a Markdown preview joins them into one paragraph.
 
-**Parser-critical fields (must be present verbatim):**
-- `**Status:** PENDING` — execution skills update this as work progresses.
-- `**PRD:** <relative-path>` — use `**PRD:** N/A` if no PRD exists.
-- `**Spec:** <relative-path>` — always required.
-- `**Tier:** <cheap | standard | capable>` — the abstract execution-model tier (never a concrete model name; the executor maps tier→model at dispatch), so mechanical work isn't burned on a powerful model. Default it from `parse-waves.cjs`'s `suggestedTier` (run it after drafting the tasks — see Execution Waves below), then override when a task is harder or simpler than its signals suggest. Roughly: `cheap` = 1-2 files, complete spec, no deps; `standard` = multi-file integration (safe default); `capable` = architecture/design, no spec, or high fan-in. Omit it only to let the executor infer the tier; explicit is preferred. See `super.subagent-driven-development`, "Model Selection" section.
-- `**Depends on:** <task ids | N/A>` — the tasks whose implementation this task reads or extends before it can start (e.g. `task-01, task-03`); use `N/A` when nothing earlier is required. This field feeds the Execution Waves derivation and lets `super.parallel-subagent-development` parallelize safely.
+### Dependency Analysis
 
-  > **Precision rule — do NOT declare a dependency for type contracts alone.** If task B only imports a type, interface, or DTO that task A defines — and that contract is already frozen/stable when B starts — the edge is NOT a real dependency. A real dependency means B needs A's *implementation* to be ready (B calls A's functions, extends A's classes, modifies files A created). Type-contract-only edges inflate `fanIn` on the depended task, forcing `two-stage` review shape unnecessarily (see "Review cost control" in `super.subagent-driven-development/SKILL.md`), and constrain waves that could parallelize safely. When in doubt: if the contract is stable before B starts (because it was spec'd in the design doc and A's types are simple data structures that won't change), omit the `**Depends on:**` and let the parallel execution modes schedule B alongside A. If A's types could still change while B runs (e.g. a DTO that A is still iterating on), declare the dependency — it is cheaper to merge independent worktrees than to fix divergent type assumptions.
+The index order is the execution order. The edges are the `(task-NN)` ids each task's `## Interfaces` `**Consome:**` line cites: a task may only consume an earlier one, and fan-in (how many tasks consume it) is a tier signal. **A type contract alone is not an edge** — B consumes A when B needs A's *implementation*; a stable type/DTO import inflates `fanIn` and pushes a tier up for nothing. Then confirm the graph — this skill owns the parser the execution skill reads:
 
-**Status values:** `PENDING` → `IN_PROGRESS` → `DONE`. The task file's `Status:` is the detailed view; the `[x]` in the tasks index is the management view.
-
-### Dependency Analysis & Execution Waves
-
-Once the tasks are decomposed, decide the **dependency edges** between them and record the result twice: as the per-task `**Depends on:**` field and as the `## Execution Waves` section of the tasks index. This unlocks the third execution option (`super.parallel-subagent-development`) — without it every plan is forced down a sequential path even when half its tasks never touch the same code.
-
-Task B depends on task A when B reads, imports, extends, or builds on a file or symbol A creates or changes. Tasks touching disjoint files, neither consuming the other's output, are independent and may run concurrently. When in doubt, declare the dependency — a missing-but-real edge makes parallel worktrees diverge and conflict on merge; a spurious edge only forfeits some parallelism.
-
-**Type-contract dependencies are NOT real dependencies** — see the precision rule under `**Depends on:**` above. A type/interface/DTO that B only imports, stable before B starts, is consumption not sequencing; declaring it would inflate `fanIn` and force `two-stage` review. Only declare the edge when A may still change the contract while B runs.
-
-Derive waves topologically: Wave 1 = tasks with `**Depends on:** N/A`; each next wave = tasks whose dependencies are all placed. A 2+ task wave is `(parallel)`; a single-task wave is `(sequential)`. Read `./references/execution-waves.md` for the full algorithm, worked examples, and the exact format. After writing the waves, confirm they are consistent with the `**Depends on:**` fields with `parse-waves.cjs`. It lives in the sibling skill `super.parallel-subagent-development`:
-
-> **Resolving `<super.X-base-dir>`:** the skills are siblings — parent of your header's base directory + `/super.X`. Never `glob` for one (`glob` misses dotdirs); a gate script that will not run is a **STOP**, never a skipped gate.
+> Base dirs: this skill's own is `${CLAUDE_SKILL_DIR}`; a sibling's is its parent + `/super.X`. A gate script that will not run is a STOP.
 
 ```bash
-node <super.parallel-subagent-development-base-dir>/scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
+node <super.writing-plans-base-dir>/scripts/parse-plan.cjs --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
 ```
 
-A fully sequential wave plan is correct for inherently sequential work.
-
-### When to Generate
-
-Generate the tracking artifacts **immediately after** decomposing tasks and **before** the execution handoff message. If tasks change, regenerate the task files.
+`errors` names a dangling or self reference, or a task that consumes a later one; fix the plan, never the executor.
 
 ## File Structure
 
-Before defining tasks, map out which files will be created or modified and what each is responsible for — this is where decomposition decisions get locked in.
-
-- Design units with clear boundaries and well-defined interfaces; each file has one clear responsibility.
-- Prefer smaller, focused files over large ones — your edits are more reliable when a file fits in context at once.
-- Files that change together live together. Split by responsibility, not by technical layer.
-- In existing codebases, follow established patterns. Don't unilaterally restructure large files — but a split is reasonable when a file you're modifying has grown unwieldy.
-
-Each task should produce self-contained changes that make sense independently.
+Before defining tasks, map which files are created or modified and what each is responsible for — one responsibility per file, files that change together live together (split by responsibility, not by technical layer), established patterns followed in existing codebases. Each task produces self-contained changes.
 
 ## Task Granularity
 
-Two concerns decide how tasks are cut: **test density** (every FR-XXX or explicit acceptance criterion earns its own test — fixed, always) and **task boundary** (varies by execution tier). The tier model, the bite-sized rules, and the Large-tier consolidation judgment call are all in **`./references/task-decomposition-granularity.md`** — read it before splitting the plan into task files.
+Two concerns decide the cut: **test density** (every FR-XXX, spec AC-NN or INV-NN earns its own test — fixed) and **task boundary** (one behavior per task, then consolidated). One rule holds for every plan: a small mechanical edit of the same kind repeated across N files (the same constant, the same field, the same one-line fix) is **one task with N files and N checks, never N tasks**. The boundary rule, the bite-sized rules and the two consolidation cases are in `./references/task-decomposition-granularity.md` — read it before splitting the plan into task files.
 
 ## Standard Skill Compliance
 
-Every task file has a `### Conformidade com as Skills Padrão` subsection that tells the executing subagent which **domain/code skills** to activate while writing the implementation. It MUST list **every available domain skill whose scope overlaps the task — not just the most obvious one.** A task that lists a single skill (or none) is almost always under-filled: most coding tasks match more than one domain (frontend, refactoring, typescript, state management, validation, security, API clients…).
-
-**Exclude `super.*` skills — they are not domain skills.** `super.verification-before-completion`, `super.test-driven-development`, `super.systematic-debugging`, and the like are pipeline machinery already run automatically, once per task, by the execution flow's gates; listing one makes the implementer invoke it a second time — duplicate work, wasted tokens. **Drop every `super.*`-prefixed skill** and keep only domain/code skills.
-
-**Discover before you list.** Inspect the skills available in the consuming repo, read their `description`, match by description (not name), filter out `super.*`, and fill this subsection for every task. A single-skill task is usually under-filled — re-check.
+Every task file has a `### Skills a invocar` subsection listing the **domain/code skills** the implementer invokes before writing code — every available skill whose scope overlaps the task, matched by `description`, not by name; a single-skill task is usually under-filled. **Exclude `super.*` skills**: `super.verification-before-completion`, `super.test-driven-development` and the like are pipeline gates the execution flow already runs once per task, and listing one makes the implementer run it twice.
 
 ## No Placeholders
 
-Every step must contain the actual content an engineer needs. These are **plan failures** — never write them:
-- "TBD", "TODO", "implement later", "fill in details"
-- "Add appropriate error handling" / "add validation" / "handle edge cases"
-- "Write tests for the above" (without actual test code)
-- "Similar to Task N" (repeat the code — the engineer may be reading tasks out of order)
-- Steps that describe what to do without showing how (code blocks required for code steps)
-- References to types, functions, or methods not defined in any task
-
-## Remember
-- Exact file paths always
-- Complete code in every step — if a step changes code, show the code
-- Exact commands with expected output
-- DRY, YAGNI, TDD, frequent commits
+Every step carries what an engineer needs: exact file paths, the code itself when a step changes code, exact commands with expected output. "TBD", "add appropriate error handling", "write tests for the above", "similar to Task N", or a symbol no task defines are plan failures.
 
 ## Self-Review
 
-After writing the complete plan, look at the spec with fresh eyes. **Read `./references/self-review-checklist.md` and run through every step in it.** Fix issues inline as you find them.
+After writing the complete plan, look at the spec (and PRD) with fresh eyes and run these checks yourself, fixing inline — a plan that skips them ships its gaps to every implementer and reviewer:
 
-> **Deterministic validation (required — do not skip):** Run `validate-tasks.cjs` before handing off. It checks index format, task-file existence, required headers (`**Status:**`, `**PRD:**`, `**Spec:**`, `**Depends on:**`), FR-XXX traceability, and — when the plan has a `## Execution Waves`/`## Ondas de Execução` section — two wave checks that ERROR: **the partition is coherent** (no task in two waves or in none, no wave naming an unknown task, every `**Depends on:**` in a strictly earlier wave) and **every parallel (2+ task) wave writes disjoint files** (overlapping `## Arquivos`, or a parallel-wave task with no verifiable write-set). Both also run at dispatch (`parse-waves.cjs`, `check-wave-disjoint.cjs`); here they fail the plan itself instead of surfacing mid-run, after handoff.
-> **This is ONE call — build the form that fits your plan, then run it once.** The two snippets
-> below are alternatives, not a sequence: the fuller form already reports everything the barer one
-> does, so running the bare call first and the flagged call after just pays for the same validation
-> twice.
+1. **Coverage** — every spec requirement (every FR) points at a task; nothing under Fora de Escopo is built.
+2. **Placeholders** — no "TBD", no "similar to Task N", no symbol that no task defines.
+3. **Consistency** — names, signatures and shared resources agree across tasks; nothing is imported before the task that creates it.
+4. **Review Focus** — every input the spec implies has a test in some task, including what each existing helper a task reuses returns or throws on a bad input; the five most likely to bite a person are in `## Foco de Revisão`, each pinned in its owner.
+5. **Fidelity** — no task prescribes weaker behavior than the spec's: a failure the spec makes visible is never swallowed or relabeled, a decision the spec closed is never reopened.
+
+The task writer runs the same checks on its files before returning (`./agents/task-writer.md`). Read `./references/self-review-checklist.md` for the detail of each check and the ones specific to PRDs, mockups and global constraints. Then validate mechanically — `validate-tasks.cjs` checks the index format, task-file existence, required headers, FR traceability, the spec's AC/INV and migration trace (`specTrace`) and task-step scope, failing the plan here instead of mid-run; it reports the `## Foco de Revisão` shape (present, ≤5, owners exist and pinned by a test) and `forwardReferences` (a task importing what a later task creates) as warnings — each goes back to the writer.
+
+> **This is ONE call — build the form that fits your plan, then run it once.** The two snippets below are alternatives, not a sequence: the fuller form already reports everything the barer one does.
 >
-> Barest form — spec-only plan, no PRD and no mockups:
+> Spec-only plan, no PRD and no mockups:
 > ```bash
 > node <super.writing-plans-base-dir>/scripts/validate-tasks.cjs \
 >   --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
 > ```
-> **When a PRD exists, add `--prd`** (physical path or `prd.embeddedIn` from `find-feature-files.cjs` for embedded FRs) — omit it only for a genuine spec-only plan, since pointing `--prd` at a path that does not resolve is itself an error (`Could not read PRD at ...`), not a silent skip. **When `mockups.found`, add `--mockups`** so visual coverage is verified:
+> With a PRD add `--prd` (physical path, or `prd.embeddedIn` from `find-feature-files.cjs`) — never unconditionally, since a `--prd` path that does not resolve is itself an error (`Could not read PRD at ...`), not a silent skip; with `mockups.found` add `--mockups`:
 > ```bash
 > node <super.writing-plans-base-dir>/scripts/validate-tasks.cjs \
 >   --tasks-index docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md \
@@ -156,30 +93,20 @@ After writing the complete plan, look at the spec with fresh eyes. **Read `./ref
 >   --mockups docs/superpowers/<feature-name>/specs/mockups \
 >   --repo-root .
 > ```
-> **Always pass `--repo-root`** when planning against an existing codebase. Disjointness proves tasks do not *collide*; reach proves they *cover*. It cross-checks the plan against the real tree for the three ways a write-set is silently short: importers of a file you modify that no task owns; the enrollment/registry file listing the siblings of a file you create (a module nothing registers compiles, passes its unit tests, and does not exist at runtime); and the repo's full runner-config inventory, so "run the suite" names every command instead of one. Read `reach.testSuites` and state the complete command set in the plan — the execution barrier is only as wide as the commands it was given.
-> Fix any `errors`; `warnings` are advisory. If the script cannot be found, explicitly report that the validator could not run.
+> **Always pass `--repo-root`** against an existing codebase: `reach` finds importers no task owns and the repo's runner inventory — state `reach.testSuites` as the plan's command set, since the full-suite checkpoint is only as wide as the commands it was given. Fix any `errors`; `warnings` are advisory. If the script cannot be found, report that the validator could not run.
 
-### Optional External Review
-
-For complex or high-stakes plans, dispatch a plan document reviewer subagent using the template in `./plan-document-reviewer-prompt.md` for an independent second opinion on the plan's completeness and buildability. This is optional. Set an explicit `model:` on the dispatch — review is judgment work, floor it at `standard`; never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
+That validation is the plan's review. No further reviewer is dispatched here: the deep, code-aware review of spec and tasks is option 0 of the handoff below (`super.reviewing-specs`), chosen by the user because it costs credits.
 
 ## Execution Handoff
 
-After saving the tasks index and task files, **read `./references/execution-handoff-message.md` and follow it to offer the execution options to the user**, filling in the feature name, task count, and wave summary.
-
-The `(recommended)` tag is **dynamic** — it must reflect this plan, not a fixed default. The `parse-waves.cjs` output you produced during self-review includes an `executionRecommendation` object; the handoff reference uses it (plus a short decision rubric) to elect and justify the recommended mode. Do not hardcode the recommendation on option 1.
-
-The handoff message leads with an **optional spec-review option** (option 0) — the user can send the just-planned spec and tasks through `super.reviewing-specs` before choosing how to execute, without leaving this session. `./references/execution-handoff-message.md` covers the full branch, including how control returns here afterward.
+After saving the index and task files, follow `./references/execution-handoff-message.md` — for every plan this skill writes, however small; no plan continues into implementation from here. It tags option 1 `(recommended)`, lists option 3 when `parse-plan.cjs` (run at self-review) says `singleImplementer.eligible`, and opens the one gate between planning and execution: the user reads the plan and picks deep review (`super.reviewing-specs`), subagent-driven execution or the single implementer, with the `/<skill> <tasks-index>` resume line rendered under the options. The question is the last call of the turn; execution starts only from the answer, and once answered the feature runs to the end of its final stage.
 
 # Entry Phase
 
-
-## Overview — the procedure is in `./references/entry-phase.md`
-
-Read it before the first dispatch, with `./references/research-subagent-prompt.md` and `./references/required-task-step-pattern.md`. Three rules stay here because a resume still needs them:
+`./references/entry-phase.md` is the procedure (research fan-out, then the task-writer dispatch); `./references/research-subagent-prompt.md` is the prompt each research track gets; `./agents/task-writer.md` is the writer's contract and `./references/required-task-step-pattern.md` the step shape it follows. Three rules stay here because a resume still needs them:
 
 **Await the research subagents — never poll for them.** The harness re-invokes you as each returns; do **not** `sleep` or schedule a wakeup/timer to check on them — busy-polling harness-tracked work is wasted.
 
-**Never dispatch _parallel_ task writers.** Task N+1 may import what task N creates, and a writer seeing one task alone cannot know the signatures the others produce. One sequential writer subagent — never parallel, never the main thread (two narrow inline exceptions in the reference).
+**Never dispatch _parallel_ task writers.** Task N+1 may import what task N creates, and a writer seeing one task alone cannot know the signatures the others produce. One sequential writer subagent — never parallel, never the main thread (one narrow inline exception in the reference: a decomposition of at most four tasks, whose files the controller writes itself — still without running the runner, typecheck or build).
 
 **No follow-up codebase reads in the main thread** once research returns — a gap means the research contract was under-filled; dispatch a focused follow-up subagent instead.

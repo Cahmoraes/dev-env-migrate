@@ -16,8 +16,13 @@ fi
 STATE_DIR="${SESSION_DIR}/state"
 PID_FILE="${STATE_DIR}/server.pid"
 
-if [[ -f "$PID_FILE" ]]; then
-  pid=$(cat "$PID_FILE")
+pid=""
+[[ -f "$PID_FILE" ]] && pid="$(<"$PID_FILE")"
+pid="${pid//[[:space:]]/}"
+
+# A non-numeric pid would make `kill` read it as a job spec or option; treat it like no
+# pid file at all.
+if [[ "$pid" =~ ^[0-9]+$ ]]; then
 
   # Try to stop gracefully, fallback to force if still alive
   kill "$pid" 2>/dev/null || true

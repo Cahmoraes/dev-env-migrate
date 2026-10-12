@@ -58,18 +58,13 @@ const TEMPLATES = 'super.brainstorming/references/research-subagent-templates.md
 const AGENT = 'super.brainstorming/agents/feature-history-recall.md';
 const SKILL = 'super.brainstorming/SKILL.md';
 
-test('the RESEARCH-GATE exemption is scoped to the one load call, not to the phase', () => {
+test('the RESEARCH-GATE exemption is scoped to the one path test, not to the phase', () => {
   const body = read(FAN_OUT);
-  // The boundary is stated as a COUNT, and the two exemptions agree on it: this one is "first
-  // of exactly two", the deep-research path test below is "second and last". The earlier
-  // wording claimed this call was the only one ("and nothing else"), which the second
-  // exemption then contradicted — and a file that disagrees with itself about how many
-  // exceptions exist is read as having no fixed number at all, which is how a third one
-  // (an inline `ls`) gets taken.
-  assert.match(body, /first of exactly two things outside the `<RESEARCH-GATE>`/i,
+  // The boundary is stated as a COUNT: the deep-research path test is the only thing outside
+  // the gate. A file that disagrees with itself about how many exceptions exist is read as
+  // having no fixed number at all, which is how an extra one (an inline `ls`) gets taken.
+  assert.match(body, /the only thing outside the `<RESEARCH-GATE>`/i,
     'the exemption must name its own boundary — an open-ended one reads as covering the phase');
-  assert.match(body, /second and last thing outside the `<RESEARCH-GATE>`/i,
-    'the two exemptions must agree on the count, or neither bounds anything');
   assert.match(body, /does not extend to anything you decide to open afterwards/i,
     'the exemption must say explicitly that later reads are NOT covered');
   // The feature history is the specific thing a reader carried the exemption to, twice.
@@ -138,7 +133,7 @@ test('no gate asks the controller to inspect docs/superpowers before dispatching
 test('the recall contract lives in agents/, and the templates file does not restate it', () => {
   // Placement follows the convention the rest of the repo already uses: agents/ holds a
   // dispatched agent's full contract (purpose, toolset bound, model slot, output shape) —
-  // implementer.md, verifier.md, spec-reviewer.md. What stays in the templates file are the
+  // implementer.md, task-reviewer.md. What stays in the templates file are the
   // three four-line fill-ins that have no contract at all. Restating the recall in both is
   // the duplication that drifts: two copies, one of them stale, and no signal which.
   assert.ok(fs.existsSync(path.join(SKILLS, AGENT)), 'the recall contract must exist in agents/');
@@ -267,8 +262,8 @@ test('the deep-research existence check is exempted, so the gate does not swallo
   // (bounded, one call) versus walking the feature trees (grows with the repo, and is the
   // dispatch's whole job). The gate is about volume, so the boundary has to be drawn on volume.
   const body = read(FAN_OUT);
-  assert.match(body, /second and last thing outside the `<RESEARCH-GATE>`/i,
-    'the exemption must be enumerated — an unnumbered second exemption is how a third appears');
+  assert.match(body, /the only thing outside the `<RESEARCH-GATE>`/i,
+    'the exemption must be enumerated — an unnumbered exemption is how a second one appears');
   assert.match(body, /not the read the recall track owns/i,
     'it must distinguish itself from the recall dispatch, which is what the reader confused it with');
   assert.match(body, /Skipping this check because the gate looks like it covers it/i,

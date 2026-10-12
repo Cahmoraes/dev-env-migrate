@@ -1,12 +1,11 @@
 'use strict';
-// FASE 3 — Execução: parse-waves (PRODUZ tier) -> manifesto (APLICA) ->
+// FASE 3 — Execução: parse-plan (PRODUZ tier) -> manifesto (APLICA) ->
 // validate-dispatch (VERIFICA) -> mark-task-status -> parse-tasks --assert-all-done.
 // A cadeia de tres camadas e o invariante central: nenhuma sozinha pega o drift cheap->sonnet.
 const { run, sh, write, read, check, assert, eq, setPhase, report, ROOT, fs, path } = require('./harness.cjs');
 const A = require('./artifacts.cjs');
 
-const PSD = 'super.parallel-subagent-development/scripts';
-const PSIT = 'super.parallel-subagent-in-tree/scripts';
+const WP = 'super.writing-plans/scripts';
 const SDD = 'super.subagent-driven-development/scripts';
 const DPA = 'super.dispatching-parallel-agents/scripts';
 const USP = 'super.using-superpowers/scripts';
@@ -14,61 +13,58 @@ const USP = 'super.using-superpowers/scripts';
 const idx = path.join(ROOT, `${A.DIR}/plans/tasks-${A.FEATURE}.md`);
 const plansDir = path.join(ROOT, `${A.DIR}/plans`);
 
-setPhase('P3 execucao: parse-waves PRODUZ');
+setPhase('P3 execucao: parse-plan PRODUZ');
 
-let waves = null;
-check('parse-waves deriva as 4 waves do plano do template', () => {
-  const r = run(`${PSD}/parse-waves.cjs`, ['--tasks-index', idx]);
+let plan = null;
+check('parse-plan le as 5 tasks do plano do template com grafo valido', () => {
+  const r = run(`${WP}/parse-plan.cjs`, ['--tasks-index', idx]);
   assert(r.json, `sem JSON: ${r.stderr}`);
-  waves = r.json;
+  plan = r.json;
   eq(r.json.found, true, 'found');
-  eq(r.json.waves, [[1, 2], [3], [4], [5]], 'agrupamento das waves');
-  eq(r.json.waveKinds, ['parallel', 'sequential', 'sequential', 'sequential'], 'kinds');
-  eq(r.json.maxParallelWave, 2, 'maior wave paralela');
-  return `${r.json.waveCount} waves, W1=${r.json.waveKinds[0]}`;
+  eq(r.json.tasks.map(t => t.number), [1, 2, 3, 4, 5], 'ordem do indice');
+  eq(r.json.errors, [], 'grafo valido');
+  const t3 = r.json.tasks.find(t => t.number === 3);
+  eq(t3.consumes, [1, 2], 'task-03 consome 1 e 2');
+  return `${r.json.tasks.length} tasks, fanIn(1)=${r.json.tasks[0].fanIn}`;
 });
 
-check('parse-waves emite suggestedTier por task', () => {
-  for (const t of waves.tasks) {
+check('parse-plan emite suggestedTier por task', () => {
+  for (const t of plan.tasks) {
     assert(t.suggestedTier, `task ${t.number} sem suggestedTier`);
     assert(Array.isArray(t.tierSignals) && t.tierSignals.length, `task ${t.number} sem justificativa de tier`);
   }
-  return waves.tasks.map(t => `${t.number}:${t.suggestedTier}`).join(' ');
+  return plan.tasks.map(t => `${t.number}:${t.suggestedTier}`).join(' ');
 });
 
 check('Tier ESCRITO no task file sobrepoe a sugestao computada', () => {
   // task-02 tem **Tier:** cheap escrito a mao; o script deve honrar, nao recomputar.
-  const t2 = waves.tasks.find(t => t.number === 2);
+  const t2 = plan.tasks.find(t => t.number === 2);
   eq(t2.explicitTier, 'cheap', 'explicitTier da task-02');
   eq(t2.suggestedTier, 'cheap', 'sugestao deve HONRAR o escrito');
   assert(t2.tierSignals.some(s => /explicit/i.test(s)), `sinal nao registra a origem: ${t2.tierSignals}`);
   return 'tier escrito e vinculante e rastreado';
 });
 
-check('recomendacao de modo vem da FORMA das waves, nunca hardcoded', () => {
-  const rec1 = waves.executionRecommendation;
-  assert(rec1 && rec1.mode, 'sem executionRecommendation');
-  assert(rec1.signals && rec1.signals.length, 'recomendacao sem justificativa');
-  // `decisionRequired` = "ha refinamento entre os 2 modos paralelos", NAO "peca consentimento":
-  // a obrigacao de perguntar vive na prosa da skill e vale sempre (ver P6).
-  eq(rec1.decisionRequired, true, 'plano com wave paralela deixa in-tree vs worktree em aberto');
-  assert(rec1.optionNumber !== 1, 'nunca pode recomendar a opcao 1 por reflexo');
-  // plano puramente sequencial deve recomendar outro modo
-  const soSeq = path.join(plansDir, 'tasks-so-sequencial.md');
-  fs.writeFileSync(soSeq, A.tasksIndex
-    .replace('- **Wave 1** (parallel): 1, 2', '- **Wave 1** (sequential): 1')
-    .replace('- **Wave 2** (sequential): 3', '- **Wave 2** (sequential): 2\n- **Wave 3** (sequential): 3')
-    .replace('- **Wave 3** (sequential): 4', '- **Wave 4** (sequential): 4')
-    .replace('- **Wave 4** (sequential): 5', '- **Wave 5** (sequential): 5'));
-  const r2 = run(`${PSD}/parse-waves.cjs`, ['--tasks-index', soSeq]);
-  const rec2 = r2.json.executionRecommendation;
-  eq(r2.json.parallelizable, false, 'plano sem wave paralela');
-  assert(rec1.mode !== rec2.mode, `recomendacao deveria mudar com a forma: ${rec1.mode} vs ${rec2.mode}`);
-  // sem paralelismo nao ha refinamento a fazer: sequencial e estritamente melhor
-  eq(rec2.decisionRequired, false, 'cadeia sequencial nao deixa refinamento em aberto');
-  eq(rec2.confidence, 'high', 'confianca alta quando so ha um modo sensato');
-  fs.unlinkSync(soSeq);
-  return `${rec1.mode} (com paralelo) vs ${rec2.mode} (so sequencial)`;
+check('elegibilidade do --single vem do parser, com razao nomeada', () => {
+  const single = plan.singleImplementer;
+  assert(single && typeof single.eligible === 'boolean', 'sem singleImplementer');
+  assert(!('executionRecommendation' in plan) && !('waves' in plan), 'nenhuma maquinaria de ondas na saida');
+  if (!single.eligible) {
+    assert(single.reasons.length, 'inelegivel sem razao');
+  } else {
+    eq(single.reasons, [], 'elegivel sem razoes residuais');
+  }
+  // sete tasks: inelegivel pela contagem, com a razao nomeada
+  const sete = path.join(plansDir, 'tasks-sete.md');
+  fs.writeFileSync(sete, A.tasksIndex.replace(
+    '- [ ] 5. delete e stats → `task-05.md`',
+    '- [ ] 5. delete e stats → `task-05.md`\n- [ ] 6. seis → `task-06.md`\n- [ ] 7. sete → `task-07.md`',
+  ));
+  const r2 = run(`${WP}/parse-plan.cjs`, ['--tasks-index', sete]);
+  eq(r2.json.singleImplementer.eligible, false, 'sete tasks e demais para um contexto');
+  assert(r2.json.singleImplementer.reasons.some(r => /7 tasks/.test(r)), 'razao nomeia a contagem');
+  fs.unlinkSync(sete);
+  return `eligible=${single.eligible}`;
 });
 
 setPhase('P3 execucao: manifesto APLICA, validate-dispatch VERIFICA');
@@ -82,7 +78,7 @@ function manifesto(agents, extra = {}) {
   return p;
 }
 
-check('manifesto da Wave 1 montado a partir do tier escrito e valido', () => {
+check('manifesto das tasks 1 e 2 montado a partir do tier escrito e valido', () => {
   const p = manifesto([
     { label: 'task-01', tier: 'standard', model: TIERS.standard, goal: 'Estrutura LRU', writeFiles: ['src/cache/node-list.ts'] },
     { label: 'task-02', tier: 'cheap', model: TIERS.cheap, goal: 'Relogio injetavel', writeFiles: ['src/cache/clock.ts'] },
@@ -176,24 +172,6 @@ check('single-agent dispara o gate de tier, mas so avisa sobre ser unico', () =>
   return 'gate de tier ativo mesmo com 1 agente';
 });
 
-setPhase('P3 execucao: disjuncao in-tree (le o PLANO, nao o manifesto)');
-
-check('check-wave-disjoint aprova a Wave 1 do plano real', () => {
-  const r = run(`${PSIT}/check-wave-disjoint.cjs`, ['--tasks-index', idx, '--wave', '1']);
-  assert(r.json, `sem JSON: ${r.stderr}`);
-  eq(r.json.safeForInTreeParallel, true, 'Wave 1 deveria ser segura');
-  return 'plano e manifesto concordam (defense-in-depth)';
-});
-
-check('check-wave-disjoint pega o conflito que o manifesto nao veria', () => {
-  const conf = path.join(ROOT, `${A.DIR}/plans-conflito/tasks-conflito.md`);
-  const r = run(`${PSIT}/check-wave-disjoint.cjs`, ['--tasks-index', conf, '--wave', '1']);
-  eq(r.json.safeForInTreeParallel, false, 'overlap no plano deveria reprovar');
-  const blob = JSON.stringify(r.json) + r.stdout;
-  assert(blob.includes('lru-cache.ts'), 'o blocker deve NOMEAR o arquivo');
-  return 'gate a montante do dispatch, arquivo nomeado';
-});
-
 setPhase('P3 execucao: mark-task-status e fechamento');
 
 check('parse-tasks le as 5 tasks como PENDING', () => {
@@ -208,7 +186,11 @@ check('parse-tasks le as 5 tasks como PENDING', () => {
     eq(t.indexDone, false, `indexDone da task ${t.number}`);
     eq(t.fileStatus, 'PENDING', `fileStatus da task ${t.number}`);
   }
-  return '5 tasks pendentes, indice e arquivos concordam';
+  // as FRs saem do titulo do task file (o indice nao as carrega): e por elas que o fix round
+  // do QA acha a task de uma story reprovada (super.user-story-verification, Step 6)
+  assert(!/\[FR-/.test(A.tasksIndex), 'o indice do fixture nao deveria carregar tags FR');
+  eq(r.json.pending.map(t => t.requirements.join(',')).join(' | '), 'FR-003 | FR-006 | FR-001 | FR-002 | FR-004,FR-005', 'requirements por task');
+  return '5 tasks pendentes, indice e arquivos concordam, FRs lidas dos task files';
 });
 
 check('--assert-all-done reprova enquanto houver task aberta', () => {
@@ -229,12 +211,28 @@ check('mark-task-status marca o checkbox no indice E o Status no task file', () 
   return 'dois lados sincronizados';
 });
 
-check('marcar as 5 tasks fecha o --assert-all-done', () => {
+check('DONE sem os arquivos declarados em disco reprova o --assert-all-done', () => {
   for (const n of [2, 3, 4, 5]) {
     run(`${SDD}/mark-task-status.cjs`, ['--tasks-index', idx, '--task-number', String(n),
       '--status', 'DONE', '--task-file', path.join(plansDir, `task-0${n}.md`)]);
   }
   const r = run(`${SDD}/parse-tasks.cjs`, ['--tasks-index', idx, '--assert-all-done']);
+  eq(r.json.allDone, true, 'allDone (tracker fechado)');
+  eq(r.status, 2, 'exit code com deliverables ausentes');
+  const declared = new Set(A.TASKS.flatMap(t => [...(t.creates || []), ...(t.modifies || []), ...(t.tests || [])]));
+  const missing = new Set(r.json.missingDeliverables.map(m => m.path));
+  eq([...declared].every(f => missing.has(f)), true, 'todo arquivo declarado listado como ausente');
+  return `${missing.size} deliverables ausentes bloqueiam o fechamento`;
+});
+
+check('marcar as 5 tasks fecha o --assert-all-done', () => {
+  for (const t of A.TASKS) {
+    for (const f of [...(t.creates || []), ...(t.modifies || []), ...(t.tests || [])]) {
+      write(f, `// task-0${t.n}: ${t.title}\n`);
+    }
+  }
+  const r = run(`${SDD}/parse-tasks.cjs`, ['--tasks-index', idx, '--assert-all-done']);
+  eq(r.json.missingDeliverables.length, 0, 'deliverables ausentes');
   eq(r.json.allDone, true, 'allDone');
   eq(r.json.pending.length, 0, 'pendentes');
   eq(r.json.completed.length, 5, 'concluidas');

@@ -47,7 +47,8 @@ const http = require('http')
 const path = require('path')
 
 const {
-  evaluate, findLiveSession, isLiveSession, readEvents, listScreens, consumedSubmitsFor, CONSUMED_FILE,
+  parseArgs, fail,
+  evaluate, findLiveSession, isLiveSession, readEvents, newestScreenName, consumedSubmitsFor, CONSUMED_FILE,
 } = require('./check-visual-state.cjs')
 
 // Matches the server's per-request cap, which sits below Node's 300s
@@ -68,28 +69,6 @@ const DEFAULT_SETTLE_MS = 1500
 // filesystems. Stat polling is uniformly boring everywhere, which is the property
 // that matters for a script that must work on every platform the skill supports.
 const WATCH_INTERVAL_MS = 400
-
-function fail(msg) {
-  process.stdout.write(JSON.stringify({ error: msg }) + '\n')
-  process.exit(1)
-}
-
-function parseArgs(argv) {
-  const args = {}
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--help' || a === '-h') return { help: true }
-    if (!a.startsWith('--')) continue
-    const next = argv[i + 1]
-    if (next === undefined || next.startsWith('--')) {
-      args[a.slice(2)] = true
-    } else {
-      args[a.slice(2)] = next
-      i++
-    }
-  }
-  return args
-}
 
 function positiveInt(raw, fallback, label) {
   if (raw === undefined) return fallback
@@ -331,11 +310,10 @@ async function waitForEvent({ stateDir, timeoutMs, settleMs, since, on, submitsA
 function recordConsumed(sessionDir, result) {
   try {
     const stateDir = path.join(sessionDir, 'state')
-    const newest = listScreens(path.join(sessionDir, 'content'))[0]
     fs.writeFileSync(
       path.join(stateDir, CONSUMED_FILE),
       JSON.stringify({
-        screen: newest ? newest.name : null,
+        screen: newestScreenName(path.join(sessionDir, 'content')),
         submits: Number(result.submits) || 0,
         seq: Number(result.seq) || 0,
         at: Date.now(),
@@ -459,10 +437,9 @@ async function main() {
   // cursor declares consumed, never to the whole file — and when no cursor was quoted, to
   // what this script recorded actually DELIVERING for the screen on display. That record
   // is what keeps a defaulted wait from re-serving an answer the agent already acted on.
-  const stateAtStart = evaluate({ sessionDir, maxAgeSeconds: null, now: Date.now(), withEvents: false })
   const submitsAtStart = explicitSince
     ? readEvents(stateDir, { upTo: since }).submits || 0
-    : consumedSubmitsFor(stateDir, stateAtStart.newestScreen)
+    : consumedSubmitsFor(stateDir, newestScreenName(path.join(sessionDir, 'content')))
 
   emit(await waitForEvent({ stateDir, timeoutMs, settleMs, since, on, submitsAtStart }))
 }

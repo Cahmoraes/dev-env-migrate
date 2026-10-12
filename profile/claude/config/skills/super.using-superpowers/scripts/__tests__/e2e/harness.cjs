@@ -5,7 +5,7 @@
  * Diferenca para o resto da suite: os testes unitarios exercitam UM script contra
  * fixtures sinteticas. Aqui o artefato produzido por uma etapa alimenta literalmente
  * a etapa seguinte, sobre um repo consumidor sandbox. O alvo sao as JUNCOES —
- * template -> validador, parse-waves -> manifesto -> validate-dispatch,
+ * template -> validador, parse-plan -> mark-task-status -> parse-tasks,
  * render-screen -> check-visual-state — que nenhum teste isolado cobre.
  *
  * `check()` REGISTRA um teste do node:test em vez de executar na hora. Isso e o que

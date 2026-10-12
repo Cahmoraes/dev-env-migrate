@@ -30,14 +30,15 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 // dispatch flow? Add its file here and give it the same guard.
 const DISPATCH_AND_AWAIT_FILES = [
   'super.dispatching-parallel-agents/SKILL.md',
-  'super.parallel-subagent-development/references/wave-execution.md',
-  'super.parallel-subagent-in-tree/references/integration-barrier.md',
   'super.user-story-verification/SKILL.md',
   'super.writing-plans/SKILL.md',
   'super.deep-research/references/research-execution.md',
   'super.brainstorming/SKILL.md',
   'super.brainstorming/references/diagram-enrichment.md',
   'super.subagent-driven-development/SKILL.md',
+  // A subagent that dispatches is as exposed as a controller — more so: it improvised a
+  // 558 s shell loop that matched nothing, three minutes past when its lenses had finished.
+  'super.reviewing-specs/agents/review-lead.md',
 ];
 
 for (const rel of DISPATCH_AND_AWAIT_FILES) {

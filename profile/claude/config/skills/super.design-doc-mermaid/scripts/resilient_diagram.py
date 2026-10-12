@@ -38,17 +38,18 @@ Requirements:
     - Python 3.7+ (stdlib only, no external dependencies)
 """
 
+from __future__ import annotations
+
+# `subprocess`/`tempfile` are imported where used: ~10ms of startup otherwise, paid by
+# --help, argument errors and the pure-Python classification paths.
 import argparse
 import json
-import os
 import re
-import subprocess
+import shutil
 import sys
-import tempfile
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
 
 
 class DiagramType(Enum):
@@ -105,27 +106,11 @@ class DiagramResult:
     search_recommendation: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "success": self.success,
-            "mmd_path": self.mmd_path,
-            "image_path": self.image_path,
-            "diagram_type": self.diagram_type,
-            "error_message": self.error_message,
-            "troubleshooting_matches": self.troubleshooting_matches,
-            "suggested_fix": self.suggested_fix,
-            "search_recommendation": self.search_recommendation
-        }
+        return asdict(self)
 
 
 class TroubleshootingParser:
     """Parse troubleshooting.md into searchable entries."""
-
-    # Pattern to match error sections
-    ERROR_PATTERN = re.compile(
-        r'### ❌ Error (\d+): (.+?)\n+'
-        r'\*\*Severity:\*\* (🔴|🟠|🟡|🟢) (\w+)',
-        re.MULTILINE
-    )
 
     # Pattern to find incorrect/correct code blocks
     CODE_BLOCK_PATTERN = re.compile(
@@ -304,7 +289,15 @@ class ResilientDiagramGenerator:
             troubleshooting_path: Path to troubleshooting.md guide (auto-detected if not provided)
         """
         self.troubleshooting_path = troubleshooting_path or self._find_troubleshooting_guide()
-        self.troubleshooting = TroubleshootingParser(self.troubleshooting_path) if self.troubleshooting_path else None
+        self._troubleshooting: Optional[TroubleshootingParser] = None
+
+    @property
+    def troubleshooting(self) -> Optional[TroubleshootingParser]:
+        """Parse the guide on first use: only a FAILED render needs it, so the success
+        path never pays for reading and regex-scanning a ~900-line Markdown file."""
+        if self._troubleshooting is None and self.troubleshooting_path:
+            self._troubleshooting = TroubleshootingParser(self.troubleshooting_path)
+        return self._troubleshooting
 
     def _find_troubleshooting_guide(self) -> Optional[Path]:
         """Find troubleshooting.md relative to script location."""
@@ -410,35 +403,8 @@ class ResilientDiagramGenerator:
             Tuple of (success, image_path, error_message)
         """
         image_path = mmd_path.with_suffix(f".{image_format}")
-
-        # Check mmdc is installed
-        if not self._check_mmdc_installed():
-            return False, None, "mmdc not found. Install with: npm install -g @mermaid-js/mermaid-cli"
-
-        try:
-            result = subprocess.run(
-                ['mmdc', '-i', str(mmd_path), '-o', str(image_path), '-b', 'transparent'],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown rendering error"
-                return False, None, error_msg
-
-            if not image_path.exists():
-                return False, None, f"Output file not created: {image_path}"
-
-            if image_path.stat().st_size == 0:
-                return False, None, f"Output file is empty: {image_path}"
-
-            return True, image_path, None
-
-        except subprocess.TimeoutExpired:
-            return False, None, "Rendering timed out after 60 seconds"
-        except Exception as e:
-            return False, None, str(e)
+        error = self._run_mmdc(mmd_path, image_path)
+        return (False, None, error) if error else (True, image_path, None)
 
     def validate_syntax_only(self, mmd_path: Path) -> Tuple[bool, Optional[str]]:
         """
@@ -447,51 +413,46 @@ class ResilientDiagramGenerator:
         Used for --no-image mode: confirms mmdc accepts the diagram
         without persisting a PNG/SVG next to the .mmd source.
 
-        Args:
-            mmd_path: Path to .mmd file
-
         Returns:
             Tuple of (success, error_message)
         """
-        if not self._check_mmdc_installed():
-            return False, "mmdc not found. Install with: npm install -g @mermaid-js/mermaid-cli"
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_image = Path(tmpdir) / "validate.svg"
-            try:
-                result = subprocess.run(
-                    ['mmdc', '-i', str(mmd_path), '-o', str(temp_image), '-b', 'transparent'],
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
+            error = self._run_mmdc(mmd_path, temp_image, empty_error="Validation render produced no output")
+        return (error is None), error
 
-                if result.returncode != 0:
-                    error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown rendering error"
-                    return False, error_msg
+    def _run_mmdc(self, mmd_path: Path, out_path: Path, empty_error: Optional[str] = None) -> Optional[str]:
+        """Render `mmd_path` to `out_path`; return None on success, else the error message."""
+        if not self._check_mmdc_installed():
+            return "mmdc not found. Install with: npm install -g @mermaid-js/mermaid-cli"
 
-                if not temp_image.exists() or temp_image.stat().st_size == 0:
-                    return False, "Validation render produced no output"
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['mmdc', '-i', str(mmd_path), '-o', str(out_path), '-b', 'transparent'],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+        except subprocess.TimeoutExpired:
+            return "Rendering timed out after 60 seconds"
+        except Exception as e:
+            return str(e)
 
-                return True, None
-
-            except subprocess.TimeoutExpired:
-                return False, "Rendering timed out after 60 seconds"
-            except Exception as e:
-                return False, str(e)
+        if result.returncode != 0:
+            return result.stderr.strip() or result.stdout.strip() or "Unknown rendering error"
+        if not out_path.exists():
+            return empty_error or f"Output file not created: {out_path}"
+        if out_path.stat().st_size == 0:
+            return empty_error or f"Output file is empty: {out_path}"
+        return None
 
     @staticmethod
     def _check_mmdc_installed() -> bool:
-        """Check if mermaid-cli (mmdc) is installed."""
-        try:
-            result = subprocess.run(
-                ['mmdc', '--version'],
-                capture_output=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        """Check if mermaid-cli (mmdc) is installed (PATH lookup — no ~150ms `mmdc --version` spawn)."""
+        return shutil.which('mmdc') is not None
 
     def get_search_recommendation(
         self,
@@ -499,13 +460,7 @@ class ResilientDiagramGenerator:
         diagram_type: DiagramType
     ) -> str:
         """
-        Generate search query for external tools when troubleshooting fails.
-
-        Priority order for search tools:
-        1. perplexity_ask MCP
-        2. brave_web_search MCP
-        3. gemini skill
-        4. WebSearch tool
+        Generate a web search query for when the troubleshooting guide has no match.
 
         Returns:
             Search query string
@@ -634,11 +589,7 @@ Error Recovery:
   On validation failure, the script:
   1. Searches troubleshooting.md for matching errors
   2. Returns suggested fixes from the guide
-  3. Generates search queries for external tools:
-     - perplexity_ask MCP (primary)
-     - brave_web_search MCP (secondary)
-     - gemini skill (tertiary)
-     - WebSearch tool (fallback)
+  3. Generates a web search query for the error text
         """
     )
 
@@ -731,11 +682,7 @@ Error Recovery:
             if result.search_recommendation:
                 print(f"\nNo exact match found. Search recommendation:")
                 print(f"  Query: {result.search_recommendation}")
-                print(f"\n  Search tools (in priority order):")
-                print(f"    1. perplexity_ask MCP")
-                print(f"    2. brave_web_search MCP")
-                print(f"    3. gemini skill")
-                print(f"    4. WebSearch tool")
+                print("  Search the web for this query with the session's search tool.")
 
     sys.exit(0 if result.success else 1)
 

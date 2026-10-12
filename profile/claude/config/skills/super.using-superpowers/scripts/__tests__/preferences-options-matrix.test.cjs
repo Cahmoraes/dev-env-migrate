@@ -52,10 +52,6 @@ function derive(root, platform = 'claude-code') {
   return JSON.parse(out);
 }
 
-// The canonical caveman levels currently offered (render-caveman-block stays
-// forward-compatible: it lowercases but does not reject unknowns, so all of these
-// must pass through verbatim).
-const CAVEMAN_LEVELS = ['lite', 'full', 'ultra', 'wenyan-lite', 'wenyan-full', 'wenyan-ultra'];
 // The valid final-review effort levels (ultra is unsupported and clamps to medium).
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'];
 
@@ -63,88 +59,32 @@ test('FULL option set: every preferences.yml option round-trips write -> read', 
   const root = mkRepo();
   try {
     const input = {
-      workflow: { auto_commit: false, confirm_destructive_actions: false, qa_gate: false, visual_companion: false },
-      communication: { language: 'en-US' },
-      copilot: { rubber_duck: true, review_final: true },
-      claude_code: { simplify: true, code_review_final: true, code_review_effort: 'high' },
+      workflow: { auto_commit: false, qa_gate: false, visual_companion: false, finish_action: 'pr' },
+      copilot: { review_final: true },
+      claude_code: { review_final: true, review_effort: 'high' },
       context: { has_corporate_artifacts: true },
-      optimization: { caveman: true, caveman_level: 'wenyan-ultra' },
       model_tiers: { cheap: 'haiku', standard: 'sonnet', capable: 'opus' },
     };
     const w = write(root, input);
     assert.equal(w.written, true);
     assert.equal(w.roundTripValid, true);
     const r = read(root).preferences;
-    assert.deepEqual(r.workflow, { auto_commit: false, confirm_destructive_actions: false, qa_gate: false, visual_companion: false });
-    assert.equal(r.communication.language, 'en-US');
-    assert.deepEqual(r.copilot, { rubber_duck: true, review_final: true });
-    assert.deepEqual(r.claude_code, { simplify: true, code_review_final: true, code_review_effort: 'high' });
+    assert.deepEqual(r.workflow, { auto_commit: false, qa_gate: false, visual_companion: false, finish_action: 'pr' });
+    assert.deepEqual(r.copilot, { review_final: true });
+    assert.deepEqual(r.claude_code, { review_final: true, review_effort: 'high' });
     assert.equal(r.context.has_corporate_artifacts, true);
-    assert.deepEqual(r.optimization, { caveman: true, caveman_level: 'wenyan-ultra' });
     assert.deepEqual(r.model_tiers, { cheap: 'haiku', standard: 'sonnet', capable: 'opus' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('communication.language round-trips write -> read -> derive (session_language)', () => {
-  for (const language of ['pt-BR', 'en-US', 'es-ES']) {
-    const root = mkRepo();
-    try {
-      write(root, { communication: { language } });
-      assert.equal(read(root).preferences.communication.language, language, `read ${language}`);
-      assert.equal(derive(root).sessionState.session_language, language, `derive ${language}`);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('context.has_corporate_artifacts round-trips both true and false', () => {
-  for (const value of [true, false]) {
-    const root = mkRepo();
-    try {
-      write(root, { context: { has_corporate_artifacts: value } });
-      assert.equal(read(root).preferences.context.has_corporate_artifacts, value, `corporate=${value}`);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('all six caveman levels pass through verbatim (write -> read -> derive)', () => {
-  for (const level of CAVEMAN_LEVELS) {
-    const root = mkRepo();
-    try {
-      write(root, { optimization: { caveman: true, caveman_level: level } });
-      assert.equal(read(root).preferences.optimization.caveman_level, level, `read ${level}`);
-      const s = derive(root).sessionState;
-      assert.equal(s.session_caveman_active, true, `active ${level}`);
-      assert.equal(s.session_caveman_level, level, `derive ${level}`);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('caveman off is honored regardless of the level still on file', () => {
-  const root = mkRepo();
-  try {
-    write(root, { optimization: { caveman: false, caveman_level: 'ultra' } });
-    const s = derive(root).sessionState;
-    assert.equal(s.session_caveman_active, false);
-    assert.equal(s.session_caveman_level, 'ultra'); // level retained, just inactive
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('code_review_effort accepts low/medium/high/max and surfaces on Claude Code', () => {
+test('review_effort accepts low/medium/high/max and surfaces on Claude Code', () => {
   for (const eff of EFFORT_LEVELS) {
     const root = mkRepo();
     try {
-      write(root, { claude_code: { code_review_final: true, code_review_effort: eff } });
-      assert.equal(read(root).preferences.claude_code.code_review_effort, eff, `read ${eff}`);
+      write(root, { claude_code: { review_final: true, review_effort: eff } });
+      assert.equal(read(root).preferences.claude_code.review_effort, eff, `read ${eff}`);
       assert.equal(derive(root, 'claude-code').sessionState.session_code_review_effort, eff, `derive ${eff}`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -152,50 +92,92 @@ test('code_review_effort accepts low/medium/high/max and surfaces on Claude Code
   }
 });
 
-test('code_review_effort ultra/garbage clamps to medium and never reaches the file', () => {
+test('review_effort ultra/garbage clamps to medium at every layer and never reaches the file', () => {
+  // ultra is unsupported (cloud, separate tier): the writer clamps before rendering, the
+  // reader clamps a hand-edited file, and the derived session var inherits the clamp.
   for (const bad of ['ultra', 'bogus', 'EXTREME']) {
     const root = mkRepo();
     try {
-      const w = write(root, { claude_code: { code_review_effort: bad } });
-      assert.equal(w.preferences.claude_code.code_review_effort, 'medium', `clamp ${bad}`);
-      assert.equal(read(root).preferences.claude_code.code_review_effort, 'medium', `read clamp ${bad}`);
+      const w = write(root, { claude_code: { review_effort: bad } });
+      assert.equal(w.preferences.claude_code.review_effort, 'medium', `clamp ${bad}`);
+      assert.ok(!new RegExp(`review_effort:\\s*${bad}`).test(fs.readFileSync(w.path, 'utf8')), `${bad} must not reach the file`);
+      assert.equal(read(root).preferences.claude_code.review_effort, 'medium', `read clamp ${bad}`);
+      // A hand edit bypasses the writer: the reader and the derived var must clamp on their own.
+      fs.writeFileSync(path.join(root, '.superpowers', 'preferences.yml'), `claude_code:\n  review_effort: ${bad}\n`, 'utf8');
+      assert.equal(read(root).preferences.claude_code.review_effort, 'medium', `read hand-edited ${bad}`);
+      assert.equal(derive(root, 'claude-code').sessionState.session_code_review_effort, 'medium', `derive ${bad}`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test('communication.language round-trips arbitrary locale tags', () => {
-  for (const lang of ['pt-BR', 'en', 'en-US', 'es-ES', 'fr']) {
+// The finishing destinations a user may declare up front. `discard` is deliberately NOT one:
+// destroying work stays a typed confirmation at the menu, never a standing preference.
+const FINISH_ACTIONS = ['ask', 'merge', 'pr', 'keep'];
+
+test('finish_action accepts ask/merge/pr/keep, defaults to ask, and surfaces on every platform', () => {
+  for (const action of FINISH_ACTIONS) {
     const root = mkRepo();
     try {
-      write(root, { communication: { language: lang } });
-      assert.equal(read(root).preferences.communication.language, lang, `lang ${lang}`);
+      write(root, { workflow: { finish_action: action } });
+      assert.equal(read(root).preferences.workflow.finish_action, action, `read ${action}`);
+      for (const platform of ['claude-code', 'copilot', 'codex', 'gemini', 'opencode', 'other']) {
+        assert.equal(derive(root, platform).sessionState.session_finish_action, action, `derive ${action} on ${platform}`);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+  const root = mkRepo();
+  try {
+    write(root, {});
+    assert.equal(read(root).preferences.workflow.finish_action, 'ask', 'default is the menu');
+    assert.equal(derive(root).sessionState.session_finish_action, 'ask');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('finish_action discard/garbage clamps to ask at every layer and never reaches the file', () => {
+  for (const bad of ['discard', 'delete', 'MERGE', 'bogus']) {
+    const root = mkRepo();
+    try {
+      const w = write(root, { workflow: { finish_action: bad } });
+      assert.equal(w.preferences.workflow.finish_action, 'ask', `clamp ${bad}`);
+      assert.ok(!new RegExp(`finish_action:\\s*${bad}`).test(fs.readFileSync(w.path, 'utf8')), `${bad} must not reach the file`);
+      assert.equal(read(root).preferences.workflow.finish_action, 'ask', `read clamp ${bad}`);
+      // A hand edit bypasses the writer: the reader and the derived var must clamp on their own.
+      fs.writeFileSync(path.join(root, '.superpowers', 'preferences.yml'), `workflow:\n  finish_action: ${bad}\n`, 'utf8');
+      assert.equal(read(root).preferences.workflow.finish_action, 'ask', `read hand-edited ${bad}`);
+      assert.equal(derive(root).sessionState.session_finish_action, 'ask', `derive ${bad}`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test('every boolean option round-trips both true and false', () => {
+test('every boolean option round-trips both true and false, and touches nothing else', () => {
+  // A single-key write must read back as DEFAULTS with exactly that key changed — so a
+  // writer or loader that couples sections (enabling claude_code.review_final leaking into
+  // copilot.review_final, or a section defaulting as a block) fails here for every key.
+  const { DEFAULTS } = require(READ);
   const BOOLEANS = [
     ['workflow', 'auto_commit'],
     ['workflow', 'qa_gate'],
     ['workflow', 'visual_companion'],
-    ['workflow', 'confirm_destructive_actions'],
-    ['copilot', 'rubber_duck'],
     ['copilot', 'review_final'],
-    ['claude_code', 'simplify'],
-    ['claude_code', 'code_review_final'],
+    ['claude_code', 'review_final'],
     ['context', 'has_corporate_artifacts'],
-    ['optimization', 'caveman'],
   ];
   for (const [section, key] of BOOLEANS) {
     for (const value of [true, false]) {
       const root = mkRepo();
       try {
         write(root, { [section]: { [key]: value } });
-        assert.equal(read(root).preferences[section][key], value, `${section}.${key}=${value}`);
+        const expected = JSON.parse(JSON.stringify(DEFAULTS));
+        expected[section][key] = value;
+        assert.deepEqual(read(root).preferences, expected, `${section}.${key}=${value} must be the only change`);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
@@ -236,7 +218,7 @@ test('no preferences.yml -> found:false / preferencesFound:false (onboarding tri
     const r = read(root);
     assert.equal(r.found, false, 'found must be false when the file is absent');
     // The defaults are still fully populated — a populated object is NOT proof of existence.
-    assert.equal(r.preferences.optimization.caveman_level, 'full');
+    assert.equal(r.preferences.workflow.qa_gate, true);
     assert.equal(r.preferences.context.has_corporate_artifacts, false);
     assert.equal(derive(root).preferencesFound, false, 'preferencesFound mirrors found');
   } finally {

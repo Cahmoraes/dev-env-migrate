@@ -5,7 +5,7 @@
 // to parse). If the two ever diverge, derive-session-state.cjs / lite-reentry.cjs would
 // silently drift from the CLI. Covers repo-absent, file-absent, populated, and malformed.
 //
-// Run: node --test scripts/__tests__/load-preferences-equivalence.test.cjs
+// Run: node --test super.using-superpowers/scripts/__tests__/load-preferences-equivalence.test.cjs
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -38,18 +38,17 @@ test('in-process result === CLI stdout — file absent', () => {
   assert.deepEqual(loadPreferences(dir).result, cliResult(dir));
 });
 
-test('in-process result === CLI stdout — populated (with clamped effort + upcased level)', () => {
+test('in-process result === CLI stdout — populated (with clamped effort)', () => {
   const dir = makeRepo([
-    'communication:', '  language: en-US',
-    'optimization:', '  caveman: true', '  caveman_level: ULTRA',
-    'claude_code:', '  code_review_effort: ultra',
+    'workflow:', '  auto_commit: false',
+    'claude_code:', '  review_effort: ultra',
     'model_tiers:', '  capable: opus',
   ].join('\n'));
   assert.deepEqual(loadPreferences(dir).result, cliResult(dir));
 });
 
 test('in-process result === CLI stdout — malformed', () => {
-  const dir = makeRepo('optimization:\n  caveman: [oops\n  bad line\n');
+  const dir = makeRepo('workflow:\n  auto_commit: [oops\n  bad line\n');
   const inProc = loadPreferences(dir);
   assert.deepEqual(inProc.result, cliResult(dir));
   assert.equal(inProc.result.malformed, true);

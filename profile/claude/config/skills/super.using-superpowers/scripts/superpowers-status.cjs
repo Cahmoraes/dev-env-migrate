@@ -79,11 +79,6 @@ function parseArgs(argv) {
   return options;
 }
 
-// Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
-function detectGitRoot() {
-  return detectRepoRoot();
-}
-
 // Same task-line shape validate-tasks.cjs enforces: capture group 1 is the checkbox state.
 const TASK_LINE_PATTERN = /^-\s+\[([ xX])\]\s+\d+\.\s+.+?\s*(?:→|->)\s*`[^`]+`\s*$/u;
 
@@ -97,7 +92,8 @@ function countTasks(indexPath) {
   let total = 0;
   let done = 0;
   for (const line of content.split('\n')) {
-    const match = line.match(TASK_LINE_PATTERN);
+    if (line[0] !== '-') continue; // cheap pre-filter: every task line starts with "-"
+    const match = TASK_LINE_PATTERN.exec(line);
     if (!match) continue;
     total += 1;
     if (match[1] === 'x' || match[1] === 'X') done += 1;
@@ -142,16 +138,15 @@ function derivePhaseAndNext(artifacts, tasks, qaGateEnabled = true) {
 
 function statusForFeature(baseDir, featureName, qaGateEnabled = true) {
   const featureDir = path.join(baseDir, featureName);
+  const planPath = path.join(featureDir, 'plans', `tasks-${featureName}.md`);
   const artifacts = {
     research: fs.existsSync(path.join(featureDir, 'research', `research-${featureName}.md`)),
     spec: fs.existsSync(path.join(featureDir, 'specs', `${featureName}-design.md`)),
     prd: fs.existsSync(path.join(featureDir, 'prd', `prd-${featureName}.md`)),
-    plan: fs.existsSync(path.join(featureDir, 'plans', `tasks-${featureName}.md`)),
+    plan: fs.existsSync(planPath),
     qa: fs.existsSync(path.join(featureDir, 'qa', `qa-report-${featureName}.md`)),
   };
-  const tasks = artifacts.plan
-    ? countTasks(path.join(featureDir, 'plans', `tasks-${featureName}.md`))
-    : null;
+  const tasks = artifacts.plan ? countTasks(planPath) : null;
   const { phase, nextAction } = derivePhaseAndNext(artifacts, tasks, qaGateEnabled);
   return { featureName, artifacts, tasks, phase, nextAction };
 }
@@ -171,7 +166,7 @@ function listFeatureDirs(baseDir) {
 
 function main() {
   const { featureName, repoRoot: providedRepoRoot, baseDir: baseDirArgument, pending } = parseArgs(process.argv);
-  const repoRoot = providedRepoRoot || detectGitRoot();
+  const repoRoot = providedRepoRoot || detectRepoRoot(); // in-process walk, no `git` spawn
   if (!repoRoot) {
     process.stdout.write(`${JSON.stringify({ repoNotFound: true, features: [], count: 0 }, null, 2)}\n`);
     process.exit(0);
@@ -183,6 +178,7 @@ function main() {
   const docsExists = fs.existsSync(baseDir);
 
   // qa_gate off → the QA gate is skipped silently, so the resume router must never point at it.
+  // `true` and `ask` both keep it as the next stage (with `ask` the gate itself asks on entry).
   const qaGateEnabled = loadPreferences(repoRoot).result.preferences.workflow.qa_gate !== false;
 
   let features;

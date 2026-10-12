@@ -7,14 +7,13 @@
  * the fan-out reference ordered two commands in one block —
  *
  *     node    <super.brainstorming-base-dir>/scripts/feature-index.cjs --repo-root "$R"
- *     python3 <super.independent-verification-base-dir>/scripts/lessons.py list --status confirmed
+ *     python3 <other-skill-base-dir>/scripts/<script> ...
  *
  * Both sessions collapsed the shared-looking prefix into a single `B=` and reused it for
- * lessons.py, which lives in a DIFFERENT skill. `python3 $B/scripts/lessons.py` pointed at
- * nothing; recovery cost 2-3 shell calls hunting the file (`find ... -iname "*lesson*"`)
- * plus a visible self-correction in the main thread ("It's em super.independent-verification,
- * não neste skill"). One session also copied the first command's `--repo-root` onto the
- * second, which does not accept it.
+ * the second command, whose script lives in a DIFFERENT skill, so it pointed at nothing;
+ * recovery cost 2-3 shell calls hunting the file plus a visible self-correction in the main
+ * thread. One session also copied the first command's `--repo-root` onto the second, which
+ * does not accept it.
  *
  * Why the existing guard missed it: cross-skill-base-dir.test.cjs sweeps `SKILL.md` only,
  * and this call lives in a reference. It also governs a different failure (not knowing how
@@ -36,7 +35,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SKILLS = path.resolve(__dirname, '..', '..', '..');
-const SKIPPED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules', 'evals']);
+const SKIPPED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules']);
 
 /**
  * Anti-staleness floor: a walk that stops matching would sweep nothing and pass forever.
@@ -126,8 +125,8 @@ test('the sweep really sees the pattern — a planted collapse is caught', () =>
   const planted = [
     'B=<super.brainstorming-base-dir>',
     'node $B/scripts/feature-index.cjs',
-    'python3 $B/scripts/lessons.py list --status confirmed',
-    '# second skill named only here: <super.independent-verification-base-dir>',
+    'node $B/scripts/run-mutation-batch.cjs --plan plan.json',
+    '# second skill named only here: <super.test-driven-development-base-dir>',
   ].join('\n');
   const offenders = collapseRisk(planted);
   assert.ok(offenders, 'the exact shape of the measured defect must be reported');
@@ -138,36 +137,7 @@ test('the safe spelling — one skills-dir variable, each command naming its ski
   const safe = [
     'S="$(dirname "<super.brainstorming-base-dir>")"',
     'node    "$S/super.brainstorming/scripts/feature-index.cjs" --repo-root "$R"',
-    'python3 "$S/super.independent-verification/scripts/lessons.py" list --status confirmed',
+    'node    "$S/super.test-driven-development/scripts/run-mutation-batch.cjs" --plan plan.json',
   ].join('\n');
   assert.equal(collapseRisk(safe), null, 'naming the skill on every command must be accepted');
-});
-
-test('the brainstorming lessons call reaches its sibling skill by name, alone in its block', () => {
-  // The regression this file exists for, pinned at its own site — now with the cause
-  // removed rather than spelled around. The index moved into the recall subagent
-  // (feature-history-recall.test.cjs), which leaves lessons.py ALONE in the block. With one
-  // command there is no shared-looking prefix to factor: the batching that caused the
-  // collapse is gone, and the skill-segment spelling is the belt to that suspenders.
-  const body = fs.readFileSync(
-    path.join(SKILLS, 'super.brainstorming', 'references', 'research-fan-out.md'), 'utf8',
-  );
-  const block = shellBlocks(body).find((b) => b.includes('lessons.py'));
-  assert.ok(block, 'the fan-out reference must still carry the lessons call');
-  assert.equal(collapseRisk(block), null, 'the lessons call must not be collapsible');
-  assert.match(block, /super\.independent-verification\/scripts\/lessons\.py/,
-    'lessons.py must be reached through its own skill segment');
-
-  const runLines = block.split('\n').filter((l) => /^\s*(node|python3?)\s/.test(l));
-  assert.equal(runLines.length, 1,
-    `the lessons call must stand alone — a second command here re-creates the shared prefix. Got: ${JSON.stringify(runLines)}`);
-
-  // The flags are not interchangeable, and one session copied `--repo-root` onto lessons.py.
-  const lessonsLine = runLines[0];
-  assert.ok(!/--repo-root/.test(lessonsLine), 'lessons.py does not take --repo-root');
-  assert.match(lessonsLine, /list --status confirmed/, 'lessons.py needs its subcommand');
-  assert.match(body, /belongs to \*\*`super\.independent-verification`, not to this skill/,
-    'the prose must say which skill owns the script, or the path reads as a typo to fix');
-  assert.match(body, /no `--repo-root`/,
-    'the prose must say the flag does not apply, since the neighbouring call used to take one');
 });

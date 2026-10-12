@@ -45,8 +45,8 @@
     {
       "name": "frontend-design@claude-plugins-official",
       "enabled": false,
-      "version": "ed404106fcd8",
-      "gitCommitSha": null
+      "version": "f359d43b4060",
+      "gitCommitSha": "f359d43b406057f1a8cdbc4ea93b827642c162e6"
     },
     {
       "name": "claude-md-management@claude-plugins-official",
@@ -81,8 +81,8 @@
     {
       "name": "commit-commands@claude-plugins-official",
       "enabled": false,
-      "version": "ed404106fcd8",
-      "gitCommitSha": null
+      "version": "f359d43b4060",
+      "gitCommitSha": "f359d43b406057f1a8cdbc4ea93b827642c162e6"
     },
     {
       "name": "chrome-devtools-mcp@chrome-devtools-plugins",
@@ -93,8 +93,8 @@
     {
       "name": "security-guidance@claude-plugins-official",
       "enabled": true,
-      "version": "2.0.7",
-      "gitCommitSha": null
+      "version": "2.0.13",
+      "gitCommitSha": "f359d43b406057f1a8cdbc4ea93b827642c162e6"
     },
     {
       "name": "figma@claude-plugins-official",
@@ -105,7 +105,7 @@
     {
       "name": "chrome-devtools-mcp@claude-plugins-official",
       "enabled": false,
-      "version": "1.7.0",
+      "version": "1.9.0",
       "gitCommitSha": "6e56c028cf80ac977c501a94d0958568dea901c2"
     },
     {
@@ -116,7 +116,7 @@
     },
     {
       "name": "context-mode@context-mode",
-      "enabled": true,
+      "enabled": false,
       "version": "1.0.169",
       "gitCommitSha": "da14dc1c6e33b5b9bad20c06bd26c6fee8e0429e"
     }
@@ -155,19 +155,20 @@
     ],
     "npm": [
       "@mermaid-js/mermaid-cli@11.16.0",
+      "@playwright/cli@0.1.21",
       "context-mode@1.0.169",
       "corepack@0.35.0",
       "npm@11.16.0",
-      "opencode-ai@1.18.18"
+      "opencode-ai@1.19.0"
     ]
   },
   "security_flags": {
     "permissions.defaultMode": "bypassPermissions",
-    "skipDangerousModePermissionPrompt": true,
-    "skipAutoPermissionPrompt": true
+    "skipDangerousModePermissionPrompt": true
   },
   "non_portable_markers_found": [
     "wsl-screenshot-cli",
+    "powershell.exe",
     "~/bin/claude-notify"
   ],
   "secrets_removed_from_settings": [],
@@ -192,6 +193,7 @@
       "caveman-statusline.ps1",
       "caveman-statusline.sh",
       "context-mode-cache-heal.mjs",
+      "herdr-agent-state.sh",
       "package.json"
     ],
     "agents": [
@@ -202,7 +204,6 @@
       "architectural-analyzer",
       "caveman",
       "code-review",
-      "code-style",
       "commit-push-pr",
       "component-test-generator",
       "context-mode-ops",
@@ -226,6 +227,7 @@
       "mistica",
       "mistica-docs-query",
       "no-workarounds",
+      "orchestration",
       "playwright-cli",
       "refactoring",
       "security-review",
@@ -236,9 +238,6 @@
       "super.dispatching-parallel-agents",
       "super.finishing-a-development-branch",
       "super.generating-prd",
-      "super.independent-verification",
-      "super.parallel-subagent-development",
-      "super.parallel-subagent-in-tree",
       "super.requesting-code-review",
       "super.reviewing-specs",
       "super.subagent-driven-development",

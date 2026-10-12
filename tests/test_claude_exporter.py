@@ -322,6 +322,28 @@ class TestCopyClaudeConfig(unittest.TestCase):
         self.assertTrue((out / "config" / "CLAUDE.md").exists())
         self.assertFalse((out / "config" / "CLAUDE.local.md").exists())  # blindado
 
+    def test_exclude_subpaths_nao_viaja_nem_entra_no_inventario(self):
+        # skills/synced = cache das skills da conta claude.ai (Claude Code re-sincroniza
+        # no destino; nome da pasta tem UUIDs da conta). Skill real ao lado continua viajando,
+        # e uma subpasta homônima DENTRO de uma skill não é afetada (exclusão é por caminho).
+        cat = ce.load_catalog()
+        tmp = Path(tempfile.mkdtemp())
+        fake = tmp / ".claude"
+        (fake / "skills" / "synced" / "acct-uuid" / "docx").mkdir(parents=True)
+        (fake / "skills" / "synced" / "acct-uuid" / "docx" / "SKILL.md").write_text("x", encoding="utf-8")
+        (fake / "skills" / "minha-skill" / "synced").mkdir(parents=True)
+        (fake / "skills" / "minha-skill" / "SKILL.md").write_text("x", encoding="utf-8")
+        (fake / "skills" / "minha-skill" / "synced" / "a.md").write_text("x", encoding="utf-8")
+        out = tmp / "out"
+        with mock.patch.object(ce, "CLAUDE_DIR", fake), \
+             mock.patch.object(ce, "OUT", out), \
+             mock.patch.object(ce, "CONFIG_OUT", out / "config"):
+            ce.copy_claude_config(cat, {"theme": "auto"})
+            inv = ce.inventory_config_dirs(cat)
+        self.assertFalse((out / "config" / "skills" / "synced").exists())
+        self.assertTrue((out / "config" / "skills" / "minha-skill" / "synced" / "a.md").exists())
+        self.assertEqual(inv["skills"], ["minha-skill"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

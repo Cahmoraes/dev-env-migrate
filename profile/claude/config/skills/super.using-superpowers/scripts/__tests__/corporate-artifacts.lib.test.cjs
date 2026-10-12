@@ -167,7 +167,7 @@ test('every YAML example in the onboarding reference parses to at least one entr
     path.join(SKILLS, 'super.using-superpowers/references/onboarding-preferences.md'),
     'utf8',
   );
-  const section = ref.slice(ref.indexOf('### Step 6 — Corporate Artifacts'));
+  const section = ref.slice(ref.indexOf('### Step 3 — Corporate Artifacts'));
   assert.ok(section.length > 0, 'the wizard step that writes the file must exist');
 
   const blocks = [...section.matchAll(/```yaml\n([\s\S]*?)```/g)].map((m) => m[1]);
@@ -188,7 +188,7 @@ test('the reference names the tagged-item shape, not a list of bare scalars', ()
     path.join(SKILLS, 'super.using-superpowers/references/onboarding-preferences.md'),
     'utf8',
   );
-  const section = ref.slice(ref.indexOf('### Step 6 — Corporate Artifacts'));
+  const section = ref.slice(ref.indexOf('### Step 3 — Corporate Artifacts'));
   const block = section.slice(section.indexOf('```yaml'), section.indexOf('```', section.indexOf('```yaml') + 7));
   assert.match(block, /^artifacts:$/m, 'the top-level key is `artifacts:`');
   assert.doesNotMatch(block, /^items:$/m,

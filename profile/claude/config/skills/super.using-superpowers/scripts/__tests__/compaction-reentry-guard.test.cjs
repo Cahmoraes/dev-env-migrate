@@ -3,14 +3,14 @@
 /**
  * Prose-guard: after a context compaction that resumes DIRECTLY into an
  * execution skill (without re-entering super.using-superpowers), the skill must
- * re-derive the FULL session-variable set — not just caveman — and it must do so
+ * re-derive the FULL session-variable set — not a subset — and it must do so
  * by delegating to the deterministic single source of truth, not by hand-mapping
  * preferences in prose.
  *
  * Two bugs are locked out here:
- *   1. The caveman-only restore (the original silent-drop bug): only
- *      session_caveman_* was restored, so /simplify and the final /code-review
- *      defaulted off on resume. A default-false flag is indistinguishable from a
+ *   1. The partial restore (the original silent-drop bug): only a subset of the
+ *      session_* variables was restored, so the final /code-review defaulted off on
+ *      resume. A default-false flag is indistinguishable from a
  *      deliberately-disabled one, so nothing warned.
  *   2. The duplicated mapping (the coupling bug): the "session_* ← preferences.X.Y"
  *      table was copied into every execution skill, so a new preference meant
@@ -35,25 +35,17 @@ const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 const CANONICAL = 'super.subagent-driven-development/SKILL.md';
 const EXECUTION_SKILLS = [
   CANONICAL,
-  'super.parallel-subagent-in-tree/SKILL.md',
-  'super.parallel-subagent-development/SKILL.md',
 ];
 
 const SSOT_SCRIPT = 'derive-session-state.cjs';
 
-// parallel-subagent-in-tree's Step 2 delegates its re-entry guard wholesale to
-// parallel-subagent-development's Step 2 ("Apply the policy... verbatim") instead
-// of duplicating it — include the delegated body so the anchor/region checks see
-// the real content.
-const PARALLEL_DEV = 'super.parallel-subagent-development/SKILL.md';
 function readSkillBody(rel) {
-  const body = read(rel);
-  return rel === 'super.parallel-subagent-in-tree/SKILL.md' ? body + '\n' + read(PARALLEL_DEV) : body;
+  return read(rel);
 }
 
 // Hand-mapped preference paths must NOT appear in an execution skill's re-entry
 // guard — that is the duplication/leak the SSOT script exists to remove.
-const HANDMAP_LEAKS = ['preferences.claude_code', 'preferences.copilot', 'preferences.optimization.caveman'];
+const HANDMAP_LEAKS = ['preferences.claude_code', 'preferences.copilot'];
 
 // ─── Canonical guard (subagent-driven-development) ───────────────────────────
 
@@ -65,21 +57,21 @@ test('canonical skill declares a "Session State Re-Entry Guard" section', () => 
   );
 });
 
-test('canonical guard runs BEFORE Caveman (ordering fix)', () => {
+test('canonical guard runs BEFORE the Execution Loop (ordering fix)', () => {
   const body = read(CANONICAL);
   const guard = body.indexOf('### Session State Re-Entry Guard');
-  const caveman = body.indexOf('### Caveman Mode Activation');
-  assert.ok(guard >= 0 && caveman >= 0, 'both sections must exist');
+  const loop = body.indexOf('### Execution Loop');
+  assert.ok(guard >= 0 && loop >= 0, 'both sections must exist');
   assert.ok(
-    guard < caveman,
-    'the re-entry guard must precede Caveman — the gate reads session_caveman_*, which the guard restores',
+    guard < loop,
+    'the re-entry guard must precede the Execution Loop — dispatches read session_*, which the guard restores',
   );
 });
 
 function canonicalGuardRegion() {
   const body = read(CANONICAL);
   const start = body.indexOf('### Session State Re-Entry Guard');
-  const end = body.indexOf('### Caveman Mode Activation', start);
+  const end = body.indexOf('### Branch Guard', start);
   return body.slice(start, end);
 }
 
@@ -135,7 +127,7 @@ test('router "Session State" section derives via the script and lists the variab
   assert.ok(start >= 0, 'router must have a "Session State" section');
   const region = body.slice(start, start + 3000);
   assert.ok(region.includes(SSOT_SCRIPT), 'router "Session State" section must derive via derive-session-state.cjs');
-  for (const v of ['session_simplify_enabled', 'session_code_review_final_enabled', 'session_copilot_review_final_enabled']) {
+  for (const v of ['session_code_review_final_enabled', 'session_copilot_review_final_enabled']) {
     assert.ok(region.includes(v), `router "Session State" section must still document ${v}`);
   }
 });
@@ -154,10 +146,3 @@ test('canonical guard re-derives unconditionally (no judgment gate)', () => {
   assert.doesNotMatch(region, SKIP_GATE, 'canonical guard must not gate re-derivation on whether vars are known');
 });
 
-test('parallel-subagent-development inline guard re-derives unconditionally', () => {
-  const body = read('super.parallel-subagent-development/SKILL.md');
-  const anchor = body.search(/Session State Re-Entry Guard/i);
-  const region = body.slice(anchor, anchor + 2000);
-  assert.match(region, /unconditional/i, 'inline guard must state it runs unconditionally');
-  assert.doesNotMatch(region, SKIP_GATE, 'inline guard must not gate re-derivation on whether vars are known');
-});

@@ -4,16 +4,16 @@
  * resume-invocation-dynamic.test.cjs — the "resume in a later session" fence in
  * execution-handoff-message.md must not hard-code one execution mode's skill.
  *
- * Observed failure: the message recommended option 3 (parallel worktrees) but the
- * fenced resume command always printed `super.subagent-driven-development` (option 1),
- * with the other two modes demoted to a prose bullet ("same shape, with that skill's
+ * Observed failure: the message recommended the parallel option but the fenced
+ * resume command always printed `super.subagent-driven-development` (option 1),
+ * with the other mode demoted to a prose bullet ("same shape, with that skill's
  * name"). A fenced command runs verbatim; a described one gets improvised — so the
  * model copy-pasted the wrong invocation into a fresh session.
  *
  * The fix ties the fence to a placeholder derived from whichever option carries
  * `(recommended)`, and requires the leading `/` so the line is directly re-runnable
  * as a slash command. This guard pins both: no literal mode name inside the fence,
- * and all three real skill names present in the surrounding prose so the model has
+ * and both real skill names present in the surrounding prose so the model has
  * something concrete to substitute.
  *
  * Second observed failure, after the first fix: the fence rendered with the
@@ -52,7 +52,7 @@ test('the resume fence does not hard-code a single execution mode', () => {
   const fence = resumeFence(md);
   assert.doesNotMatch(
     fence,
-    /^\/?super\.(subagent-driven-development|parallel-subagent-in-tree|parallel-subagent-development)\s/,
+    /^\/?super\.subagent-driven-development\s/,
     `resume fence hard-codes one mode's skill name: "${fence}". It must render whichever ` +
     'option is tagged (recommended), not a fixed one.',
   );
@@ -68,13 +68,11 @@ test('the resume fence is a slash-prefixed placeholder pointing at the elected o
   );
 });
 
-test('all three real skill names are still spelled out near the resume fence for substitution', () => {
+test('the real skill name is still spelled out near the resume fence for substitution', () => {
   const marker = md.indexOf('To resume in a later session');
   const section = md.slice(marker, marker + 800);
   for (const skill of [
     'super.subagent-driven-development',
-    'super.parallel-subagent-in-tree',
-    'super.parallel-subagent-development',
   ]) {
     assert.ok(section.includes(skill), `expected "${skill}" spelled out near the resume fence, section:\n${section}`);
   }
@@ -102,6 +100,6 @@ test('the opening "fill in" instruction covers the elected skill name, same as t
     intro,
     /fill in feature name.*elected option'?s? skill name/is,
     'the top instruction line must tell the model to fill in the elected skill name exactly like the other ' +
-    `placeholders (feature name, task count, wave summary), got: "${intro}"`,
+    `placeholders (feature name, task count), got: "${intro}"`,
   );
 });

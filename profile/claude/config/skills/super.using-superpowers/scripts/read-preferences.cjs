@@ -12,8 +12,8 @@
  *
  * Then, ONLY if no preferences.yml exists at that root and the root is a LINKED
  * WORKTREE: retry in the main working tree. `.superpowers/` is gitignored, so
- * `git worktree add` leaves a tree without it, and the parallel-worktree mode runs
- * every implementer inside one. A worktree carrying its own file still wins.
+ * `git worktree add` leaves a tree without it, and `super.using-git-worktrees` runs a
+ * session inside one. A worktree carrying its own file still wins.
  *
  * Exit codes:
  *   0 — success (including "file not found" or "not a git repo")
@@ -43,19 +43,25 @@ Options:
   --repo-root <path>  Explicit path to the repository root (overrides git detection)
   --help              Show this help text and exit 0
 
-Output (JSON to stdout): { found, repo_not_found, malformed, preferencesPath, preferences }
-where preferences merges file values over defaults:
-  workflow.auto_commit (true), workflow.confirm_destructive_actions (true),
-    workflow.qa_gate (true; when false the end-of-implementation QA gate is skipped silently),
+Output (JSON to stdout): { found, repo_not_found, malformed, preferencesPath, preferences, projectDeclared }
+where projectDeclared says whether the file HAS a project: section (found:true with every
+project.* null means an older file — run only the project step of the wizard), and
+preferences merges file values over defaults:
+  workflow.auto_commit (true),
+    workflow.qa_gate (true; true/ask/false — true runs the end-of-implementation QA gate
+      automatically when a PRD exists; ask asks once at the gate, only when a PRD exists;
+      false skips it silently),
     workflow.visual_companion (true; when false super.brainstorming never offers the browser companion),
-  communication.language ("pt-BR"), copilot.rubber_duck (false),
+    workflow.finish_action ("ask"; ask/merge/pr/keep — what super.finishing-a-development-branch does
+      once the branch is done: ask = the finishing menu, merge = merge locally, pr = push + PR,
+      keep = leave the branch; discard is never automatic),
   copilot.review_final (false; native review skill as an extra bug pass at the final review),
-  claude_code.simplify (false),
-  claude_code.code_review_final (false; /code-review as an extra bug pass at the final review),
-  claude_code.code_review_effort ("medium"; low/medium/high/max — ultra unsupported),
+  claude_code.review_final (false; /code-review as an extra bug pass at the final review),
+  claude_code.review_effort ("medium"; low/medium/high/max — ultra unsupported),
   context.has_corporate_artifacts (false),
-  optimization.caveman (false), optimization.caveman_level ("full"),
-  model_tiers.cheap/standard/capable (null — harness decides when unset)
+  model_tiers.cheap/standard/capable (null — harness decides when unset),
+  project.stack/manifest (null — proposed by detect-project.cjs at onboarding, confirmed by
+    the user; the commands themselves live in the repo's instructions file and manifest)
 
 Exit codes:
   0  success
@@ -67,38 +73,37 @@ Exit codes:
 const DEFAULTS = {
   workflow: {
     auto_commit: true,
-    confirm_destructive_actions: true,
+    // The end-of-implementation QA gate (super.user-story-verification). true (default) runs it
+    // automatically whenever a PRD exists — the preference IS the consent, nothing is asked at
+    // the final stage; 'ask' defers that consent to the gate itself (one question, only when a
+    // PRD exists, answer valid for that feature); false skips it silently and QA is never mentioned.
     qa_gate: true,
     // The browser companion offered during super.brainstorming. false skips the offer entirely
     // (no consent question, no browser mention); true keeps the consent-gated offer.
     visual_companion: true,
-  },
-  communication: {
-    language: 'pt-BR',
+    // What super.finishing-a-development-branch does once the branch is verified: "ask" shows
+    // the finishing menu (default, unchanged behaviour); "merge" merges locally; "pr" pushes and
+    // opens a pull request; "keep" leaves the branch as-is. Declared once so the pipeline can run
+    // to completion without a menu the user answers hours later. Discard is never automatic.
+    finish_action: 'ask',
   },
   copilot: {
-    rubber_duck: false,
     // Native `review` skill at the final review — an extra bug-focused pass ON TOP OF the default
     // final reviewer (which still runs). Additive; spec + quality gates always run too.
     review_final: false,
   },
   // Platform-specific. The claude_code: section is ignored by Copilot CLI, Codex,
-  // and Gemini CLI. Both default to false — the user opts in during onboarding.
+  // and Gemini CLI. Off by default — the user opts in during onboarding.
   claude_code: {
-    // /simplify applies cleanups to changed code during execution (per task; not a review).
-    simplify: false,
     // /code-review at the final review — an extra bug-focused pass ON TOP OF the default final
-    // reviewer (which still runs). Additive; spec + quality gates always run too.
-    code_review_final: false,
+    // reviewer (which still runs). Additive; spec + quality gates always run too. Named like
+    // copilot.review_final on purpose — one name per concept on both platforms.
+    review_final: false,
     // Effort for the final /code-review (low/medium/high/max; ultra clamped to medium).
-    code_review_effort: 'medium',
+    review_effort: 'medium',
   },
   context: {
     has_corporate_artifacts: false,
-  },
-  optimization: {
-    caveman: false,
-    caveman_level: 'full',
   },
   // Maps the abstract model tiers used by execution skills (see
   // super.subagent-driven-development, "Model Selection" section) to concrete model names
@@ -107,6 +112,19 @@ const DEFAULTS = {
     cheap: null,
     standard: null,
     capable: null,
+  },
+  // Project profile — WHAT this repo is, not HOW it is run. Two keys on purpose: the
+  // ecosystem label and the repo-relative path of the manifest that describes it. Test,
+  // setup and format commands are NOT preferences — the repo's instructions file
+  // (AGENTS.md / CLAUDE.md) and the manifest carry them, and a skill reads those when it
+  // needs one. Persisting commands here meant a new key per ecosystem shape and values
+  // that drifted from the repo; a pointer to the manifest cannot drift. Retired keys
+  // (test_command, test_file_command, setup_command, ui_file_globs, format_command) in an
+  // older file are ignored in silence — deepMerge iterates DEFAULTS. null on both means
+  // "not decided yet" when `projectDeclared` is true, "nobody was asked" when it is false.
+  project: {
+    stack: null,
+    manifest: null,
   },
 };
 
@@ -133,7 +151,7 @@ function deepMerge(defaults, overrides) {
 const VALID_CODE_REVIEW_EFFORTS = ['low', 'medium', 'high', 'max'];
 
 /**
- * Clamp claude_code.code_review_effort to a valid level (in place), returning a
+ * Clamp claude_code.review_effort to a valid level (in place), returning a
  * list of human-readable notes about anything changed. Shared by read AND write
  * so the write-side round-trip check stays consistent (both clamp identically,
  * so an `ultra`/invalid value can never be persisted — not even by a hand edit).
@@ -141,28 +159,51 @@ const VALID_CODE_REVIEW_EFFORTS = ['low', 'medium', 'high', 'max'];
 function normalizeCodeReviewEffort(preferences) {
   const notes = [];
   const cc = preferences && preferences.claude_code;
-  if (cc && !VALID_CODE_REVIEW_EFFORTS.includes(cc.code_review_effort)) {
-    notes.push(`claude_code.code_review_effort "${cc.code_review_effort}" is not one of ${VALID_CODE_REVIEW_EFFORTS.join('/')} (ultra is unsupported) — using "medium"`);
-    cc.code_review_effort = 'medium';
+  if (cc && !VALID_CODE_REVIEW_EFFORTS.includes(cc.review_effort)) {
+    notes.push(`claude_code.review_effort "${cc.review_effort}" is not one of ${VALID_CODE_REVIEW_EFFORTS.join('/')} (ultra is unsupported) — using "medium"`);
+    cc.review_effort = 'medium';
   }
   return notes;
 }
 
+// Valid finish actions. `discard` is deliberately absent: destroying work is never a standing
+// preference, only a typed confirmation at the finishing menu.
+const VALID_FINISH_ACTIONS = ['ask', 'merge', 'pr', 'keep'];
+
 /**
- * Case-normalize optimization.caveman_level to lower-case (in place), returning a
- * list of human-readable notes about anything changed. The rendered directive
- * `/caveman <level>` is case-sensitive, so a hand-edited `ULTRA` would otherwise
- * fail to match the caveman skill's level. We ONLY lower-case — we do not validate
- * against a level list, to stay forward-compatible with the caveman skill (same
- * reasoning as render-caveman-block.cjs, which is not the authority on levels).
+ * Clamp workflow.finish_action to a valid value (in place), returning notes. Shared by read AND
+ * write, like normalizeCodeReviewEffort, so a hand-edited `discard` (or any typo) falls back to
+ * `ask` — the menu — at every layer and can never be persisted.
  */
-function normalizeCavemanLevel(preferences) {
+function normalizeFinishAction(preferences) {
   const notes = [];
-  const opt = preferences && preferences.optimization;
-  if (opt && typeof opt.caveman_level === 'string' && opt.caveman_level !== opt.caveman_level.toLowerCase()) {
-    const original = opt.caveman_level;
-    opt.caveman_level = opt.caveman_level.toLowerCase();
-    notes.push(`optimization.caveman_level "${original}" normalized to "${opt.caveman_level}" (levels are lower-case)`);
+  const wf = preferences && preferences.workflow;
+  if (wf && !VALID_FINISH_ACTIONS.includes(wf.finish_action)) {
+    notes.push(`workflow.finish_action "${wf.finish_action}" is not one of ${VALID_FINISH_ACTIONS.join('/')} — using "ask"`);
+    wf.finish_action = 'ask';
+  }
+  return notes;
+}
+
+// Valid QA-gate values. `true` runs the gate whenever a PRD exists (the preference is the
+// consent), `ask` defers that consent to the gate itself, `false` removes the gate silently.
+const VALID_QA_GATE_VALUES = [true, 'ask', false];
+
+/**
+ * Clamp workflow.qa_gate to a valid value (in place), returning notes. Shared by read AND write
+ * like the other normalizers: a hand-edited `yes`/`always`/typo falls back to the default `true`
+ * at every layer and can never be persisted. A quoted or capitalised `"Ask"` is accepted as `ask`.
+ */
+function normalizeQaGate(preferences) {
+  const notes = [];
+  const wf = preferences && preferences.workflow;
+  if (!wf) return notes;
+  if (typeof wf.qa_gate === 'string' && wf.qa_gate.trim().toLowerCase() === 'ask') {
+    wf.qa_gate = 'ask';
+  }
+  if (!VALID_QA_GATE_VALUES.includes(wf.qa_gate)) {
+    notes.push(`workflow.qa_gate "${wf.qa_gate}" is not one of true/ask/false — using true`);
+    wf.qa_gate = true;
   }
   return notes;
 }
@@ -177,19 +218,31 @@ function normalizeCavemanLevel(preferences) {
 //
 // Returns { parsed, malformed }.
 
+// Scalar values: true/false, null (empty / null / ~), else a string with optional quotes stripped.
+function parseScalar(rawValue) {
+  if (rawValue === 'true') return true;
+  if (rawValue === 'false') return false;
+  if (rawValue === '' || rawValue === 'null' || rawValue === '~') return null;
+  return rawValue.replace(/^['"]|['"]$/g, '');
+}
+
+const TOP_SECTION_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*$/;
+const NESTED_KV_RE = /^\s+([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/;
+const TOP_KV_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s+(.+)$/;
+
 function parseYaml(content) {
-  const lines = content.split('\n');
   const root = {};
   let currentSection = null;
   let malformed = false;
 
-  for (const rawLine of lines) {
+  for (const rawLine of content.split('\n')) {
     // Strip inline comments — but preserve #-in-values like language: pt-BR
     const line = rawLine.replace(/\s+#.*$/, '').trimEnd();
-    if (!line.trim()) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
     // Top-level section (no leading whitespace, ends with colon, no value)
-    const topMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*$/);
+    const topMatch = TOP_SECTION_RE.exec(line);
     if (topMatch) {
       currentSection = topMatch[1];
       root[currentSection] = {};
@@ -197,47 +250,25 @@ function parseYaml(content) {
     }
 
     // Nested key (leading whitespace)
-    const nestedMatch = line.match(/^(\s+)([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
+    const nestedMatch = NESTED_KV_RE.exec(line);
     if (nestedMatch) {
-      const key = nestedMatch[2];
-      const rawValue = nestedMatch[3].trim();
-
-      // Parse value
-      let value;
-      if (rawValue === 'true') value = true;
-      else if (rawValue === 'false') value = false;
-      else if (rawValue === '' || rawValue === 'null' || rawValue === '~') value = null;
-      else value = rawValue.replace(/^['"]|['"]$/g, ''); // strip optional quotes
-
-      if (currentSection) {
-        root[currentSection][key] = value;
-      }
+      if (currentSection) root[currentSection][nestedMatch[1]] = parseScalar(nestedMatch[2].trim());
       continue;
     }
 
     // Top-level key-value pair (no indentation, has value)
-    const topKvMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s+(.+)$/);
+    const topKvMatch = TOP_KV_RE.exec(line);
     if (topKvMatch) {
-      const key = topKvMatch[1];
-      const rawValue = topKvMatch[2].trim();
-      let value;
-      if (rawValue === 'true') value = true;
-      else if (rawValue === 'false') value = false;
-      else value = rawValue.replace(/^['"]|['"]$/g, '');
-      root[key] = value;
+      root[topKvMatch[1]] = parseScalar(topKvMatch[2].trim());
       currentSection = null;
       continue;
     }
 
     // Anything else that looks structural is a sign of malformed YAML
-    if (line.trim() && !line.trim().startsWith('#')) {
-      const suspicious = /^[^a-zA-Z\s]/.test(line.trim()) ||
-                         line.includes('[') ||
-                         line.includes('{') ||
-                         /^\w+\s+\w+/.test(line.trim()); // key without colon
-      if (suspicious) {
-        malformed = true;
-      }
+    if (!trimmed.startsWith('#')
+        && (/^[^a-zA-Z\s]/.test(trimmed) || line.includes('[') || line.includes('{')
+            || /^\w+\s+\w+/.test(trimmed))) { // last one: key without colon
+      malformed = true;
     }
   }
 
@@ -247,9 +278,7 @@ function parseYaml(content) {
 // ─── Git root detection ───────────────────────────────────────────────────────
 
 // Git working-tree root, resolved in-process (no `git` spawn) — see lib/repo-root.cjs.
-function detectGitRoot() {
-  return detectRepoRoot();
-}
+const detectGitRoot = () => detectRepoRoot();
 
 // ─── Main (CLI) ─────────────────────────────────────────────────────────────────
 
@@ -286,22 +315,23 @@ function loadPreferences(repoRoot) {
   // `root` is a wrapper field, NOT part of `result` — `result` stays the exact frozen
   // JSON the CLI prints.
   const wrap = (result) => ({ result, warnings, root: resolvedRoot });
+  // Absent repo / absent file: defaults, never an error.
+  const notFound = (preferencesPath) => wrap({
+    found: false,
+    repo_not_found: preferencesPath === null,
+    malformed: false,
+    preferencesPath,
+    preferences: deepMerge(DEFAULTS, {}),
+    projectDeclared: false,
+  });
 
-  if (!root) {
-    return wrap({
-      found: false,
-      repo_not_found: true,
-      malformed: false,
-      preferencesPath: null,
-      preferences: deepMerge(DEFAULTS, {}),
-    });
-  }
+  if (!root) return notFound(null);
 
   let prefsPath = path.join(resolvedRoot, '.superpowers', 'preferences.yml');
 
   // Absent here and `root` is a LINKED WORKTREE → look in the main working tree before
   // giving up. `.superpowers/` is gitignored, so `git worktree add` produces a tree
-  // without it, and the parallel-worktree mode runs every implementer inside one of
+  // without it, and a worktree session (`super.using-git-worktrees`) runs inside one of
   // those. Resolving the way `--show-toplevel` does lands in the worktree, finds
   // nothing, and returns defaults for the whole preference set — indistinguishable, in
   // the output, from a repo that never configured any. The fallback is deliberately
@@ -309,24 +339,13 @@ function loadPreferences(repoRoot) {
   // only turn a false `found:false` into a true `found:true`.
   if (!fs.existsSync(prefsPath)) {
     const main = mainRepoRoot(resolvedRoot);
-    if (main !== resolvedRoot) {
-      const mainPath = path.join(main, '.superpowers', 'preferences.yml');
-      if (fs.existsSync(mainPath)) {
-        resolvedRoot = main;
-        prefsPath = mainPath;
-      }
+    const mainPath = main !== resolvedRoot && path.join(main, '.superpowers', 'preferences.yml');
+    if (mainPath && fs.existsSync(mainPath)) {
+      resolvedRoot = main;
+      prefsPath = mainPath;
+    } else {
+      return notFound(prefsPath);
     }
-  }
-
-  // File does not exist — not an error.
-  if (!fs.existsSync(prefsPath)) {
-    return wrap({
-      found: false,
-      repo_not_found: false,
-      malformed: false,
-      preferencesPath: prefsPath,
-      preferences: deepMerge(DEFAULTS, {}),
-    });
   }
 
   const rawContent = fs.readFileSync(prefsPath, 'utf8'); // throws → main() turns into exit 1
@@ -337,7 +356,7 @@ function loadPreferences(repoRoot) {
   }
 
   const merged = deepMerge(DEFAULTS, parsed);
-  warnings.push(...normalizeCodeReviewEffort(merged), ...normalizeCavemanLevel(merged));
+  warnings.push(...normalizeCodeReviewEffort(merged), ...normalizeFinishAction(merged), ...normalizeQaGate(merged));
 
   return wrap({
     found: true,
@@ -345,6 +364,11 @@ function loadPreferences(repoRoot) {
     malformed,
     preferencesPath: prefsPath,
     preferences: merged,
+    // The `project:` SECTION exists in the file (values may still be null on purpose).
+    // Distinct from `found`: a file written before this section existed reads found:true
+    // with every project.* null — the router must then run ONLY the project step of the
+    // wizard, not treat the nulls as "this repo has no test command".
+    projectDeclared: Object.prototype.hasOwnProperty.call(parsed, 'project'),
   });
 }
 
@@ -379,7 +403,7 @@ function main(argv) {
   process.exit(0);
 }
 
-module.exports = { DEFAULTS, deepMerge, parseYaml, detectGitRoot, normalizeCodeReviewEffort, normalizeCavemanLevel, loadPreferences };
+module.exports = { DEFAULTS, deepMerge, parseYaml, detectGitRoot, normalizeCodeReviewEffort, normalizeFinishAction, normalizeQaGate, VALID_FINISH_ACTIONS, loadPreferences };
 
 if (require.main === module) {
   main(process.argv);

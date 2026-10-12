@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Prose-guard: the "Conformidade com as Skills Padrão" guidance must instruct the
+ * Prose-guard: the "Skills a invocar" guidance must instruct the
  * planner to EXCLUDE `super.*`-prefixed skills from a task's compliance list.
  *
  * Why: every `super.*` skill is pipeline machinery the execution flow already runs

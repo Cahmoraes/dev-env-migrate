@@ -7,11 +7,11 @@
  * without it. Root resolution followed `--show-toplevel` semantics deliberately — the
  * comment in repo-root.cjs says so — which in a linked worktree means the worktree. The
  * file is not there, `found` comes back false, and every preference falls back to its
- * default: caveman off, `qa_gate` at its default, `auto_commit` at its default,
+ * default: `qa_gate` at its default, `auto_commit` at its default,
  * `model_tiers` gone.
  *
- * That is the whole parallel-worktree mode: super.parallel-subagent-development runs each
- * implementer inside a worktree. Nothing in the output separates "this repo configured
+ * That is any session running inside a linked worktree — super.using-git-worktrees sets one
+ * up, and the harness may hand you one. Nothing in the output separates "this repo configured
  * nothing" from "the file is one directory up" — `found:false` is what both look like,
  * which is the failure this repo already knows about from the other direction
  * (defaults masking absence).
@@ -61,13 +61,13 @@ function makeWorktreePair(t, { prefsInWorktree = false, withCommondir = true } =
   fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${gitdir}\n`);
   fs.writeFileSync(
     path.join(main, '.superpowers', 'preferences.yml'),
-    'workflow:\n  auto_commit: false\ncommunication:\n  language: en\n',
+    'workflow:\n  auto_commit: false\nclaude_code:\n  review_effort: high\n',
   );
   if (prefsInWorktree) {
     fs.mkdirSync(path.join(wt, '.superpowers'), { recursive: true });
     fs.writeFileSync(
       path.join(wt, '.superpowers', 'preferences.yml'),
-      'communication:\n  language: fr\n',
+      'claude_code:\n  review_effort: low\n',
     );
   }
   return { main, wt };
@@ -108,12 +108,12 @@ test('preferences are found from inside a linked worktree', (t) => {
   const { main, wt } = makeWorktreePair(t);
   const { result } = loadPreferences(wt);
   assert.equal(result.found, true,
-    'this is the regression: every implementer in the parallel-worktree mode read '
+    'this is the regression: every subagent dispatched inside a linked worktree read '
     + 'found:false and silently ran on defaults');
   assert.equal(result.preferencesPath, path.join(main, '.superpowers', 'preferences.yml'));
   assert.equal(result.preferences.workflow.auto_commit, false,
     'the values must be the main tree\'s, not the defaults');
-  assert.equal(result.preferences.communication.language, 'en');
+  assert.equal(result.preferences.claude_code.review_effort, 'high');
 });
 
 test('a worktree carrying its own preferences still wins', (t) => {
@@ -123,7 +123,7 @@ test('a worktree carrying its own preferences still wins', (t) => {
   assert.equal(result.preferencesPath, path.join(wt, '.superpowers', 'preferences.yml'),
     'the fallback runs only when the file is ABSENT at the given root — a worktree with '
     + 'its own file must not be overridden by the main tree');
-  assert.equal(result.preferences.communication.language, 'fr');
+  assert.equal(result.preferences.claude_code.review_effort, 'low');
 });
 
 test('a repo with no preferences anywhere still reports found:false at the given root', (t) => {
@@ -146,15 +146,15 @@ test('a repo with no preferences anywhere still reports found:false at the given
 // `.superpowers/corporate-artifacts.yml` is the SIBLING of the preferences.yml that
 // granted consent, so the probe has to look wherever the loader actually found that
 // file — not wherever it was pointed. Probing the input root inside a worktree reports
-// "no corporate artifacts" for a repo that has them, and the parallel-worktree mode runs
-// every implementer inside one. Same one-directional fallback: it can only turn a false
-// "nothing declared" into a true one.
+// "no corporate artifacts" for a repo that has them, and every subagent that session
+// dispatches inherits the same blind spot. Same one-directional fallback: it can only turn
+// a false "nothing declared" into a true one.
 
 test('the corporate probe resolves against the tree where preferences were found', (t) => {
   const { main, wt } = makeWorktreePair(t);
   fs.writeFileSync(
     path.join(main, '.superpowers', 'preferences.yml'),
-    'communication:\n  language: en\ncontext:\n  has_corporate_artifacts: true\n',
+    'context:\n  has_corporate_artifacts: true\n',
   );
   fs.writeFileSync(
     path.join(main, '.superpowers', 'corporate-artifacts.yml'),

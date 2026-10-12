@@ -10,12 +10,11 @@
  *
  * This is not hypothetical. Two instances were found by exactly this sweep:
  *   - super.subagent-driven-development: the entire per-task execution loop (~77 lines: tracker,
- *     dispatch/review loop, full-suite checkpoint, finish tail, IV gate, done-state gate) sat
- *     under `#### Caveman State Check`, a *presentation preference*. Caveman off + skip section
+ *     dispatch/review loop, full-suite checkpoint, final stage, IV gate, done-state gate) sat
+ *     under the heading of a conditional *presentation preference*. Preference off + skip section
  *     = skip the whole implementation procedure. Fixed in ed0b243.
  *   - super.finishing-a-development-branch: `### Step 2: Verify Tests` also held the clean-tree
- *     gate and the independent-verification precondition — a green suite satisfied only the
- *     first third of the step. Heading renamed to name all three.
+ *     gate — a green suite satisfied only part of the step. Heading renamed to name both.
  *
  * Neither was visible to the suite: 917 tests passed before and after the first fix. Passing
  * tests say nothing about document hierarchy, which is why this sweep is a test now.
@@ -44,23 +43,8 @@ const SPAN_LIMIT = 45;
  * section and found it coherent — not a way to silence the sweep.
  */
 const COHERENT_LONG_SECTIONS = {
-  'super.finishing-a-development-branch :: ### Step 2: Verify Tests, Clean Tree, and the Verification Gate':
-    'Three pre-integration gates in sequence; the heading names all three, so none hides behind another.',
-  'super.finishing-a-development-branch :: #### Option 1: Merge Locally':
-    'One long bash procedure for local merge + branch delete; single subject end to end.',
-  'super.independent-verification :: ### 2. Discrimination sensor (mutation testing)':
-    'One subject end to end: what counts as a valid sensor reading — depth rules (per-file '
-    + 'proportional), the executed-not-reasoned requirement, and the equivalent-mutant escape '
-    + 'hatch for a survivor that genuinely cannot be killed. All three are "how to read/report a '
-    + 'sensor result", never a subject change.',
-  'super.subagent-driven-development :: ### Execution Loop':
-    'The skill core, deliberately one section; its own guard is execution-loop-heading.test.cjs.',
   'super.systematic-debugging :: ### Phase 1: Root Cause Investigation':
     'Root-cause investigation throughout: error reading, reproduction, evidence, data tracing.',
-  'super.systematic-debugging :: ### Phase 4: Implementation':
-    'Implementing the fix, verifying it, and escalating after repeated failures — all one phase.',
-  'super.test-driven-development :: #### The YAGNI ladder':
-    'The ladder plus its Good/Bad examples; no subject change.',
 };
 
 function skillDirs() {

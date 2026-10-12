@@ -15,7 +15,7 @@ Run this checklist while drafting the design (before writing the doc to disk). E
 - A **state machine** or multi-state lifecycle (e.g., order status, approval workflow).
 - A **non-trivial data flow** across layers or bounded contexts.
 
-**Skip it** for trivial demands — a single config toggle, a one-line utility, a straightforward CRUD field, a copy change. A diagram that just restates one sentence of prose is noise, not enrichment.
+**Skip it** for trivial demands — a single config toggle, a one-line utility, a straightforward CRUD field, a copy change. A diagram that just restates one sentence of prose is noise, not enrichment; so is one that redraws a sequence the neighboring prose already lists step by step (a rollout order, a linear flow).
 
 ## Selecting the diagram type
 

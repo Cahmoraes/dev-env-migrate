@@ -7,7 +7,6 @@
  *
  *   27,9s  user states the topic
  *   36,1s  the two Opening Phase references are loaded (legitimate)
- *   40,5s  the confirmed-lessons load (legitimate, exemption #1)
  *   45,1s  `ls docs/superpowers/` in the main thread — 1.295 chars, gate violation
  *   52,7s  ten sequential task-creation calls, one per numbered step, 11,6s of bookkeeping
  *   84,2s  the fan-out — one message, three tracks, 56,3s after the topic was stated
@@ -25,10 +24,9 @@
  *      wanted ordering and completeness; what it bought was ten model turns of bookkeeping.
  *      It now states the ordering without commanding the bookkeeping.
  *   2. The inline `ls` happened nine seconds after the file forbidding it was read. The
- *      reason is in the file: the gate said "no `bash`" while the phase REQUIRES two `bash`
- *      calls, so the blanket was already false and a third call did not feel like crossing
- *      anything. The gate now names the two and permits only those — and the two exemptions
- *      agree on the count, which they did not before ("and nothing else" vs "second and last").
+ *      reason is in the file: the gate said "no shell" while the phase REQUIRED shell calls,
+ *      so the blanket was already false and another call did not feel like crossing
+ *      anything. The gate now names the one call it permits and nothing else.
  *   3. The first clarifying question was "what is the objective of this service? A/B/C/D".
  *      No report was needed to ask it, and none of the three reports changed it. Holding it
  *      until the fan-out returned cost the user 84,6s of silence for nothing, so it now goes
@@ -79,12 +77,11 @@ test('the dispatch turn also carries the message the user is owed', () => {
 });
 
 test('the dispatch turn respects the visual-companion ordering', () => {
-  // Step 2 requires the offer to be its own message and to precede the clarifying questions.
-  // Sending the first clarifying question with the dispatches would jump over it, so the
-  // rule has to name which of the two goes out.
+  // Step 2 requires the offer to be its own paragraph, in the same turn as the first clarifying
+  // question (one round trip, not two). The rule has to name both, or the offer gets dropped.
   for (const [file, rel] of [[read(SKILL), SKILL], [read(FAN_OUT), FAN_OUT]]) {
-    assert.match(file, /companion offer (if|when) a visual signal matches, otherwise (your|the) first clarifying question/i,
-      `${rel} must route between the offer and the question, not assume the question`);
+    assert.match(file, /companion offer (if|when) a visual signal matches, in the same turn as (your|the) first clarifying question/i,
+      `${rel} must send the offer with the question in one turn, not assume the question alone`);
   }
 });
 
@@ -102,17 +99,17 @@ test('the artifact test is conditional on being handed a slug, not on finding on
   assert.match(body, /Without a slug in hand there is no path to test, and this section is skipped entirely/i,
     'the skip has to be stated as the default, or a missing slug reads as something to go resolve');
   assert.match(body, /```bash\ntest -f docs\/superpowers\/<slug>\/research\/research-<slug>\.md /,
-    'the call must be literal and fenced — the fenced lessons load was run verbatim in every '
-    + 'measured run, while the prose-described path test was improvised in every one');
+    'the call must be literal and fenced — a fenced call runs verbatim, a prose-described one '
+    + 'gets improvised');
 });
 
 test('SKILL.md carries the shape of the opening phase, not just its steps', () => {
   // Both rules had lived only in the fan-out reference, which is read ~40s and five tool
   // calls before the dispatch. Neither held. SKILL.md is the file still in the window.
   const body = read(SKILL);
-  assert.match(body, /with no slug there is nothing to test, and no second call/i,
+  assert.match(body, /with no slug there is nothing to test, and no shell call at all/i,
     'the default of one shell call belongs where the step is ordered, not only in the reference');
-  assert.match(body, /launch every applicable track as `task` calls \*\*in a single message\*\*/i,
+  assert.match(body, /launch every applicable track as dispatch calls \*\*in a single message\*\*/i,
     'the dispatch shape belongs in the always-loaded file, not only in a reference read earlier');
   // Same lesson, third time: an A/B where the executor did not re-open the fan-out scored the
   // fixed prose 1/8 — the same as the unfixed prose. The reports land ~6 tool calls after the
@@ -151,21 +148,21 @@ test('the fan-out states the turn budget between loading it and dispatching', ()
   const body = read(FAN_OUT);
   assert.match(body, /Between finishing this file and the dispatch turn, nothing goes in between/i,
     'the phase needs a stated turn budget — every step in between is latency the user pays');
-  assert.match(body, /Exactly two shell calls belong to this phase/i,
-    'the budget must be a countable enumeration; "no bash" was already false and got ignored');
+  assert.match(body, /At most one shell call belongs to this phase/i,
+    'the budget must be a countable enumeration; "no shell" was already false and got ignored');
 });
 
-test('the gate permits the two shell calls it actually needs, and no more', () => {
+test('the gate permits the one shell call it actually needs, and no more', () => {
   const gate = read(FAN_OUT).match(/<RESEARCH-GATE>[\s\S]*?<\/RESEARCH-GATE>/);
   assert.ok(gate, 'the RESEARCH-GATE block must exist');
-  // A prohibition the procedure itself has to break twice is not a prohibition. Naming the
-  // two permitted calls is what makes a third one visibly outside the list.
-  const forbidden = gate[0].match(/Do NOT call([^\n]*?)or any web-search tool/i);
-  assert.ok(forbidden, 'the gate must enumerate the tools it forbids outright');
-  assert.doesNotMatch(forbidden[1], /`bash`/i,
-    'the gate must not blanket-forbid `bash` while the phase requires two `bash` calls');
-  assert.match(gate[0], /call `bash` only for the two commands named above/i,
-    'the gate must bound `bash` by enumeration rather than by a prohibition it contradicts');
+  // A prohibition the procedure itself has to break is not a prohibition. Naming the one
+  // permitted call is what makes a second one visibly outside the list.
+  const forbidden = gate[0].match(/Do NOT ([^\n]*?)or call any web-search tool/i);
+  assert.ok(forbidden, 'the gate must enumerate the capabilities it forbids outright');
+  assert.doesNotMatch(forbidden[1], /shell/i,
+    'the gate must not blanket-forbid the shell while the phase may require one shell call');
+  assert.match(gate[0], /run a shell command only for the one named above/i,
+    'the gate must bound the shell by enumeration rather than by a prohibition it contradicts');
 });
 
 test('the opening question is defined by what research cannot answer', () => {
@@ -189,9 +186,3 @@ test('the reports land without a digest, because the user is already answering',
     'suppressing the digest must say where the findings go instead');
 });
 
-test('SKILL.md stays under the compaction cap that these rules were sized against', () => {
-  const chars = read(SKILL).length;
-  assert.ok(chars < 20000,
-    `SKILL.md is ${chars} characters; past 20.000 the tail is dropped after a compaction, and `
-    + 'the dispatch-turn rule lives close enough to the end to be what goes');
-});

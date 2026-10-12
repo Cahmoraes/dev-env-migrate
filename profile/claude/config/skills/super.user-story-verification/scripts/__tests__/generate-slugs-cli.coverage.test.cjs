@@ -3,6 +3,7 @@
 /**
  * CLI-surface coverage for generate-slugs.cjs: help, usage/arg errors, and the unreadable-file
  * catch. Brings the script to full line/function coverage alongside the existing tests.
+ * The missing-PRD path (found:false, exit 0) lives in generate-slugs.test.cjs.
  *
  * Run with: node --test super.user-story-verification/scripts/__tests__/generate-slugs-cli.coverage.test.cjs
  */
@@ -35,13 +36,6 @@ test('--prd without a value exits non-zero', () => {
 
 test('unknown argument exits non-zero', () => {
   assert.throws(() => execFileSync('node', [SCRIPT, '--bogus'], { stdio: ['ignore', 'ignore', 'ignore'] }));
-});
-
-test('missing PRD file returns found:false (not an error)', () => {
-  const out = runRaw(['--prd', '/nonexistent/prd-x.md']);
-  const r = JSON.parse(out);
-  assert.equal(r.found, false);
-  assert.deepEqual(r.warnings, []);
 });
 
 test('unreadable PRD path (a directory) exits non-zero via the read catch', () => {

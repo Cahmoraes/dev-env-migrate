@@ -1,9 +1,0 @@
-# Artefatos corporativos declarados para esta feature.
-# Documentos de terceiros/empresa que têm precedência sobre a spec/PRD gerados.
-#
-# NOTA DE FIXTURE: esta entrada aponta, de propósito, para um documento
-# corporativo de OUTRA feature (gestão de papéis de admin), sem relação alguma
-# com o upload de avatar. É um erro de configuração — a revisão deve tratar isso
-# como observação fora de escopo e desconsiderar, não como conflito de fidelidade.
-artifacts:
-  - path: corporate/access-policy.md

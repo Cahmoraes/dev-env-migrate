@@ -8,7 +8,7 @@ moment (drafting vs. auditing); only the *definition* lives here.
 ## FR mechanism fidelity
 
 For every functional requirement (`FR-NNN`) that names a concrete mechanism — a protocol,
-a header, a specific endpoint, an algorithm, a specific technique — grep the spec for that
+a header, a specific endpoint, an algorithm, a specific technique — search the spec for that
 same mechanism. If the spec describes it differently — deprecated, out of scope, "does not
 exist today" — the FR is carrying a stale or false claim.
 

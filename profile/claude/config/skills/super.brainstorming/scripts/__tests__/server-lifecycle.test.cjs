@@ -3,7 +3,7 @@
 /**
  * Lifecycle regression tests for the brainstorm visual-companion server.
  *
- * Run with: node --test super.brainstorming/scripts/__tests__/
+ * Run with: node --test super.brainstorming/scripts/__tests__/server-lifecycle.test.cjs
  *
  * Root cause these tests lock down:
  *   The server watches BRAINSTORM_OWNER_PID and used to call

@@ -4,7 +4,8 @@
  * Tests for validate-tasks.cjs --prd FR-coverage cross-check.
  *
  * Closes the silent "PRD exists but FR tags forgotten" gap: with --prd, every FR-NNN in the
- * PRD must be covered by a task, and a PRD-with-FRs + tagless plan is flagged.
+ * PRD must be covered by a task-file title (`# Task N: <title> [FR-XXX]`), and a PRD-with-FRs +
+ * tagless plan is flagged. The index line carries no FR tags.
  *
  * Run with: node --test super.writing-plans/scripts/__tests__/validate-tasks-prd.test.cjs
  */
@@ -23,14 +24,13 @@ function runJson(args) {
   return JSON.parse(out);
 }
 
-function taskFileBody({ frBody = '' } = {}) {
+function taskFileBody({ title = '# Task 1: Task', frBody = '' } = {}) {
   return [
-    '# Task',
+    title,
     '',
     '**Status:** PENDING',
     '**PRD:** `../prd/prd-x.md`',
     '**Spec:** `../specs/x-design.md`',
-    '**Depends on:** N/A',
     '',
     '## Passos',
     frBody,
@@ -38,18 +38,21 @@ function taskFileBody({ frBody = '' } = {}) {
   ].join('\n');
 }
 
-/** Build a plan dir with an index whose task lines are given verbatim, plus matching task files. */
-function buildPlan(indexTaskLines, { taskBodies = {} } = {}) {
+/**
+ * Build a plan dir from task lines written as `- [ ] N. Title [FR-xxx] → \`task-NN.md\``: the
+ * [FR-xxx] tags go to the task file's title (where they are declared), the index gets the line
+ * without them.
+ */
+function buildPlan(taskLines, { taskBodies = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-prd-'));
-  const index = ['# Tarefas: x', '', '## Tarefas', '', ...indexTaskLines, ''].join('\n');
+  const tag = /\s*\[(?:FR|RF)-[^\]]*\]/giu;
+  const index = ['# Tarefas: x', '', '## Tarefas', '', ...taskLines.map((l) => l.replace(tag, '')), ''].join('\n');
   const indexPath = path.join(dir, 'tasks-x.md');
   fs.writeFileSync(indexPath, index);
-  // create referenced task files; mirror any [FR-xxx] tags from the index line into the task
-  // file body so the pre-existing index↔file FR-traceability check is satisfied.
-  indexTaskLines.forEach((line, i) => {
+  taskLines.forEach((line, i) => {
     const n = String(i + 1).padStart(2, '0');
-    const frInLine = (line.match(/(?:FR|RF)-\d+/giu) || []).join(', ');
-    const body = taskBodies[`task-${n}.md`] || taskFileBody({ frBody: frInLine ? `Implements ${frInLine}.` : '' });
+    const title = line.match(/^-\s+\[[ xX]\]\s+\d+\.\s+(.+?)\s*→/u)[1];
+    const body = taskBodies[`task-${n}.md`] || taskFileBody({ title: `# Task ${i + 1}: ${title}` });
     fs.writeFileSync(path.join(dir, `task-${n}.md`), body);
   });
   return { dir, indexPath };
@@ -62,7 +65,7 @@ function writePrd(dir, frTokens) {
   return prdPath;
 }
 
-test('all PRD FRs covered by task index tags → valid, no uncovered', () => {
+test('all PRD FRs covered by task-file title tags → valid, no uncovered', () => {
   const { dir, indexPath } = buildPlan([
     '- [ ] 1. Login [FR-001] → `task-01.md`',
     '- [ ] 2. Logout [FR-002] → `task-02.md`',
@@ -96,15 +99,23 @@ test('PRD has FRs but the plan carries ZERO FR tags → flagged (vacuous-pass cl
   assert.ok(r.errors.some((e) => /traceability is missing/.test(e.message)));
 });
 
-test('FR covered via the task FILE body (not the index line) still counts', () => {
+test('an FR cited only in the task body does NOT cover it — the title is what the QA gate reads', () => {
   const { dir, indexPath } = buildPlan(
     ['- [ ] 1. Login → `task-01.md`'],
-    { taskBodies: { 'task-01.md': taskFileBody({ frBody: 'Implements FR-001 fully.' }) } },
+    { taskBodies: { 'task-01.md': taskFileBody({ title: '# Task 1: Login', frBody: 'Implements FR-001 fully.' }) } },
   );
   const prd = writePrd(dir, ['FR-001']);
   const r = runJson(['--tasks-index', indexPath, '--prd', prd]);
-  assert.equal(r.valid, true);
-  assert.deepEqual(r.prdCoverage.uncoveredRequirements, []);
+  assert.equal(r.valid, false);
+  assert.ok(r.errors.some((e) => /no task file's title carries an \[FR-XXX\] tag/.test(e.message)));
+  assert.ok(r.warnings.some((w) => /FR-001 appears in task-01\.md but is not declared in its title/.test(w.message)));
+});
+
+test('--index-only never runs coverage (the titles live in the task files)', () => {
+  const { dir, indexPath } = buildPlan(['- [ ] 1. Login [FR-001] → `task-01.md`']);
+  const prd = writePrd(dir, ['FR-001', 'FR-002']);
+  const r = runJson(['--tasks-index', indexPath, '--prd', prd, '--index-only']);
+  assert.equal(r.prdCoverage, null);
 });
 
 test('PRD with no FRs → no coverage errors', () => {

@@ -232,7 +232,7 @@ test('visualSection is false when the spec is absent', () => {
 });
 
 // --- Embedded-PRD coverage (spec carries US-NN/FR-NNN inline, no physical prd/prd-<feature>.md) ---
-// The Large known-domain fast path merges the PRD into the spec, so the FR-coverage gate would be
+// A Small/Medium spec may fold the PRD into itself, so the FR-coverage gate would be
 // silently skipped if the orchestrator omitted --prd for lack of a physical PRD file. The script
 // surfaces the spec as the PRD source (prd.embeddedIn) plus a structured warning.
 

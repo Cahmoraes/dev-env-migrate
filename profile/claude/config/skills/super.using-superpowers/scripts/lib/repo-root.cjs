@@ -45,8 +45,8 @@ function detectRepoRoot(startDir) {
  * `.superpowers/` is gitignored in consumer repos, so `git worktree add` produces a
  * tree without it: a script that resolves the root the way `--show-toplevel` does
  * lands in the worktree, finds no `preferences.yml`, and reports `found: false`.
- * Everything then silently falls back to defaults — caveman off, the QA gate at its
- * default, `model_tiers` gone — for every implementer in the parallel-worktree mode,
+ * Everything then silently falls back to defaults — the QA gate at its
+ * default, `model_tiers` gone — for every dispatch made from inside a worktree,
  * with nothing in the output distinguishing "no preferences configured" from
  * "preferences exist one directory up".
  *

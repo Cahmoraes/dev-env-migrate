@@ -8,7 +8,7 @@
  * These are prose-layer canaries: if a future edit drops the dialog-tool guidance or
  * the fallback, the onboarding regresses to "type your answer" and these fail loudly.
  *
- * Run with: node --test super.using-superpowers/scripts/__tests__/
+ * Run with: node --test super.using-superpowers/scripts/__tests__/onboarding-question-tools.test.cjs
  */
 
 const test = require('node:test');
@@ -76,69 +76,12 @@ test('onboarding documents the 4-option cap for the structured-question tool', (
   assert.match(body, /at most 4 options per question/i, 'onboarding must state the option cap');
 });
 
-test('the summary block is platform-invariant except the native-review row', () => {
-  // Regression, 2026-08-01: the worked example is labelled "(Claude Code, …)", and on
-  // Copilot the model treated the WHOLE block as Claude-Code-specific — it rebuilt a
-  // shortened version, dropping "Modelos por tier" and printing the Claude flag name
-  // (`code-review final`) instead of the Copilot one. The reference must say which rows
-  // are fixed and give the per-platform row verbatim, or "adapt to your platform" reads
-  // as "drop what looks foreign".
-  const ref = read('super.using-superpowers/references/session-start.md');
-
-  assert.match(ref, /eight rows, in this order, on every platform/i,
-    'the reference must fix the row count and order across platforms');
-  // The restated count and the example must not drift apart: count the rows that are
-  // actually there instead of trusting the sentence.
-  const block = ref.slice(ref.indexOf('> **Preferências desta sessão**'));
-  const rows = block.slice(0, block.indexOf('\n\n')).split('\n').filter((l) => l.startsWith('> - '));
-  assert.equal(rows.length, 8, `the worked example prints ${rows.length} rows, not the eight it claims`);
-  assert.ok(rows.some((l) => /Visual Companion/i.test(l)),
-    'the companion preference must be visible in the session summary, or the user cannot tell it is off');
-  assert.ok(rows.some((l) => /[Aa]rtefatos corporativos/.test(l)),
-    'corporate artifacts must be visible in the session summary — they OUTRANK the spec on conflict, '
-    + 'and a user who cannot see the switch cannot know the company documents are being ignored');
-  assert.match(ref, /"Modelos por tier", which is\s*\n?\s*cross-platform/i,
-    'the tier row must be called out as cross-platform — it is the row that got dropped');
-  // The per-platform row has to be spelled out for BOTH harnesses, not described.
-  assert.match(ref, /\| Claude Code \| .*simplify.*code-review final/,
-    'the Claude Code native-review row must be given verbatim');
-  assert.match(ref, /\| Copilot CLI \| .*Copilot review final/,
-    'the Copilot CLI native-review row must be given verbatim');
-});
-
-test('the corporate row spells out all four declared x enabled states', () => {
-  // The row is the ONLY warning the "declared but not consented" branch gets — the router
-  // was changed to stop asking a separate question ahead of the triage, on the grounds
-  // that the block prints anyway. That trade only holds while the block actually says it.
-  //
-  // Before the disk probe existed this branch was unreachable: the router was told to warn
-  // when the yml is present with the flag off, but nothing ever looked at the disk. A repo
-  // with a declared corporate PRD ran in total silence.
-  const ref = read('super.using-superpowers/references/session-start.md');
-  const table = ref.slice(ref.indexOf('| `declared` | `enabled` | Row 8 |'));
-  assert.ok(table.length > 0, 'the reference must carry the row-8 state table');
-  const rows = table.split('\n\n')[0].split('\n').filter((l) => /^\| [✓✗] \| [✓✗] \|/.test(l));
-
-  // Floor: a table whose row pattern stops matching would report zero violations over zero
-  // rows and pass forever. Four states, no fewer.
-  assert.equal(rows.length, 4,
-    `the state table must enumerate all four declared x enabled combinations, found ${rows.length}`);
-
-  const byState = Object.fromEntries(rows.map((l) => {
-    const [, declared, enabled] = l.split('|').map((c) => c.trim());
-    return [`${declared}${enabled}`, l];
-  }));
-  assert.match(byState['✓✗'], /não carregados/,
-    'declared-but-disabled must be labelled NOT LOADED — the whole point of surfacing it');
-  assert.match(byState['✓✗'], /corporate-artifacts\.yml/,
-    'the row must name the file, so the user can go fix it');
-  assert.match(byState['✗✗'], /desligado/,
-    'with nothing declared the row still prints the preference state, like every other row');
-  assert.doesNotMatch(byState['✗✗'], /corporate-artifacts\.yml/,
-    'with no file there is no path to name');
-
-  assert.match(ref, /[Nn]ever list the declared\s*\n?\s*entries/,
-    'the reference must forbid printing the entries themselves — presence is not consent');
+test('the session start warns on its own about declared-but-unloaded corporate documents', () => {
+  // Nobody has pressed 0 yet at the opening, and the row that carries the warning lives in
+  // the option-0 view — so the `Atenção:` line is the only warning the session start gives.
+  const start = read('super.using-superpowers/references/session-start.md');
+  assert.match(start, /`enabled` ✗[^\n]*Atenção:[^\n]*não carregados/,
+    'the session start must warn about declared-but-unloaded corporate documents');
 });
 
 test('the activation orders the bootstrap BEFORE any printed block', () => {
@@ -167,44 +110,46 @@ test('the activation orders the bootstrap BEFORE any printed block', () => {
   }
 });
 
-test('SKILL.md prints a platform-filtered session-variable summary before the triage', () => {
+test('the session start prints one opening sentence; the listing is the rendered view of option 0', () => {
   const body = read('super.using-superpowers/SKILL.md');
-  // The opening triage must be preceded by a read-only summary of the
-  // preference-derived session variables (mirrors the Copilot CLI output the
-  // user asked to make permanent).
   assert.match(body, /## Session Summary/, 'SKILL.md must define a Session Summary section');
-  assert.match(body, /brief bulleted summary of the session variables/i,
-    'the summary must be a bulleted list of the session variables');
-  // It must print exactly once, after the re-sync gate, to avoid the double-print
-  // (one before re-sync, one after) that the user reported.
-  assert.match(body, /exactly once/i,
-    'the summary must print exactly once (no duplicate before/after re-sync)');
+  assert.match(body, /print — exactly once — the opening sentence/i,
+    'the summary is one opening sentence — the ten-row listing buried the triage and moved to option 0');
+  assert.match(body, /Atenção:` line per exception/i,
+    'the exceptions (dropped tier, unloaded corporate docs, missing profile) must still surface at start');
+  assert.match(body, /preferences view of option 0/i,
+    'the router must say where the full listing went, or the model re-adds it at start');
   assert.match(body, /sole owner\*{0,2} of the print/i,
     'the Session Summary section must declare itself the sole owner of the print');
-  // Platform filtering: show the running platform's native-skill vars, omit the
-  // other platform's. No new detection logic — reuse the resolved platform.
-  assert.match(body, /omit the other platform/i,
-    'the summary must omit the other platform\'s native-skill variables');
-  assert.match(body, /add no detection logic/i,
-    'the summary must not introduce platform-detection coupling');
-  // The summary is sequenced right before the triage, after the preferences load.
   assert.match(body, /Once preferences are loaded and right before the opening triage/i,
     'the summary must be sequenced after the preferences load (and before Triagem)');
-  // The re-sync gate's exit step must NOT print the summary itself — it only
-  // proceeds to Triagem and defers the print to the sole-owner section. This is
-  // the fix for the double-print.
   assert.doesNotMatch(body, /Print the "Session Summary" section/,
     'the re-sync gate must not print the summary itself (avoids double-print)');
-  // Internal latches are bookkeeping, not configured behavior — the summary must
-  // explicitly omit them (they stay tracked in context, just not displayed).
-  assert.match(body, /omit the internal latches `session_caveman_prompted` and `session_caveman_in_effect`/i,
-    'the summary must omit the internal caveman latches from the printed list');
-  // And the worked example must not print them.
-  const summary = body.slice(body.indexOf('## Session Summary'), body.indexOf('## Opening Triage'));
-  assert.ok(!/^>.*session_caveman_prompted/m.test(summary),
-    'the Session Summary example must not list session_caveman_prompted');
-  assert.ok(!/^>.*session_caveman_in_effect/m.test(summary),
-    'the Session Summary example must not list session_caveman_in_effect');
+
+  // The routing row for 0 is always in context; the reference behind it is not always read
+  // (Copilot CLI never followed the pointer). The text-only rule lives on the row itself.
+  const start = read('super.using-superpowers/references/session-start.md');
+  assert.match(start, /\| \*\*0\*\* \|[^\n]*reply with its output verbatim[^\n]*\*\*no question tool\*\*/,
+    'the routing row for 0 must itself say text-only reply');
+  // The rows sit in a tool result the user never sees; the reply must carry them.
+  const view = read('super.using-superpowers/references/onboarding-preferences.md');
+  assert.match(view, /\*\*The user does not see the tool's output\*\*, so the rows are copied into the reply/,
+    'the prose must say tool output is invisible to the user and the rows go in the reply');
+  assert.match(view, /node <super\.using-superpowers-base-dir>\/scripts\/render-preferences-view\.cjs --platform <resolved-platform> --repo-root "\$\(git rev-parse --show-toplevel\)" --lang <pt-BR\|en>/,
+    'the renderer call must be fenced with the base-dir placeholder, or it gets improvised');
+  assert.match(view, /\*\*0\*\* \(\*voltar\*[^\n]*re-prints the opening triage/,
+    'the back reply (0, or the word voltar) must return to the triage');
+  assert.match(view, /\*\*1\*\* \(\*alterar\*[^\n]*continues/, 'the change reply (1, or the word alterar) re-walks the wizard');
+  // The opening is three CONSECUTIVE lines: blank-separated paragraphs and a single squashed
+  // line were both rejected by the user.
+  assert.match(start, /three consecutive lines, one sentence each/i,
+    'the opening must be declared three consecutive lines, one sentence each');
+  assert.match(start, /never by an empty line/i,
+    'the opening must forbid the empty line between the sentences');
+  assert.match(start, /> \*\*Preferences loaded\*\* from `\.superpowers\/preferences\.yml` \(`0` to view or change\)\.\n  > Superpowers takes a request[^\n]*\n  > Describe what you need in your own words, or pick a shortcut:\n  >\n/,
+    'the worked example must show the three sentences on three consecutive lines, no empty line between them');
+  assert.doesNotMatch(start, /Em andamento:/,
+    'the triage must not print an "in progress" line — the tracker it would read is not reliably marked');
 });
 
 test('the bootstrap prints at most one plain line before the Session Summary', () => {
@@ -267,8 +212,8 @@ test('the bootstrap prints at most one plain line before the Session Summary', (
   // The summary block still owns its own opening: the one-line opener above may not be
   // repeated, expanded, or turned into a recap of what the bootstrap just ran.
   const summary = body.slice(summarySection, body.indexOf('## Opening Triage'));
-  assert.match(summary, /block opens the turn/i,
-    'the Session Summary section must state that the block opens the turn');
+  assert.match(summary, /line opens the turn/i,
+    'the Session Summary section must state that the opening line opens the turn');
   assert.match(summary, /nothing precedes it/i,
     'the Session Summary must state that nothing precedes the block — no lead-in, no recap');
 });
@@ -318,7 +263,7 @@ test('router gates onboarding on the presence flag, not on a populated object', 
 });
 
 test('onboarding asks model tiers as a REQUIRED step with suggestions + cost warnings', () => {
-  // The wizard makes model tiers a required Step 6a: it educates that `standard`
+  // The wizard makes model tiers a required Step 3a: it educates that `standard`
   // reviews `cheap` (one family up), suggests mappings, and warns when the mapping
   // would make an expensive model review mechanical code. Auto stays an explicit choice.
   const body = read('super.using-superpowers/references/onboarding-preferences.md');

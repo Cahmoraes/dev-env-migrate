@@ -3,8 +3,8 @@
 //
 // A costura: as fases 2 e 4 escreveram spec, PRD, plano e relatorios no formato dos
 // TEMPLATES REAIS. O indice de features e o consumidor desses templates — le
-// `## Visão Geral` e `## Fora de Escopo` do PRD e classifica o relatorio de IV separado
-// do de QA. Renomear uma secao no `prd-template.md` cega o recall inteiro sem quebrar
+// `## Visão Geral` e `## Fora de Escopo` do PRD e acha o relatorio de QA em `qa/`. Renomear
+// uma secao no `prd-template.md` cega o recall inteiro sem quebrar
 // nada mais na suite, e e exatamente isso que esta fase pega.
 //
 // Substitui a antiga costura de re-sync (inventory -> manifesto -> memory.db). Aquele

@@ -3,7 +3,7 @@
 /**
  * Tests for init-feature-dir.cjs.
  *
- * Run with: node --test super.deep-research/scripts/__tests__/
+ * Run with: node --test super.deep-research/scripts/__tests__/init-feature-dir.test.cjs
  *
  * Covers:
  *  - creates docs/superpowers/<slug>/research/ → created=true, alreadyExisted=false

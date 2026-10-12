@@ -1,68 +1,45 @@
-# Review cost control — why the shape is computed, not judged
+# Review cost control — one task reviewer per task
 
-The SKILL.md carries the operational rule (run `parse-waves.cjs`, read `reviewShape`, the
-three shapes, escalate-only-upward). This file carries the reasoning behind it and the
-guarantees each shape preserves — read it when you are tempted to override a shape, or
-when you need to justify to a reviewer why a task got one reviewer instead of two.
+The SKILL.md carries the operational rule (step 3 of the per-task loop). This file carries the
+reasoning behind it — read it when you are tempted to add a second reviewer to a task, or to skip
+the one it gets.
 
-## The cost this exists to control
+## The rule
 
-The default per-task fan-out is **implementer + 2 reviewers** (spec compliance, then code
-quality). That is the conservative, maximum-rigor shape — and applying it uniformly is what
-made the V11 benchmark's rate-limiter rerun cost **46 min / 27 subagents for 5 tasks**, even
-though every acceptance criterion passed. Nothing was wrong with the reviews; the shape was
-applied without regard to each task's actual risk.
+Every task gets **one** task reviewer (`../agents/task-reviewer.md`): a fresh subagent, blind to the
+implementer's self-assessment, returning two verdicts in a single dispatch — spec compliance
+first, then code quality — with `file:line` evidence, looping until clean. It is never skipped, not
+for a one-line task and not for the last one, and never split into two dispatches. The order of
+the lenses lives inside the prompt: if the wrong thing was built, the quality of the wrong thing
+does not matter.
 
-The fix is not "review less". It is to stop deciding the shape by judgment call, because the
-judgment is made under deadline pressure by the same agent that benefits from going faster.
-`parse-waves.cjs` computes it from signals a careful human would use anyway — fan-in, critical
-surface keywords, tier — without that conflict of interest.
+## Why not two reviewers
 
-## What `combined` preserves
+A second per-task reviewer found no Critical/Important finding that the whole-branch final review
+missed, at four to seven times the cost. Deciding *which* tasks earned the second reviewer was
+worse than the reviewer itself: a judgment call made under deadline pressure by the party that
+benefits from going faster, or a keyword scan that escalated on fixture names and inline code
+while missing the authorization task it existed for. One reviewer, always, removes the decision.
 
-The **combined** reviewer is still a **fresh, blind subagent** (author ≠ verifier) and still
-reports findings with `file:line` evidence. All four review invariants hold:
+## Why not zero
 
-1. fresh subagent,
-2. blind to the implementer's self-assessment,
-3. evidence-with-location,
-4. findings-loop-until-clean.
+The task reviewer is the task-scoped gate: it reads one diff against one brief while both are
+small enough to hold in full. The final review reads the whole branch and cannot attribute a
+propagated defect to the task that introduced it, and the implementer's own green run is the
+author's run. Neither replaces the per-task read.
 
-`combined` fuses the two *passes* into one dispatch. It does not fuse the two *lenses*: the
-prompt keeps spec compliance first, then code quality, because if the wrong thing was built
-the quality of the wrong thing does not matter.
+## The gate that is never folded in
 
-## What `none` relocates (it does not skip)
+The final code review is a separate dispatch after all tasks, whatever the per-task reviews
+found.
 
-A leaf task's safety net is three reads that already happen:
+## Where the cost is controlled
 
-- the implementer's own tests (still mandatory),
-- the once-per-wave/batch full-suite checkpoint (`super.verification-before-completion`),
-- the mandatory final code review + `super.independent-verification` gate after all tasks.
-
-Those three already read every file in the diff. A fourth read by a per-task reviewer, on a
-one-file, zero-dependency, spec-explicit task, is the redundant rigor the V11 benchmark
-flagged as cost without quality gain. `none` fires only for that genuinely-leaf shape
-("add this literal constant", "add this README line").
-
-## Why overriding downward is forbidden and upward is free
-
-**Never override a computed shape downward** (treating a `two-stage` task as `combined`
-because "the domain feels known"). The script's signals are the same inputs a human reviewer
-would use, computed without the temptation to save time.
-
-**Overriding upward is always safe and never wrong** — keeping two reviewers on a task the
-script marked `combined`/`none` costs tokens and buys certainty. When genuinely unsure,
-escalate one shape. Same escalation-ladder principle as model tier.
-
-## The two gates that no shape touches
-
-The final code review and `super.independent-verification` are **never skipped and never
-combined**, regardless of any individual task's `reviewShape`. They are separate dispatches
-after all tasks, and they are what makes relocating per-task rigor safe in the first place.
-
-## What the default fan-out buys, and what it costs
-
-**Gains:** subagents follow TDD with fresh, curated context per task (no pollution, complete info upfront, parallel-safe); they can ask questions before and during work; the two-stage review (spec compliance prevents over/under-building, then code quality ensures it is well-built) plus self-review and review loops catch issues early.
-
-**Cost:** more invocations (implementer + up to 2 reviewers per task), more controller prep, and review iterations — paid back by catching issues earlier (cheaper than debugging later). The shapes above provide safe levers to reduce this cost on mechanical tasks.
+- **The reviewer's tier.** It runs at the task's tier floored at `standard`, and moves up only by
+  the escalation ladder (`./model-selection.md`) — never pre-emptively.
+- **The task's size.** Several small, same-kind, same-file edits are one task with N tests when
+  the planner merges them at decomposition time (`super.writing-plans`, task granularity), so the
+  reviewer reads one diff instead of N. That is the planner's call, made once with full context;
+  the executor never re-cuts the plan to save a dispatch.
+- **What crosses the controller's context.** Diffs and task text move as file paths; the reviewer
+  returns a short verdict, never the code it read.

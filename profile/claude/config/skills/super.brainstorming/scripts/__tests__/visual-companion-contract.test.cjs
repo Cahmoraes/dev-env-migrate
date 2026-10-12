@@ -51,8 +51,7 @@ test('SKILL.md states the debt exists and what does NOT settle it', () => {
 
 test('SKILL.md names the steps the debt pre-empts — the ones that stole the turn', () => {
   assert.match(skillMd, /pre-empts every turn-ending step/);
-  assert.match(skillMd, /Checkpoint 1 complexity dispatch/);
-  assert.match(skillMd, /`super\.deep-research` consent gate/);
+  assert.match(skillMd, /clarifying questions, the `super\.deep-research` offer/);
 });
 
 test('SKILL.md flags explicit render requests as blocking, in the words the user used', () => {
@@ -85,8 +84,7 @@ test('rule 1: launch and first render belong to the same turn', () => {
 
 test('rule 2: an open debt pre-empts every turn-ending step', () => {
   assert.match(operationMd, /An open debt pre-empts every turn-ending step/);
-  assert.match(operationMd, /Checkpoint 1 complexity dispatch/);
-  assert.match(operationMd, /`super\.deep-research` consent gate/);
+  assert.match(operationMd, /clarifying questions, the `super\.deep-research` offer, approach proposals/);
 });
 
 test('rule 3: an explicit render request is blocking, quoting what the user actually typed', () => {
@@ -108,14 +106,6 @@ test('an unsettleable debt must be declared in-thread, never left silent', () =>
 });
 
 // ------------------------------------------------------------- evidence and boundaries
-
-test('operation.md records the run the rules come from, with the two empty-browser turns', () => {
-  assert.match(operationMd, /The run these rules come from/);
-  assert.match(operationMd, /apenas me apresente uma versão do sheet em modal/);
-  assert.match(operationMd, /atualize o mockup visual/);
-  assert.match(operationMd, /turn ends, empty browser/);
-  assert.match(operationMd, /zero writes to `content\/`/);
-});
 
 test('operation.md records that reachability was NOT the problem — every file was in context', () => {
   assert.match(operationMd, /already in context/);
@@ -220,7 +210,7 @@ test('the acceptance tier carries the evidence and the inverse-misfire diagnosis
 });
 
 test('the settlement table names the text-card screen as a non-settlement', () => {
-  const table = operationMd.slice(operationMd.indexOf('| Not a settlement'), operationMd.indexOf('### The run these rules'));
+  const table = operationMd.slice(operationMd.indexOf('| Not a settlement'), operationMd.indexOf('### Why the debt needs'));
   assert.match(table, /render-screen\.cjs/,
     'the table is where the model checks what counts — a row missing here is a rule nobody reads');
 });
@@ -236,8 +226,8 @@ test('checklist step 2 stays open until a real screen is served', () => {
   assert.match(skillMd, /this step stays open until a real screen is served/);
 });
 
-test('checklist step 3 Checkpoint 1 defers to an open render debt', () => {
-  assert.match(skillMd, /Settle any open render debt before dispatching anything here/);
+test('checklist step 3 deep-research offer defers to an open render debt', () => {
+  assert.match(skillMd, /Settle any open render debt before offering it/);
   assert.match(skillMd, /strands the user at an empty browser/);
 });
 

@@ -3,7 +3,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { validateReach } = require('./reach-checks.cjs');
+const { validateSpecTrace } = require('./spec-trace.cjs');
 
 const HELP = `
 validate-tasks.cjs — Validate a super.writing-plans tasks index AND its task files.
@@ -13,23 +15,27 @@ Usage:
 
 Options:
   --tasks-index <path>  Path to tasks index markdown file
-  --index-only          Validate only the index format (skip per-file checks)
+  --index-only          Validate only the index format (skip per-file checks). Run it once the
+                        index and the task-writer briefing are on disk, before dispatching the
+                        writer: when plans/task-writer-briefing.md exists it also checks the
+                        briefing's ## Runner de testes section (see below)
   --keep-briefing       Do NOT remove the transient plans/task-writer-briefing.md on a clean
                         full validation. By default a passing full run deletes it (it is a
                         writing-plans handoff artifact, not part of the plan); pass this to
                         keep it for debugging. No-op under --index-only or when validation fails.
   --prd <path>          PRD to cross-check FR coverage against. When given, every FR-NNN
-                        declared in the PRD must be covered by at least one task, and a PRD
-                        with FRs but tasks carrying no FR tags is flagged (closes the
+                        declared in the PRD must be covered by at least one task-file title,
+                        and a PRD with FRs but task titles carrying no FR tags is flagged (closes the
                         silent "PRD exists but FR tags forgotten" gap). Omit for spec-only plans.
+                        No-op under --index-only (the titles live in the task files).
   --mockups <dir>       Curated-mockups directory (specs/mockups/) to cross-check visual
                         coverage against. When given and the directory holds at least one
                         curated artifact, at least one task must reference it via a
                         "### Fidelidade Visual" subsection — otherwise the durable visual
                         decision is silently dropped. Mirrors --prd; omit for non-visual plans.
   --repo-root <dir>     Repository root to cross-check the plan's *reach* against the real
-                        codebase. Disjointness proves tasks do not collide; reach proves they
-                        cover what the change touches. Enables three checks (see
+                        codebase. Reach proves the plan covers what the change
+                        touches. Enables three checks (see
                         reach-checks.cjs): importers of a modified file that are in no
                         write-set, enrollment/registry files that list the siblings of a
                         created file, and the repo's full test-suite inventory (ERROR when a
@@ -37,21 +43,39 @@ Options:
                         plan-only behaviour.
   --help                Show usage and exit 0
 
-Index checks: sequential numbering, line format, .md references, duplicates, titles, and —
-when a ## Execution Waves / ## Ondas de Execução section exists — that the wave list is a
-coherent partition: no task in two waves, none in zero waves, no wave naming a task the index
-does not have (dependency ordering needs the task files, so it is a per-file check below).
+Index checks: sequential numbering, line format, .md references, duplicates, titles, the
+index SHAPE (ERROR on a heading other than the three sections, on a header line other than the
+title / **Spec:** / **PRD:** / ---, on prose outside a bullet, or on an [FR-XXX] tag in a task
+line — the index is a tracker, nothing in it has a reader beyond those).
 Per-file checks (default, unless --index-only):
   - each referenced task-NN.md physically exists
-  - each task file declares the required headers: **Status:** **PRD:** **Spec:** **Depends on:**
-  - FR-XXX tags (or legacy RF-XXX) declared in the index line are traceable in the task file (title or body)
-  - when a ## Execution Waves / ## Ondas de Execução section exists: every parallel (2+ task)
-    wave's task files declare disjoint ## Arquivos write-sets (ERROR on overlap or on a
-    parallel-wave task with no verifiable write-set) — same check as
-    super.parallel-subagent-in-tree's check-wave-disjoint.cjs, run here at plan-validation
-    time so an unsafe wave never reaches dispatch
-  - every task's **Depends on:** entries sit in a STRICTLY earlier wave (ERROR otherwise —
-    same rule parse-waves.cjs enforces, but at plan time instead of first dispatch)
+  - each task file declares the required headers: **Status:** **PRD:** **Spec:**
+  - the FR-XXX tags (or legacy RF-XXX) a task implements are declared in its task file's
+    "# Task N: <title> [FR-XXX]" heading; one cited only in the body is a WARNING
+  - consumption ordering (**Consome:** only cites earlier tasks) is parse-plan.cjs's check,
+    run at self-review right after this one
+Briefing runner (--index-only, only when plans/task-writer-briefing.md exists — the pre-dispatch
+run; a plan of at most four tasks has no briefing): the briefing carries a "## Runner de testes" section, one
+bullet per workspace and test kind, and every line that cites a backticked command (a span with a
+space) has one with a per-file target placeholder (\`<arquivo>\`, \`<file>\`...). ERROR otherwise — the task writer copies its Run: lines from
+here and nowhere else. Result under \`briefingRunner\`.
+Spec trace (no flag; the spec is the index's **Spec:** line, resolved against the index dir,
+then --repo-root): every AC-NN / INV-NN the spec defines is a line of some task's
+## Critérios de Sucesso — "- AC-03 [unit|int|db|unverified]: <spec text>" — with the spec's
+text (whitespace-normalized; AC without its origin); an ID the spec does not define, a missing
+level token or a different text is an ERROR, and so is an AC/INV on an index line. When the spec
+has a migration block, its **Mecanismo:** and **Critério de fim:** are copied the same way
+("- **Mecanismo:** <spec text>") and a ## Foco de Revisão line names that task (ERROR). A spec
+not found, or with no AC, is a WARNING that the trace is off. An INV the spec guarantees by db or
+app+lock is [db]/[int] with " · Run: <cmd>" naming a test file of the task, or [unverified] with
+"conferência: <query>" (ERROR otherwise; listed under specTrace.unverified); a [db]/[int] task whose
+tests skip on a missing env var, and a spec risk scored 6+ no task cites and no
+"(ação humana · <dono> · <prazo>)" marks, are WARNINGS. A traced ID that no test name in
+its task carries is a WARNING. Result under \`specTrace\`.
+Review Focus (WARNINGS, never errors — the list is the author's judgment, the script proves
+its shape): the index carries a ## Foco de Revisão section; it lists at most 5 items; each
+item names an owning task-NN that exists; and (full run only) that task's ## Passos carries
+a "Review Focus:" step pinning the item with a test. Result under \`reviewFocus\`.
 `.trimStart();
 
 function usage(message) {
@@ -140,12 +164,13 @@ function cleanupBriefing(indexDir, valid, indexOnly, keepBriefing, warnings) {
   const briefingPath = path.join(indexDir, BRIEFING_FILENAME);
   const cleanup = { path: briefingPath, existed: false, removed: false };
   if (indexOnly || !valid || keepBriefing) return cleanup;
-  if (!fs.existsSync(briefingPath)) return cleanup;
-  cleanup.existed = true;
   try {
     fs.unlinkSync(briefingPath);
+    cleanup.existed = true;
     cleanup.removed = true;
   } catch (err) {
+    if (err.code === 'ENOENT') return cleanup;
+    cleanup.existed = true;
     warnings.push({ line: 0, message: `Could not remove transient ${BRIEFING_FILENAME}: ${err.message}` });
   }
   return cleanup;
@@ -195,7 +220,6 @@ const REQUIRED_HEADERS = [
   { label: '**Status:**', pattern: /^\*\*Status:\*\*/mu },
   { label: '**PRD:**', pattern: /^\*\*PRD:\*\*/mu },
   { label: '**Spec:**', pattern: /^\*\*Spec:\*\*/mu },
-  { label: '**Depends on:**', pattern: /^\*\*Depends on:\*\*/mu },
 ];
 
 /** Recommended, not required — see the warning where it is used. */
@@ -204,6 +228,158 @@ const TIER_FIELD = /^\*\*Tier:\*\*\s*(cheap|standard|capable)\s*$/imu;
 // A task references the curated mockup via the "### Fidelidade Visual" subsection
 // (## or ### heading). This is the marker the writing-plans template emits.
 const VISUAL_LINK_PATTERN = /^#{2,3}\s+Fidelidade Visual\b/imu;
+
+// ─── Briefing runner ─────────────────────────────────────────────────────────
+// The task writer copies every `Run:` line's runner from the briefing (the index stopped carrying
+// `**Tech Stack:**` on 2026-09-24). Measured over 12 real briefings: 4 had no per-file command at
+// all — none, or only a form that runs the whole suite (`pnpm --filter <app> test -- --run`,
+// `test:run`) — because the verified form lived in the index line. Checked before the writer is
+// dispatched, so the gap is closed by the controller that holds the research, not guessed by the
+// writer from the repo's instructions file (which, in one measured repo, documented a form that
+// collects nothing).
+const BRIEFING_RUNNER_HEADING = /^##\s+(?:Runner de testes|Test runner)\s*$/iu;
+const RUNNER_TARGET = /<[^<>`]+>/u;
+
+function validateBriefingRunner(briefingPath, errors) {
+  const result = { checked: false, path: briefingPath, commands: [] };
+  let content;
+  try {
+    content = fs.readFileSync(briefingPath, 'utf8');
+  } catch {
+    return result; // no briefing (a plan of at most four tasks, or not written yet): nothing to check
+  }
+  result.checked = true;
+  const lines = content.split(/\r?\n/u);
+  const start = lines.findIndex((line) => BRIEFING_RUNNER_HEADING.test(line));
+  if (start < 0) {
+    errors.push({
+      line: 0,
+      message: `${BRIEFING_FILENAME} has no \`## Runner de testes\` section. The task writer copies every \`Run:\` line from it and reads the runner nowhere else. Add it before dispatching the writer: one bullet per workspace and test kind (unit, integration, e2e) with the per-file command the research ran and the target as a placeholder — e.g. \`- <workspace> · <kind>: \\\`<command> <arquivo>\\\` (verificado: 1 arquivo coletado)\` — plus, when the repo's instructions file documents a form that does not narrow, that form marked as not to use.`,
+    });
+    return result;
+  }
+  const section = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/u.test(line)) break;
+    section.push(line);
+  }
+  // A backticked span with whitespace is a command; a bare path, workspace or package name is
+  // not, and neither is a `key: value` config entry (`globals: true`). Judged per line: a bullet
+  // that cites commands needs one with a per-file target — the rest of it may explain (`o script
+  // já é \`vitest run\``), but a bullet whose only command runs the whole suite is the gap.
+  for (const line of section) {
+    const commands = [...line.matchAll(/`([^`\n]+)`/gu)]
+      .map((m) => m[1].trim())
+      .filter((span) => /\s/u.test(span) && !/^[\w.-]+:\s/u.test(span));
+    result.commands.push(...commands);
+    if (commands.length > 0 && !commands.some((c) => RUNNER_TARGET.test(c))) {
+      errors.push({ line: 0, message: `${BRIEFING_FILENAME}'s \`## Runner de testes\` has a command with no per-file target: \`${commands[0]}\`. A task's \`Run:\` line names the narrowest unit the runner accepts; write the form that takes one file, with the target as a placeholder (\`<arquivo>\`). A whole-suite command has no place here: the final gate resolves it from the project's own scripts.` });
+    }
+  }
+  if (result.commands.length === 0) {
+    errors.push({ line: 0, message: `${BRIEFING_FILENAME}'s \`## Runner de testes\` names no command. Write the per-file command per workspace and test kind, in backticks, with the target as a placeholder (\`<command> <arquivo>\`).` });
+  }
+  return result;
+}
+
+// ─── Index shape ─────────────────────────────────────────────────────────────
+// The index is a tracker with a fixed shape: a header (title, **Spec:**, **PRD:**, `---`)
+// and three sections, each a bullet list. Every consumer reads it by
+// heading or by line pattern, so anything else — a verification-command inventory, the
+// answer to a validator warning, a note to the executor — has no reader and only dilutes
+// what the checkboxes say. ERROR, not warning: a planner that answered two
+// reach warnings by writing the answers into the header is the measured failure mode.
+const INDEX_SECTION_HEADERS = [
+  /^##\s+(?:Tarefas|Tasks)\s*$/iu,
+  /^##\s+(?:Restrições Globais|Restricoes Globais|Global Constraints)\s*$/iu,
+  /^##\s+(?:Foco de Revisão|Foco de Revisao|Review Focus)\s*$/iu,
+];
+const INDEX_HEADER_FIELD = /^\*\*(?:Spec|PRD):\*\*/u;
+const INDEX_SECTION_LIST = '`## Tarefas`, `## Restrições Globais`, `## Foco de Revisão`';
+// **Tech Stack:** left the index on 2026-09-24: its one reader was the task writer, and the
+// briefing the writer reads first already carries the verified per-file command (measured on
+// the consumer plan `tasks-replaced-visual-redesign.md`: the same command, plus the form not to
+// use). Past planning, the task files' `Run:` lines carry it to every implementer.
+const TECH_STACK_FIELD = /^\*\*Tech Stack:\*\*/u;
+
+function excerpt(line) {
+  const text = line.trim();
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
+}
+
+function validateIndexShape(content, errors) {
+  const lines = content.split(/\r?\n/u);
+  let inComment = false;
+  let section = null; // null = header block, before the first known section
+  let skipUnknown = false;
+  let prevAllowed = false; // previous non-blank line was a field or a bullet → a wrapped continuation is fine
+
+  lines.forEach((raw, index) => {
+    const line = raw.trimEnd();
+    const lineNumber = index + 1;
+    if (inComment) {
+      if (/-->/u.test(line)) inComment = false;
+      return;
+    }
+    if (/^\s*<!--/u.test(line)) {
+      if (!/-->/u.test(line)) inComment = true;
+      return;
+    }
+    if (line.trim() === '') {
+      prevAllowed = false;
+      return;
+    }
+    const heading = line.match(/^(#{1,6})\s+\S/u);
+    if (heading) {
+      prevAllowed = false;
+      if (heading[1] === '#' && section === null) return; // the title
+      if (heading[1] === '##' && INDEX_SECTION_HEADERS.some((re) => re.test(line))) {
+        section = line;
+        skipUnknown = false;
+        return;
+      }
+      errors.push({
+        line: lineNumber,
+        message: `Unknown section \`${excerpt(line)}\` in the tasks index. The index has exactly three sections — ${INDEX_SECTION_LIST} — and no reader for any other. Delete it: context for an implementer belongs in its task file, context for a reviewer in \`## Restrições Globais\` or \`## Foco de Revisão\`.`,
+      });
+      section = line;
+      skipUnknown = true;
+      return;
+    }
+    if (skipUnknown) return;
+    if (section === null) {
+      if (INDEX_HEADER_FIELD.test(line) || /^---\s*$/u.test(line)) {
+        prevAllowed = true;
+        return;
+      }
+      if (prevAllowed && !/^\*\*/u.test(line)) return; // wrapped continuation of a field
+      if (TECH_STACK_FIELD.test(line)) {
+        errors.push({
+          line: lineNumber,
+          message: '**Tech Stack:** has no reader in the tasks index. The per-file test command the research verified goes in the task-writer briefing, and the task files\' `Run:` lines carry it to the implementer. Delete the line (and any continuation) from the index.',
+        });
+        prevAllowed = false;
+        return;
+      }
+      errors.push({
+        line: lineNumber,
+        message: `Index header line has no reader: \`${excerpt(line)}\`. Before \`## Tarefas\` only the title, **Spec:**, **PRD:** and \`---\` belong. Delete it — a validator warning is answered by changing the plan, never by writing the answer here; the executor resolves the project's verification commands itself.`,
+      });
+      prevAllowed = false;
+      return;
+    }
+    if (/^\s*[-*]\s+/u.test(line)) {
+      prevAllowed = true;
+      return;
+    }
+    if (prevAllowed && /^\s+\S/u.test(line)) return; // indented continuation of a bullet
+    errors.push({
+      line: lineNumber,
+      message: `Prose outside a bullet in \`${excerpt(section)}\`: \`${excerpt(line)}\`. Each section of the index is one bullet per item and nothing else. Delete it — context for an implementer belongs in its task file.`,
+    });
+    prevAllowed = false;
+  });
+}
 
 function validateTasksIndex(content) {
   const lines = content.split(/\r?\n/u);
@@ -229,7 +405,6 @@ function validateTasksIndex(content) {
         rawTitle,
         normalizedTitle,
         taskFile,
-        rfInIndex: extractRequirementTokens(rawTitle),
       });
       taskNumbers.push(taskNumber);
       if (seenNumbers.has(taskNumber)) {
@@ -244,6 +419,12 @@ function validateTasksIndex(content) {
       }
       if (!/\.md$/iu.test(taskFile)) {
         errors.push({ line: lineNumber, message: `Task reference must point to a .md file. Found: ${taskFile}` });
+      }
+      if (extractRequirementTokens(rawTitle).length > 0) {
+        errors.push({
+          line: lineNumber,
+          message: `Task ${taskNumber}'s index line carries FR tags (${extractRequirementTokens(rawTitle).join(', ')}). The FR ids a task implements live in its task file's title (\`# Task ${taskNumber}: <title> [FR-XXX]\`), where coverage and the QA gate read them; the index line is \`- [ ] N. <title> → \`task-NN.md\`\`. Move them to the task file's title and drop them here.`,
+        });
       }
       if (normalizedTitle.length < 5) {
         warnings.push({ line: lineNumber, message: 'Task title is too short (minimum 5 characters).' });
@@ -261,6 +442,7 @@ function validateTasksIndex(content) {
   if (parsedTasks.length === 0) {
     errors.push({ line: 0, message: 'Tasks index must contain at least one task line.' });
   }
+  validateIndexShape(content, errors);
 
   return { errors, warnings, taskNumbers, parsedTasks };
 }
@@ -276,13 +458,12 @@ function readTaskBodies(parsedTasks, indexDir) {
   const bodies = new Map();
   for (const task of parsedTasks) {
     const filePath = path.join(indexDir, task.taskFile);
-    const entry = { filePath, exists: fs.existsSync(filePath), body: null, readError: null };
-    if (entry.exists) {
-      try {
-        entry.body = fs.readFileSync(filePath, 'utf8');
-      } catch (err) {
-        entry.readError = err;
-      }
+    const entry = { filePath, exists: true, body: null, readError: null };
+    try {
+      entry.body = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') entry.exists = false;
+      else entry.readError = err;
     }
     bodies.set(task.taskNumber, entry);
   }
@@ -302,9 +483,8 @@ function validateTaskFiles(parsedTasks, bodies, errors, warnings) {
       file: task.taskFile,
       exists: false,
       missingHeaders: [],
-      rfInIndex: task.rfInIndex,
+      rfInTitle: [],
       rfInFile: [],
-      rfMissingInFile: [],
       visualLinked: false,
       mockupRefs: [],
     };
@@ -330,7 +510,7 @@ function validateTaskFiles(parsedTasks, bodies, errors, warnings) {
     }
 
     // `**Tier:**` is RECOMMENDED, not required: writing-plans allows omitting it, and the
-    // executor falls back to parse-waves' `suggestedTier`. But nothing used to say so at
+    // executor falls back to parse-plan's `suggestedTier`. But nothing used to say so at
     // plan time, so plans shipped without it and the execution skill went on claiming
     // "each task carries a **Tier:**". A warning names the gap where it is cheap to fix —
     // in the plan — instead of leaving the executor to discover it per dispatch.
@@ -338,20 +518,20 @@ function validateTaskFiles(parsedTasks, bodies, errors, warnings) {
     if (!record.tierPresent) {
       warnings.push({
         line: task.lineNumber,
-        message: `Task file ${task.taskFile} has no **Tier:** header — the executor will fall back to parse-waves' suggestedTier. Write it explicitly (cheap | standard | capable) so the tier is auditable in the plan rather than recomputed at dispatch.`,
+        message: `Task file ${task.taskFile} has no **Tier:** header — the executor will fall back to parse-plan's suggestedTier. Write it explicitly (cheap | standard | capable) so the tier is auditable in the plan rather than recomputed at dispatch.`,
       });
     }
 
     record.visualLinked = VISUAL_LINK_PATTERN.test(body);
     record.mockupRefs = [...body.matchAll(/specs\/mockups\/([^\s`)\]]+)/giu)].map((m) => m[1]);
+    // The task file's `# Task N: <title> [FR-XXX]` heading declares the FRs the task implements:
+    // PRD coverage counts them, and the QA gate maps a failed story to its task through them
+    // (parse-tasks.cjs → `requirements`). One cited only in the body is a softer signal.
+    const heading = body.match(/^#\s+Task\s+\d+\s*:\s*(.+)$/mu);
+    record.rfInTitle = heading ? extractRequirementTokens(heading[1]) : [];
     record.rfInFile = extractRequirementTokens(body);
-    record.rfMissingInFile = task.rfInIndex.filter((rf) => !record.rfInFile.includes(rf));
-    for (const rf of record.rfMissingInFile) {
-      errors.push({ line: task.lineNumber, message: `${rf} is declared in the index for task ${task.taskNumber} but is not traceable in ${task.taskFile}.` });
-    }
-    // A requirement cited in the file but not declared in the index is a softer signal.
-    for (const rf of record.rfInFile.filter((rf) => !task.rfInIndex.includes(rf))) {
-      warnings.push({ line: task.lineNumber, message: `${rf} appears in ${task.taskFile} but is not declared in the index line for task ${task.taskNumber}.` });
+    for (const rf of record.rfInFile.filter((rf) => !record.rfInTitle.includes(rf))) {
+      warnings.push({ line: task.lineNumber, message: `${rf} appears in ${task.taskFile} but is not declared in its title (\`# Task ${task.taskNumber}: <title> [FR-XXX]\`), so neither PRD coverage nor the QA gate counts it for task ${task.taskNumber}.` });
     }
 
     return record;
@@ -370,19 +550,16 @@ function validatePrdCoverage(prdPath, parsedTasks, taskFiles, errors) {
     return { prdRequirements: [], coveredRequirements: [], uncoveredRequirements: [] };
   }
   const prdRequirements = [...new Set(extractRequirementTokens(prdContent))];
-  // An FR is "covered" if it is cited in any task's index line or in any task file body.
+  // An FR is "covered" when a task file's title declares it — the one place the QA gate reads.
   const covered = new Set();
-  for (const task of parsedTasks) {
-    for (const rf of task.rfInIndex) covered.add(rf);
-  }
   for (const file of taskFiles) {
-    for (const rf of file.rfInFile || []) covered.add(rf);
+    for (const rf of file.rfInTitle || []) covered.add(rf);
   }
   const uncoveredRequirements = prdRequirements.filter((fr) => !covered.has(fr));
   if (prdRequirements.length > 0 && covered.size === 0) {
     errors.push({
       line: 0,
-      message: `PRD declares ${prdRequirements.length} functional requirement(s) (${prdRequirements.join(', ')}) but no task carries an [FR-XXX] tag — traceability is missing.`,
+      message: `PRD declares ${prdRequirements.length} functional requirement(s) (${prdRequirements.join(', ')}) but no task file's title carries an [FR-XXX] tag — traceability is missing.`,
     });
   } else {
     for (const fr of uncoveredRequirements) {
@@ -603,7 +780,7 @@ function validateSharedResourceConsistency(parsedTasks, bodies, warnings) {
   return { ok: conflicts.length === 0, conflicts };
 }
 
-// ─── Task step scope: no barrier-owned commands, no de-scoping test command ───
+// ─── Task step scope: no checkpoint-owned commands, no de-scoping test command ───
 //
 // A task file's `## Passos` is pasted VERBATIM into the implementer's prompt, and
 // the same text reaches the reviewer as `{PLAN_OR_REQUIREMENTS}`. So a step that
@@ -612,9 +789,9 @@ function validateSharedResourceConsistency(parsedTasks, bodies, warnings) {
 // because it arrives labelled as a Critério de Sucesso.
 //
 // Measured on a real 12-task plan: 12/12 task files carried a "run the whole
-// backend suite + typecheck" step, and the in-tree session hand-rolled 40 unscoped
-// test runs, 17 typechecks and 10 formatter-in-fix-mode runs while never once
-// invoking barrier.cjs, which exists to do all four ONCE per wave.
+// backend suite + typecheck" step, and the session hand-rolled 40 unscoped test
+// runs, 17 typechecks and 10 formatter-in-fix-mode runs — the full-suite
+// checkpoint exists to do all four ONCE per batch.
 //
 // The prose rule lives in references/required-task-step-pattern.md. This is the
 // mechanism, because a prohibition in prose loses to an instruction in prose.
@@ -626,7 +803,11 @@ const STEPS_SECTION = /^##\s+(?:Passos|Steps)\s*$/imu;
 const CRITERIA_SECTION = /^##\s+(?:Critérios de Sucesso|Criterios de Sucesso|Success Criteria)\s*$/imu;
 
 const PKG_MANAGER = String.raw`(?:pnpm|npm|yarn|bun|npx|turbo)`;
-const TEST_RUNNER = /\b(?:pytest|vitest|jest|mocha|rspec|phpunit|go test|cargo test|mix test|dotnet test|gradle test|mvn test)\b/u;
+// The closing boundary is `(?![\w-])`, not `\b`: a hyphen is a word boundary, so `\b` made the
+// plugin names an ecosystem spells with the runner as prefix (`pytest-playwright`, `pytest-cov`,
+// `jest-dom`) read as the bare runner — a dependency named in an "Expected:" line was flagged as
+// the whole suite and the task writer rewrote a correct step to satisfy the check.
+const TEST_RUNNER = /\b(?:pytest|vitest|jest|mocha|rspec|phpunit|go test|cargo test|mix test|dotnet test|gradle test|mvn test)(?![\w-])/u;
 const TEST_SCRIPT = new RegExp(String.raw`\b${PKG_MANAGER}\b[^|;&]*?\btest(?::[\w-]+)?\b`, 'u');
 /** A file/node-id argument — the narrowest target most runners accept. */
 const FILE_TOKEN = /(?:\S+\.(?:py|ts|tsx|js|jsx|mjs|cjs|rb|go|rs|java|kt|php|ex|exs|cs|swift|scala)\b|::\S+)/u;
@@ -697,9 +878,9 @@ function classifyCommand(cmd) {
 }
 
 /**
- * Flags barrier-owned commands and de-scoping test commands inside task steps and
+ * Flags checkpoint-owned commands and de-scoping test commands inside task steps and
  * success criteria. Errors, not warnings: every one of these reaches an implementer
- * as an instruction, and the cost is paid on every task of every wave.
+ * as an instruction, and the cost is paid on every task of the plan.
  */
 function validateTaskStepScope(parsedTasks, bodies, errors) {
   const findings = [];
@@ -717,282 +898,273 @@ function validateTaskStepScope(parsedTasks, bodies, errors) {
         line: task.lineNumber,
         message: `${task.taskFile} prescribes the ${kind} (\`${cmd}\`). `
           + 'Task steps are pasted verbatim into the implementer prompt, so this becomes an instruction '
-          + 'that outranks the execution skill. The integration barrier runs lint/typecheck/test/build '
-          + 'once per wave — see references/required-task-step-pattern.md, "Steps you must never write".',
+          + 'that outranks the execution skill. The full-suite checkpoint runs lint/typecheck/test/build '
+          + 'once per batch — see references/required-task-step-pattern.md, "Steps you must never write".',
       });
     }
   }
   return { checked: parsedTasks.length, findings, clean: findings.length === 0 };
 }
 
-// ─── Wave write-set disjointness (parallel waves only) ────────────────────────
-//
-// A parallel wave (2+ tasks) whose task files declare overlapping ## Arquivos
-// write-sets is unsafe for ANY parallel execution mechanism, not just
-// super.parallel-subagent-in-tree: even isolated worktrees produce a merge
-// conflict on the same overlap when integrated back. The dedicated pre-flight
-// gate for this already exists (super.parallel-subagent-in-tree's
-// check-wave-disjoint.cjs), but it only runs at dispatch time, right before an
-// execution skill starts a wave — nothing forces it to actually be invoked.
-// Moving the same check here, into the mandatory plan self-review that runs
-// before a plan is ever handed off for execution, closes that gap: a plan
-// with an unproven-safe parallel wave now fails validation at the source,
-// before any execution mode is chosen. This mirrors check-wave-disjoint.cjs's
-// parsing conventions (kept in sync deliberately, not required cross-skill —
-// each skill script stays runnable standalone).
-const WAVES_HEADER = /^##\s+(?:Execution Waves|Ondas de Execução)\s*$/iu;
-const WAVE_LINE = /^-\s+\*\*Wave\s+(\d+)\*\*\s*\(([^)]*)\)\s*:\s*(.+?)\s*$/iu;
+// ─── ## Arquivos manifests (write-set for reach, test-set for the runner check) ─
 const FILES_SECTION = /^##\s+(?:Arquivos|Files)\s*$/imu;
 const READ_VERB = /^(?:read|reference|inspect|view|consult|ler|referenciar|referencia|referência|inspecionar|consultar|ver)$/iu;
 
-function extractTaskNumbersFromText(text) {
-  const nums = [];
-  const re = /(?:task-)?0*(\d+)/giu;
-  let m;
-  while ((m = re.exec(text)) !== null) nums.push(Number.parseInt(m[1], 10));
-  return nums;
-}
-
-/** Parse the `## Execution Waves` / `## Ondas de Execução` section into `{ waveNumber, tasks }[]`. */
-function parseExecutionWaves(content) {
-  const lines = content.split(/\r?\n/u);
-  let inSection = false;
-  const waves = [];
-  for (const line of lines) {
-    if (WAVES_HEADER.test(line)) { inSection = true; continue; }
-    if (inSection && /^##\s+/u.test(line)) break;
-    if (!inSection) continue;
-    const m = line.match(WAVE_LINE);
-    if (m) {
-      waves.push({
-        waveNumber: Number.parseInt(m[1], 10),
-        tasks: extractTaskNumbersFromText(m[3]),
-      });
-    }
-  }
-  return waves;
-}
+const TEST_VERB = /^(?:test|tests|teste|testes)$/iu;
+const MANIFEST_VERB = /^\s*[-*]\s*([A-Za-zÀ-ÿ]+)\s*:/u;
+const BACKTICK_SPAN = /`([^`]+)`/gu;
 
 /**
- * Read a task body's `## Arquivos`/`## Files` section write-set. Same
- * read/write classification as check-wave-disjoint.cjs: Create/Modify/Test
- * (and pt-BR equivalents) are writes; an explicit read verb is a read;
- * unknown/absent verb defaults to write (missing an overlap is worse than an
- * over-cautious one). Subsections after the manifest (### Fidelidade Visual,
- * ### Conformidade com as Skills Padrão) are excluded by breaking at the next
- * heading of any level.
+ * Read a task body's `## Arquivos`/`## Files` manifest in one pass.
+ *
+ * `writeSet`: Create/Modify/Test (and pt-BR equivalents) are writes; an explicit read verb
+ * is a read; unknown/absent verb defaults to write (a missed write is worse than an
+ * over-cautious one). `testSet`: the `Test:`/`Teste:` entries, kept separate because
+ * reach's suite check asks a different question of them — not "who else writes this
+ * file" but "which runner would ever select it". Subsections after the manifest
+ * (### Fidelidade Visual, ### Skills a invocar) are excluded by
+ * breaking at the next heading of any level.
  */
-function parseArquivosWriteSet(body) {
-  const lines = body.split(/\r?\n/u);
+function parseArquivosManifest(body) {
   let inSection = false;
-  let present = false;
   const writes = new Set();
-  for (const line of lines) {
-    if (FILES_SECTION.test(line)) { inSection = true; present = true; continue; }
-    if (inSection && /^#{2,}\s+/u.test(line)) break;
+  const tests = new Set();
+  for (const line of body.split(/\r?\n/u)) {
+    if (FILES_SECTION.test(line)) { inSection = true; continue; }
     if (!inSection) continue;
-    const verbMatch = line.match(/^\s*[-*]\s*([A-Za-zÀ-ÿ]+)\s*:/u);
-    const paths = [...line.matchAll(/`([^`]+)`/gu)].map((pm) => pm[1].trim());
-    if (paths.length === 0) continue;
+    if (/^#{2,}\s+/u.test(line)) break;
+    const verbMatch = line.match(MANIFEST_VERB);
     const verb = verbMatch ? verbMatch[1] : '';
-    const isRead = verb !== '' && READ_VERB.test(verb);
-    if (isRead) continue;
-    for (const p of paths) {
+    if (verb !== '' && READ_VERB.test(verb)) continue;
+    const isTest = verb !== '' && TEST_VERB.test(verb);
+    for (const m of line.matchAll(BACKTICK_SPAN)) {
+      const p = m[1].trim();
       if (!(p.includes('/') || /\.[a-z0-9]+$/iu.test(p))) continue;
       writes.add(p);
+      if (isTest) tests.add(p);
     }
   }
-  return { present, writeSet: [...writes].sort() };
+  return { writeSet: [...writes].sort(), testSet: [...tests].sort() };
 }
 
-const TEST_VERB = /^(?:test|tests|teste|testes)$/iu;
-
-/**
- * The `Test:`/`Teste:` entries of a task's `## Arquivos` manifest. Kept separate
- * from the write-set because reach's suite check asks a different question of
- * them: not "who else writes this file" but "which runner would ever select it".
- */
-function parseArquivosTestSet(body) {
-  const lines = body.split(/\r?\n/u);
-  let inSection = false;
-  const tests = new Set();
-  for (const line of lines) {
-    if (FILES_SECTION.test(line)) { inSection = true; continue; }
-    if (inSection && /^#{2,}\s+/u.test(line)) break;
-    if (!inSection) continue;
-    const verbMatch = line.match(/^\s*[-*]\s*([A-Za-zÀ-ÿ]+)\s*:/u);
-    if (!verbMatch || !TEST_VERB.test(verbMatch[1])) continue;
-    for (const pathMatch of line.matchAll(/`([^`]+)`/gu)) {
-      const candidate = pathMatch[1].trim();
-      if (candidate.includes('/') || /\.[a-z0-9]+$/iu.test(candidate)) tests.add(candidate);
-    }
-  }
-  return [...tests].sort();
-}
-
-/**
- * Cross-check every declared parallel wave (2+ tasks) for write-set
- * disjointness. Pushes an ERROR (not a warning) for any overlap or
- * unverifiable task — this is the same "Never parallelize an unsafe wave"
- * rule super.parallel-subagent-in-tree/SKILL.md states in prose, now
- * enforced mechanically at plan-validation time instead of relying on the
- * execution-time agent to remember to run check-wave-disjoint.cjs. Returns
- * null when the plan has no ## Execution Waves section (nothing to check —
- * Small/Medium/no-parallelism plans are unaffected).
- */
-function validateWaveDisjointness(content, bodies, errors) {
-  const waves = parseExecutionWaves(content);
-  if (waves.length === 0) return null;
-
-  return waves.map((wave) => {
-    if (wave.tasks.length < 2) {
-      return { waveNumber: wave.waveNumber, tasks: wave.tasks, writeOverlaps: [], unverifiable: [], safeForInTreeParallel: true };
-    }
-
-    const taskInfos = wave.tasks.map((n) => {
-      const entry = bodies.get(n);
-      const parsed = entry && entry.body ? parseArquivosWriteSet(entry.body) : { present: false, writeSet: [] };
-      return { number: n, present: parsed.present, writeSet: parsed.writeSet };
-    });
-
-    const writeOverlaps = [];
-    for (let i = 0; i < taskInfos.length; i += 1) {
-      for (let j = i + 1; j < taskInfos.length; j += 1) {
-        const a = taskInfos[i];
-        const b = taskInfos[j];
-        const setB = new Set(b.writeSet);
-        const files = a.writeSet.filter((f) => setB.has(f)).sort();
-        if (files.length > 0) writeOverlaps.push({ tasks: [a.number, b.number], files });
-      }
-    }
-    const unverifiable = taskInfos.filter((t) => !t.present || t.writeSet.length === 0).map((t) => t.number);
-    const safeForInTreeParallel = writeOverlaps.length === 0 && unverifiable.length === 0;
-
-    if (!safeForInTreeParallel) {
-      for (const ov of writeOverlaps) {
-        errors.push({
-          line: 0,
-          message: `Wave ${wave.waveNumber} declares tasks ${ov.tasks[0]} & ${ov.tasks[1]} as parallel but both write ${ov.files.join(', ')} — unsafe for in-tree parallel (shared-tree clobber) and for worktree parallel (merge conflict on integration). Apply the Large-tier consolidation judgment call (super.writing-plans SKILL.md, "Task Decomposition Granularity"): merge into one task with N tests if same file(s) + real implementation dependency + reviewable combined diff, otherwise resequence into different waves so they run sequentially. Cross-check: node <super.parallel-subagent-in-tree-base-dir>/scripts/check-wave-disjoint.cjs --tasks-index <this-index> --wave ${wave.waveNumber}`,
-        });
-      }
-      for (const n of unverifiable) {
-        errors.push({
-          line: 0,
-          message: `Wave ${wave.waveNumber} declares task ${n} as parallel but its ## Arquivos section is missing or declares no write paths — disjointness cannot be verified, so the wave cannot be proven safe to parallelize. Add a ## Arquivos section with Create/Modify entries, or move task ${n} to its own sequential wave.`,
-        });
-      }
-    }
-
-    return { waveNumber: wave.waveNumber, tasks: wave.tasks, writeOverlaps, unverifiable, safeForInTreeParallel };
-  });
-}
-
-// ─── Wave structure (membership + dependency ordering) ────────────────────────
+// ─── Forward references across tasks (warning-level) ─────────────────────────
 //
-// The disjointness check above asks "can these tasks run side by side?". It never
-// asks whether the wave *partition itself* is coherent, and a plan can be handed
-// off with an incoherent one: a task listed in two waves, a task listed in none,
-// a wave naming a task the index does not have, or a task scheduled at or before
-// a task it depends on. parse-waves.cjs already reports exactly these — but only
-// when an execution skill runs it, i.e. after the plan shipped. Measured cost of
-// that gap (session 303caf93): the plan reached execution with SEVEN tasks in two
-// waves each and five dependency-order violations; parse-waves emitted 13 errors
-// on the first call of the run, and the waves had to be rewritten and re-committed
-// mid-execution. Same checks, moved to the mandatory plan self-review.
-const DEPENDS_FIELD = /^\*\*Depends on:\*\*\s*(.+?)\s*$/imu;
+// Tasks run in index order and each implementer reads only its own task file. A code block in
+// task N that imports a symbol whose first `export` appears in a LATER task M cannot compile at
+// N: the implementer either stubs the symbol inside N's review (a write-set conflict with M) or
+// stops. A real plan shipped this — task 2's use cases imported an IoC identifier task 4 created;
+// the task review flagged the write-set leak and the controller had to rule on it mid-run. The
+// sequential writer loses sight of it because it never re-reads task N after writing task M.
+// Heuristic, so a warning: only imported names are checked, and with --repo-root a symbol the
+// repository already exports is not a forward reference (task M is modifying it).
 
-/** Read a task body's `**Depends on:**` → number[]; null when the field is absent. */
-function parseDependsOn(body) {
-  const m = body.match(DEPENDS_FIELD);
-  if (!m) return null;
-  const raw = m[1].trim().replace(/[`*]/gu, '');
-  if (raw === '' || /^(?:n\/a|none|nenhuma?|nenhum)$/iu.test(raw)) return [];
-  return extractTaskNumbersFromText(raw);
+const EXPORT_DECL = /\bexport\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gu;
+const IMPORT_NAMED = /\bimport\s+(?:type\s+)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*['"][^'"]+['"]/gu;
+
+function codeBlocks(body) {
+  const out = [];
+  const re = /^\s*```[^\n]*\n([\s\S]*?)^\s*```/gmu;
+  let m;
+  while ((m = re.exec(body)) !== null) out.push(m[1]);
+  return out.join('\n');
+}
+
+function importedNames(code) {
+  const names = new Set();
+  let m;
+  IMPORT_NAMED.lastIndex = 0;
+  while ((m = IMPORT_NAMED.exec(code)) !== null) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().replace(/^type\s+/u, '').split(/\s+as\s+/u)[0].trim();
+      if (/^[A-Za-z_$][\w$]*$/u.test(name)) names.add(name);
+    }
+  }
+  return names;
+}
+
+function exportedNames(code) {
+  const names = new Set();
+  let m;
+  EXPORT_DECL.lastIndex = 0;
+  while ((m = EXPORT_DECL.exec(code)) !== null) names.add(m[1]);
+  return names;
 }
 
 /**
- * Validate the `## Execution Waves` partition itself. Membership checks need only
- * the index, so they run under `--index-only` too; dependency ordering needs the
- * task bodies (`**Depends on:**` lives there), so it is skipped when `bodies` is
- * null and the caller gets `dependencyOrderChecked: false` rather than a silent
- * pass. Returns null when the plan declares no waves — nothing to partition.
+ * Which of `names` the repository already exports, in ONE `git grep` (tracked files only).
+ * Empty when there is no repo root, no candidate, or the root is not a git repository.
  */
-function validateWaveStructure(content, taskNumbers, bodies, errors) {
-  const waves = parseExecutionWaves(content);
-  if (waves.length === 0) return null;
+function repoExports(repoRoot, names) {
+  const exported = new Set();
+  if (!repoRoot || names.size === 0) return exported;
+  let out;
+  try {
+    out = execFileSync(
+      'git',
+      ['-C', repoRoot, 'grep', '-h', '-o', '-E', `export[[:space:]]+([a-z]+[[:space:]]+)*(${[...names].map((n) => n.replace(/\$/gu, '\\$')).join('|')})\\b`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    return exported; // exit 1 = no match; anything else = not a git repo
+  }
+  for (const match of out.split('\n')) {
+    const name = match.trim().split(/\s+/u).pop();
+    if (names.has(name)) exported.add(name);
+  }
+  return exported;
+}
 
-  const waveOf = new Map();
-  const known = new Set(taskNumbers);
-  const duplicated = [];
-  const unknown = [];
-  const missing = [];
-  const dependencyViolations = [];
-
-  waves.forEach((wave, idx) => {
-    const position = idx + 1;
-    for (const n of wave.tasks) {
-      // First placement wins. With a duplicate the choice is arbitrary for the
-      // membership error, but not for the ordering one: scoring against the LAST
-      // mention would call `[[1,2],[3],[2]]` well-ordered while wave 1 actually
-      // runs task 2 next to its own dependency. First-wins also matches the fix
-      // the duplicate error asks for — keep the earliest mention.
-      if (waveOf.has(n)) duplicated.push({ task: n, waves: [waveOf.get(n), position] });
-      else waveOf.set(n, position);
-      if (!known.has(n)) unknown.push(n);
+function validateForwardReferences(parsedTasks, bodies, repoRoot, warnings) {
+  const ordered = [...parsedTasks].sort((a, b) => a.taskNumber - b.taskNumber);
+  const perTask = [];
+  const firstExport = new Map();
+  for (const task of ordered) {
+    const entry = bodies.get(task.taskNumber);
+    const blocks = entry && entry.body ? codeBlocks(entry.body) : '';
+    const exports = exportedNames(blocks);
+    perTask.push({ task, exports, imports: importedNames(blocks) });
+    for (const name of exports) if (!firstExport.has(name)) firstExport.set(name, task.taskNumber);
+  }
+  const candidates = [];
+  for (const { task, exports, imports } of perTask) {
+    for (const name of imports) {
+      const definer = firstExport.get(name);
+      if (definer === undefined || definer <= task.taskNumber || exports.has(name)) continue;
+      candidates.push({ task: task.taskNumber, symbol: name, definedIn: definer });
     }
+  }
+  const inRepo = repoExports(repoRoot, new Set(candidates.map((c) => c.symbol)));
+  const found = candidates.filter((c) => !inRepo.has(c.symbol));
+  for (const { task, symbol, definedIn } of found) {
+    warnings.push({
+      line: 0,
+      message: `task-${String(task).padStart(2, '0')} imports \`${symbol}\`, which is first created by task-${String(definedIn).padStart(2, '0')} — it runs later, so task ${task} cannot compile as written. Move the symbol's creation (and its file in ## Arquivos) into task ${task}, or reorder the tasks.`,
+    });
+  }
+  return { checked: true, repoChecked: Boolean(repoRoot), found };
+}
+
+// ─── Review Focus (warning-level) ─────────────────────────────────────────────
+//
+// The spec is a vision document: it says what the software must do, not every
+// input it will meet. Upstream measured 21/21 implementers shipping the same
+// crash on an input the spec implied but never named, and no task's tests
+// exercised. The index's `## Foco de Revisão` section names the (at most) five
+// such inputs, each pinned by a test step in the owning task, and is handed
+// verbatim to the final reviewer. Every check here is a WARNING: the section
+// is judgment the plan author exercises, and the validator only proves the
+// shape — present, bounded, each line owned by a real task, each pin written.
+const REVIEW_FOCUS_HEADER = /^##\s+(?:Foco de Revisão|Foco de Revisao|Review Focus)\s*$/imu;
+const REVIEW_FOCUS_CAP = 5;
+const REVIEW_FOCUS_PIN = /^\s*(?:[-*]\s+)?(?:\*\*)?(?:Step\s+\d+:\s*)?Review Focus:/imu;
+const STEP_MARKER = /^\s*[-*]\s+\*\*Step\b/mu;
+
+/**
+ * A pin is a `Review Focus:` label whose own step carries test code: a fenced block between the
+ * label and the next `**Step` marker. A bare label dropped between two steps — or beside a test
+ * that exercises something else — names the item without pinning it; a real plan passed the
+ * presence check with five such labels added after the fact.
+ */
+function hasPinnedTest(steps) {
+  const re = new RegExp(REVIEW_FOCUS_PIN.source, 'gimu');
+  let m;
+  while ((m = re.exec(steps)) !== null) {
+    const lineEnd = steps.indexOf('\n', m.index + m[0].length);
+    const after = lineEnd === -1 ? '' : steps.slice(lineEnd + 1);
+    const next = after.search(STEP_MARKER);
+    const own = next === -1 ? after : after.slice(0, next);
+    if (/^\s*```/mu.test(own)) return true;
+  }
+  return false;
+}
+
+/** Bullet lines of the section, HTML comments stripped, with their 1-based index line. */
+function parseReviewFocusLines(content) {
+  const stripped = content.replace(/<!--[\s\S]*?-->/gu, (c) => c.replace(/[^\n]/gu, ''));
+  const lines = stripped.split(/\r?\n/u);
+  let inSection = false;
+  const items = [];
+  lines.forEach((line, index) => {
+    if (REVIEW_FOCUS_HEADER.test(line)) { inSection = true; return; }
+    if (inSection && /^##\s+/u.test(line)) { inSection = false; return; }
+    if (!inSection) return;
+    const m = line.match(/^\s*[-*]\s+(.+?)\s*$/u);
+    if (!m) return;
+    const text = m[1];
+    const owners = [];
+    const re = /task-0*(\d+)/giu;
+    let t;
+    while ((t = re.exec(text)) !== null) owners.push(Number.parseInt(t[1], 10));
+    items.push({ line: index + 1, text, owners: [...new Set(owners)] });
   });
-  for (const n of taskNumbers) if (!waveOf.has(n)) missing.push(n);
+  return items;
+}
 
-  for (const d of duplicated) {
-    errors.push({
+/**
+ * Validate the `## Foco de Revisão` section. Presence and shape need only the
+ * index; the per-task pin needs the bodies, so under `--index-only` it reports
+ * `pinsChecked: false` rather than a silent pass. Never pushes an error.
+ */
+function validateReviewFocus(content, taskNumbers, bodies, warnings) {
+  const present = REVIEW_FOCUS_HEADER.test(content);
+  if (!present) {
+    warnings.push({
       line: 0,
-      message: `Task ${d.task} appears in more than one wave (positions ${d.waves.join(' and ')}) — a wave list is a partition, so a task placed twice would be dispatched twice. Keep it in the EARLIEST wave whose dependencies are all satisfied and delete the other mention.`,
+      message: 'Tasks index has no ## Foco de Revisão section — the inputs the spec implies but no task tests are unlisted, so the final reviewer has nothing to check deliberately. Add the section (empty means "checked, none found").',
+    });
+    return { present: false, lines: [], overCap: false, unowned: [], unknownTasks: [], unpinned: [], pinsChecked: false };
+  }
+  const lines = parseReviewFocusLines(content);
+  const known = new Set(taskNumbers);
+  const overCap = lines.length > REVIEW_FOCUS_CAP;
+  if (overCap) {
+    warnings.push({
+      line: 0,
+      message: `## Foco de Revisão lists ${lines.length} items; the ceiling is ${REVIEW_FOCUS_CAP}. Keep the ${REVIEW_FOCUS_CAP} most likely to bite a person using the software — a longer list dilutes the reviewer's attention instead of directing it.`,
     });
   }
-  for (const n of [...new Set(unknown)].sort((a, b) => a - b)) {
-    errors.push({
-      line: 0,
-      message: `Execution Waves references task ${n}, which is not in the index task list — either the task line is missing from the index or the wave names the wrong number.`,
-    });
-  }
-  for (const n of missing) {
-    errors.push({
-      line: 0,
-      message: `Task ${n} is in the index but in no wave — every task must be placed exactly once, or execution silently skips it. Add it to the earliest wave whose dependencies are satisfied.`,
-    });
-  }
-
-  let dependencyOrderChecked = false;
-  if (bodies) {
-    dependencyOrderChecked = true;
-    for (const n of taskNumbers) {
+  const unowned = [];
+  const unknownTasks = [];
+  const unpinned = [];
+  for (const item of lines) {
+    if (item.owners.length === 0) {
+      unowned.push(item.line);
+      warnings.push({ line: item.line, message: 'Foco de Revisão line names no owning task (`task-NN`) — a line no task owns gets no test.' });
+      continue;
+    }
+    for (const n of item.owners) {
+      if (!known.has(n)) {
+        unknownTasks.push({ line: item.line, task: n });
+        warnings.push({ line: item.line, message: `Foco de Revisão line names task-${String(n).padStart(2, '0')}, which is not in the index task list.` });
+        continue;
+      }
+      if (!bodies) continue;
       const entry = bodies.get(n);
       if (!entry || !entry.body) continue;
-      const deps = parseDependsOn(entry.body);
-      if (!deps || deps.length === 0) continue;
-      const own = waveOf.get(n);
-      if (own == null) continue;
-      for (const d of deps) {
-        const dep = waveOf.get(d);
-        if (dep == null || dep < own) continue;
-        dependencyViolations.push({ task: n, wave: own, dependsOn: d, dependencyWave: dep });
-        errors.push({
-          line: 0,
-          message: `Task ${n} (wave ${own}) depends on task ${d} (wave ${dep}) — a dependency must be in a STRICTLY earlier wave, otherwise task ${n} reads a file task ${d} has not written yet. Move task ${n} to a wave after ${dep}, or drop the dependency if it is not real.`,
+      const steps = sectionText(entry.body, STEPS_SECTION);
+      if (!REVIEW_FOCUS_PIN.test(steps)) {
+        unpinned.push({ line: item.line, task: n });
+        warnings.push({
+          line: item.line,
+          message: `Foco de Revisão line is owned by task ${n}, but ${path.basename(entry.filePath)} has no "Review Focus:" step in its ## Passos — the implied input is named but not pinned by a test.`,
+        });
+      } else if (!hasPinnedTest(steps)) {
+        unpinned.push({ line: item.line, task: n });
+        warnings.push({
+          line: item.line,
+          message: `Foco de Revisão line is owned by task ${n}, but the "Review Focus:" label in ${path.basename(entry.filePath)} carries no test code in its own step — write it as the step title (\`- **Step N: Review Focus: <item> — Write the failing test**\`) above the test that exercises exactly that item.`,
         });
       }
     }
   }
-
   return {
-    waveCount: waves.length,
-    duplicated,
-    unknown: [...new Set(unknown)].sort((a, b) => a - b),
-    missing,
-    dependencyViolations,
-    dependencyOrderChecked,
-    coherent: duplicated.length === 0 && unknown.length === 0 && missing.length === 0
-      && dependencyViolations.length === 0,
+    present: true,
+    lines: lines.map((l) => ({ line: l.line, text: l.text, owners: l.owners })),
+    overCap,
+    unowned,
+    unknownTasks,
+    unpinned,
+    pinsChecked: Boolean(bodies),
   };
 }
 
@@ -1022,8 +1194,9 @@ function main() {
     taskFiles = validateTaskFiles(parsedTasks, taskBodies, errors, warnings);
   }
 
+  // Coverage reads the task files' titles, so --index-only (no task bodies) cannot establish it.
   let prdCoverage = null;
-  if (prdPath) {
+  if (prdPath && !indexOnly) {
     prdCoverage = validatePrdCoverage(prdPath, parsedTasks, taskFiles, errors);
   }
 
@@ -1039,25 +1212,35 @@ function main() {
     sharedResourceConsistency = validateSharedResourceConsistency(parsedTasks, taskBodies, warnings);
   }
 
-  // Barrier-owned commands and de-scoping test commands inside task steps. Needs the
+  // Checkpoint-owned commands and de-scoping test commands inside task steps. Needs the
   // task bodies, so it is a full-run-only check.
   let stepScope = null;
   if (!indexOnly) {
     stepScope = validateTaskStepScope(parsedTasks, taskBodies, errors);
   }
 
-  // Wave partition coherence. Membership needs only the index, so this runs under
-  // --index-only too; dependency ordering degrades explicitly via dependencyOrderChecked.
-  const waveStructure = validateWaveStructure(content, taskNumbers, taskBodies, errors);
-
-  // Parallel-wave write-set disjointness (errors, not warnings — see function docstring).
-  let waveDisjointness = null;
+  // Symbols a task imports before the task that creates them has run (warning-level).
+  let forwardReferences = null;
   if (!indexOnly) {
-    waveDisjointness = validateWaveDisjointness(content, taskBodies, errors);
+    forwardReferences = validateForwardReferences(parsedTasks, taskBodies, repoRoot, warnings);
   }
 
-  // Plan reach against the real codebase — the coverage half of the partition whose
-  // disjointness half the wave check above already proves.
+  // Review Focus shape (warnings only). Presence and ownership need only the index;
+  // the per-task pin degrades explicitly via pinsChecked under --index-only.
+  const reviewFocus = validateReviewFocus(content, taskNumbers, taskBodies, warnings);
+
+  // The spec's AC/INV and migration block, carried into the owning tasks with the spec's text.
+  // The spec comes from the index's **Spec:** line; the index-line check runs even --index-only.
+  const specTrace = validateSpecTrace({
+    indexContent: content,
+    indexDir: path.dirname(tasksIndexPath),
+    parsedTasks,
+    bodies: taskBodies,
+    repoRoot,
+  }, errors, warnings);
+
+  // Plan reach against the real codebase: every declared write and test path is
+  // reachable from the repo the plan will run in.
   let reach = null;
   if (!indexOnly && repoRoot) {
     const writeSetsByTask = new Map();
@@ -1065,11 +1248,17 @@ function main() {
     for (const task of parsedTasks) {
       const entry = taskBodies.get(task.taskNumber);
       if (!entry || !entry.body) continue;
-      writeSetsByTask.set(task.taskNumber, parseArquivosWriteSet(entry.body).writeSet);
-      testPathsByTask.set(task.taskNumber, parseArquivosTestSet(entry.body));
+      const manifest = parseArquivosManifest(entry.body);
+      writeSetsByTask.set(task.taskNumber, manifest.writeSet);
+      testPathsByTask.set(task.taskNumber, manifest.testSet);
     }
     reach = validateReach({ repoRoot, writeSetsByTask, testPathsByTask }, errors, warnings);
   }
+
+  // Pre-dispatch run: the briefing must hand the writer a per-file runner.
+  const briefingRunner = indexOnly
+    ? validateBriefingRunner(path.join(path.dirname(tasksIndexPath), BRIEFING_FILENAME), errors)
+    : null;
 
   // Verdict must be settled before cleanup: the briefing is removed only on a clean full run.
   const valid = errors.length === 0;
@@ -1097,9 +1286,11 @@ function main() {
     mockupCoverage,
     sharedResourceConsistency,
     stepScope,
-    waveStructure,
-    waveDisjointness,
+    reviewFocus,
+    specTrace,
+    forwardReferences,
     reach,
+    briefingRunner,
     briefingCleanup,
   };
   // Intentional: exit 0 even when `valid` is false. The validation verdict is the

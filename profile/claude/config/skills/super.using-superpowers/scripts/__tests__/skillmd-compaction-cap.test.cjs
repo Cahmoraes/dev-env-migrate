@@ -19,7 +19,7 @@
  *                means changing how many skills the pipeline keeps alive at once, which is
  *                an architecture decision, not a size check. Documented in CLAUDE.md.
  *
- * Why a ratchet and not a flat fail: three skills are already over, and the content past the
+ * Why a ratchet and not a flat fail: one skill is still over (three were when this was written), and the content past the
  * cut is not filler — in super.subagent-driven-development the cut at ~20,000 bytes lands
  * mid-`## Model Selection`, so `## Red Flags` (the rationalization table), `## Review cost
  * control` and `## Integration` all sit past it. Cutting those under time pressure is how a
@@ -46,7 +46,7 @@ const BYTES_PER_TOKEN = 4;
 /**
  * Anti-staleness floor. A walk that stopped finding SKILL.md files would pass forever.
  */
-const MIN_SKILLS = 18;
+const MIN_SKILLS = 16;
 
 /**
  * Skills already past the cap when this guard was written. The number is a CEILING IN BYTES,
@@ -59,53 +59,8 @@ const MIN_SKILLS = 18;
  * publicly what was worth more than the bytes.
  */
 const OVER_CAP_CEILING = {
-  // Cut lands mid-`## Model Selection`; `## Red Flags`, `## Review cost control` and
-  // `## Integration` are all past it. Reduction needs section-by-section review against
-  // references/, which already holds longer versions of several of these sections.
-  //
-  // 31370 -> 31415 (+45): qualified `node scripts/parse-tasks.cjs` with the skill's own
-  // base-dir placeholder. The bare relative path only resolved if the cwd happened to be the
-  // skill directory, which it never is — a command that fails as ENOENT everywhere it is
-  // pasted. Correctness beat 45 bytes in a file whose tail is already truncated.
-  //
-  // 31415 -> 31395 (-20): the Branch Guard resume fix cost +104, paid for by dropping the
-  // rationale sentence under `## Prompt Templates` (why the templates embed the code-search
-  // ladder). Rationale belongs in CLAUDE.md, and that paragraph sits past the compaction cut
-  // anyway, so it was already lost in exactly the long sessions it was meant to help.
-  //
-  // 31395 -> 31582 (+187): two entry-path fixes in the same region. (a) Both entry guards
-  // read "if triage classified the feature Micro/Small/Medium", a condition that is simply
-  // FALSE on the two paths that skip triage (direct invocation, and option 5 on a plan
-  // already on disk) — a guard whose condition never evaluates is not a guard, and the
-  // reader has to infer what the silence means. (b) "Validation gates run one family up,
-  // floored at standard" contradicted the canonical references/model-selection.md ("the
-  // task's tier, floored at standard") exactly on `standard` tasks, which are the majority;
-  // the session that stopped at this file reviewed a `standard` task at `capable`. Both sit
-  // where the reader actually is, which is the point.
-  'super.subagent-driven-development': 31582,
-  // 20168 -> 20250 (+82) for the same path fix, then back down to 20084 by trimming mechanism
-  // out of the description. `compaction-survival-window.test.cjs` is what forced the trim: the
-  // +82 pushed `## Red Flags` across the window boundary, so the fix had to be paid for rather
-  // than waved through. The ceiling follows the file down.
-  //
-  // 20084 -> 20174 (+90): the two inputs this gate reads from the PRD were prose-only and
-  // both were re-decided per session. (1) The US->FR mapping is required at four points of
-  // the procedure and was produced by nothing — two runs over the same PRD mapped it
-  // differently. (2) "Is the story UI-facing?" chooses between two branches that write the
-  // same field and opposite statuses; the same backend feature came back 3/3 PASSED on one
-  // run and PARTIAL on another. Both now read a datum (`requirements`, `uiFacing`) with a
-  // stated fallback. A gate whose verdict is not reproducible is not a gate.
-  //
-  // Most of the +755 was paid back on the same commit: Step 3's acceptance-test-location
-  // paragraph and its TypeScript note both restated what Task 2 already hands the subagent,
-  // and `compaction-survival-window.test.cjs` is what forced the trim — the additions had
-  // pushed `## Red Flags` across the window boundary.
-  'super.user-story-verification': 20174,
-  // 20073 -> 20059 (-14): `visual-companion.md` and `visual-companion-reference.md` moved from
-  // the skill root into `references/`, so the Layout-gate pointer grew by 11 bytes twice. Paid
-  // for on the same edit by collapsing that pointer's duplicated markdown link into the bare
-  // backtick form the rest of this file already uses. The ceiling follows the file down.
-  'super.brainstorming': 20059,
+  // 2026-09-13: empty. super.subagent-driven-development (the last offender, ceiling 31143)
+  // became a router under the cap. A new entry is a new debt: pin its measured size and shrink.
 };
 
 function skillMds() {

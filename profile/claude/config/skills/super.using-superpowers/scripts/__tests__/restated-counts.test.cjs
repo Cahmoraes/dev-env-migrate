@@ -71,19 +71,10 @@ function countNumberedItems(text) {
   return seen.size;
 }
 
-const CASES = [
-  {
-    what: 'the architecture self-review additions',
-    skill: 'super.brainstorming',
-    // The exact restated phrase, so a reword forces a revisit instead of silently
-    // dropping this case out of the table.
-    counter: /Run these (one|two|three|four|five|six|seven|eight|nine|ten|\d+) additional checks/,
-    reference: 'super.brainstorming/references/design-spec-structure.md',
-    heading: '## Self-review additions',
-    count: countNumberedItems,
-    floor: 5,
-  },
-];
+// Empty since 2026-09-01: super.brainstorming stopped restating "Run these eight
+// additional checks" (the self-review now points at the section without a number,
+// the preferred fix). Register a case here the day a SKILL.md restates a count again.
+const CASES = [];
 
 function read(rel) {
   const abs = path.join(SKILLS, rel);
@@ -114,6 +105,16 @@ for (const c of CASES) {
     );
   });
 }
+
+// The brainstorming self-review still points at this section by heading (no count).
+// Keep the anti-staleness half: the heading must exist and still be a numbered list.
+test('after-the-design.md points at a "Self-review additions" section that still exists', () => {
+  const pointer = read('super.brainstorming/references/after-the-design.md');
+  assert.ok(pointer.includes('"Self-review additions"'), 'the self-review no longer points at the section — drop this test or fix the pointer');
+  const section = sectionOf(read('super.brainstorming/references/design-spec-structure.md'), '## Self-review additions');
+  assert.ok(section, '"## Self-review additions" is gone from design-spec-structure.md');
+  assert.ok(countNumberedItems(section) >= 5, 'expected the section to still hold several numbered items');
+});
 
 test('no SKILL.md restates a count that this guard does not check', () => {
   const registered = new Set(CASES.map((c) => c.skill));

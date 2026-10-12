@@ -98,7 +98,7 @@ test('behaviour: --prd at a missing path fails a plan that is otherwise valid', 
   fs.writeFileSync(
     path.join(plans, 'task-01.md'),
     '# Task 01\n\n**Status:** PENDING\n**PRD:** N/A\n**Spec:** spec.md\n'
-      + '**Depends on:** none\n**Tier:** cheap\n\n## Arquivos\n- src/a.ts\n\n## Steps\n1. do it\n',
+      + '**Tier:** cheap\n\n## Arquivos\n- src/a.ts\n\n## Steps\n1. do it\n',
   );
 
   const run = (args) =>

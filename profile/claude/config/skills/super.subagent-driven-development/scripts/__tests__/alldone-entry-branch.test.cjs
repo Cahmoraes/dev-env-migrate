@@ -10,7 +10,7 @@
  *
  * Simulating a real entry against a consumer's finished feature (8 tasks, all `[x]` and all
  * `Status: DONE`) surfaced it: the controller got there, reported the gap unprompted, and
- * had to INFER that the right route was the finish tail. Its own words — "tive de inferir
+ * had to INFER that the right route was the final stage. Its own words — "tive de inferir
  * que a rota correta é ir direto às gates finais". A controller that infers differently
  * re-dispatches implementers over code that is already on the branch.
  *
@@ -46,10 +46,10 @@ test('the skill branches on allDone where the parse result is read', () => {
     + 'runs at all.');
 });
 
-test('the allDone branch routes to the finish tail and forbids restarting', () => {
+test('the allDone branch routes to the final stage and forbids restarting', () => {
   const line = body.split('\n').find((l) => l.includes('`allDone: true`')) || '';
-  assert.match(line, /finish tail/i,
-    'say where to go: the finish tail. "Nothing to run" without a destination leaves the '
+  assert.match(line, /final stage/i,
+    'say where to go: the final stage. "Nothing to run" without a destination leaves the '
     + 'controller to pick one.');
   assert.match(line, /[Nn]ever restart|do not restart|não reinicie/,
     'an empty pending list is equally consistent with "start over". The prohibition is what '
@@ -61,9 +61,8 @@ test('the allDone branch routes to the finish tail and forbids restarting', () =
  * showed the two fixes colliding — a defect introduced by fixing, not a pre-existing one.
  *
  * Both verdicts arrive in the SAME call, because the skill requires it ("Both parsers go in
- * this one call"). `executionRecommendation.mode` said hand off to the parallel skill with
- * `decisionRequired: true` (present the options); `allDone: true` said go to the finish
- * tail. Neither qualified the other. The controller resolved it correctly and said so:
+ * this one call"). The parser said present the execution options; `allDone: true` said go to the final
+ * stage. Neither qualified the other. The controller resolved it correctly and said so:
  * "isso é inferência minha (…) nada no texto diz que allDone curto-circuita a linha 40".
  *
  * And the Branch Guard fired — `current=main default=main` — but its prescribed action is
@@ -81,7 +80,7 @@ test('allDone settles the mode election, and the Branch Guard keeps its bite wit
   const guard = body.split('### Branch Guard')[1].split('\n### ')[0];
   assert.match(guard, /no first implementer to hold/i,
     'the STOP has to name what it stops when there is no pending dispatch');
-  assert.match(guard, /before the finish tail/i,
+  assert.match(guard, /before the final stage/i,
     'and where it applies instead — the tail dispatches fix implementers and integrates '
     + 'onto this branch, so the consent is still owed');
 });

@@ -338,7 +338,7 @@ test("N allocator PROCESSES that all hash to the SAME block still get disjoint b
   assert.equal(new Set(starts).size, parallelism, `blocks must be distinct, got ${JSON.stringify(starts)}`);
 
   const allPorts = results.flatMap((r) => Object.values(r.env).filter((v) => /^\d+$/u.test(v)));
-  assert.equal(new Set(allPorts).size, allPorts.length, "no port may be assigned twice across the wave");
+  assert.equal(new Set(allPorts).size, allPorts.length, "no port may be assigned twice across the dispatch");
 
   const check = run(["--worktree", root, "--check", "--json-only"]);
   assert.equal(check.disjoint, true);

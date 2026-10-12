@@ -23,6 +23,15 @@
  * removes the silence when a gate script still will not run. Either half alone leaves the
  * incident reproducible.
  *
+ * Two wordings satisfy the resolution rule, because the harnesses genuinely differ and both were
+ * measured on 2026-09-02. Copilot CLI 1.0.82 and opencode 1.18.18 state the skill directory as text
+ * alongside the skill content — for them "your skill context header" is literally true, and the
+ * literal `${CLAUDE_SKILL_DIR}` arrives UNEXPANDED. Claude Code 2.1.258 is the mirror image: its
+ * `Skill` tool result carries no header at all, and the directory reaches the model only because the
+ * harness substitutes `${CLAUDE_SKILL_DIR}` inside the SKILL.md body. Pinning one wording forced the
+ * other reference to state something false, so the assertion pins the INVARIANT instead: name a
+ * concrete source for the base directory, and derive the sibling from it literally.
+ *
  * Run: node --test super.using-superpowers/scripts/__tests__/harness-base-dir-resolution.test.cjs
  */
 const test = require('node:test');
@@ -67,7 +76,7 @@ test('at least one harness reference actually uses the placeholder', () => {
 
 test('every harness reference that uses the placeholder says how to resolve it', () => {
   const missing = USING_PLACEHOLDER
-    .filter((f) => !/skill context header/i.test(f.text))
+    .filter((f) => !/skill context header|\$\{CLAUDE_SKILL_DIR\}/i.test(f.text))
     .map((f) => f.name);
   assert.deepEqual(
     missing, [],
@@ -80,7 +89,7 @@ test('every harness reference that uses the placeholder says how to resolve it',
 
 test('every harness reference that uses the placeholder names the sibling rule', () => {
   const missing = USING_PLACEHOLDER
-    .filter((f) => !/parent of your header's base directory \+ `\/super\.X`/.test(f.text))
+    .filter((f) => !/parent of (your header's base directory|that directory) \+ `\/super\.X`/.test(f.text))
     .map((f) => f.name);
   assert.deepEqual(
     missing, [],

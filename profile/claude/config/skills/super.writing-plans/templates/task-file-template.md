@@ -1,14 +1,17 @@
 # Task N: [Task Title] [FR-XXX]
 
-<!-- Prefer one FR-XXX per task: one acceptance criterion, one task, one test.
-     Multiple FR tags on a single task should be rare, reserved for FRs so tightly
-     coupled that splitting them would leave an intermediate state with no test. -->
+<!-- Default: one FR-XXX per task. Several FR tags on one task when the behaviors were
+     coalesced (same file, sequential, one clean review — task-decomposition-granularity.md,
+     Case 2) or are so tightly coupled that splitting leaves an intermediate state with no
+     test; each FR still gets its own test. -->
 
 **Status:** PENDING
+
 **PRD:** `../prd/prd-<feature-name>.md`
+
 **Spec:** `../specs/<feature-name>-design.md`
+
 **Tier:** standard
-**Depends on:** N/A
 
 <!-- Note: If no PRD exists, use **PRD:** N/A and omit [FR-XXX] tags from the title. -->
 <!--
@@ -16,27 +19,23 @@
   or `capable` (never a concrete model name; the harness maps tier→model at dispatch).
   It tells the executor which model to run the implementer on, so a mechanical task
   is not burned on a powerful model and a hard one is not starved of reasoning.
-  Default it from `parse-waves.cjs`'s `suggestedTier` (run it after drafting tasks),
+  Default it from `parse-plan.cjs`'s `suggestedTier` (run it after drafting tasks),
   then override when you know better:
-    - cheap    → 1-2 files, complete spec, no dependencies (mechanical)
+    - cheap    → 1-2 files, complete spec, `Consome:` N/A (mechanical)
     - standard → multi-file integration / moderate judgment (the safe default)
-    - capable  → architecture/design, no spec, or high fan-in (many tasks depend on it)
-  parse-waves.cjs reads this field and lets it OVERRIDE its own computed suggestion.
--->
-
-<!--
-  **Depends on:** lists the tasks whose output THIS task needs before it can start.
-  Format: a comma-separated list of task ids (e.g. `task-01, task-03`) or `N/A` when the
-  task touches no files or symbols produced by an earlier task. This field is what lets
-  super.parallel-subagent-development decide which tasks may run concurrently in isolated
-  worktrees and which must run in order. Be honest: declare a dependency whenever this task
-  reads, imports, or extends something an earlier task creates. A missing-but-real dependency
-  makes parallel worktrees diverge; a spurious one only costs lost parallelism.
+    - capable  → architecture/design, no spec, or high fan-in (many tasks consume it)
+  parse-plan.cjs reads this field and lets it OVERRIDE its own computed suggestion.
 -->
 
 ## Visão Geral
 
-[Brief description of what this task accomplishes]
+<!--
+  2-4 sentences for a human reader: what this task delivers and why. No FR-XXX ids and no
+  labels such as "Decisão D2" or "Review Focus": the FR ids live in the title and in
+  `## Critérios de Sucesso`, the decisions in the spec, the Review Focus in its test step.
+-->
+
+[What this task delivers and why]
 
 ## Arquivos
 
@@ -44,7 +43,23 @@
 - Modify: `exact/path/to/existing.py`
 - Test: `tests/exact/path/to/test.py`
 
-### Conformidade com as Skills Padrão
+## Interfaces
+
+<!--
+  The implementer of this task reads ONLY this file — never the neighboring task files.
+  This block is how it learns the names its neighbors use. `Consome:` names what this task
+  takes from earlier tasks — exact signatures, copied, not paraphrased, each followed by its
+  producer as `(task-NN)`. Those ids are the plan's edges: the index order is the execution
+  order, so each must be an EARLIER task (parse-plan.cjs rejects a forward or dangling one),
+  and how many tasks cite a task (its fan-in) is a signal for its tier.
+  `Produz:` names what later tasks will call: function names, parameter and return types.
+  Write N/A on a line that carries nothing; never leave the line off.
+-->
+
+- **Consome:** [assinaturas exatas do que esta task usa de tasks anteriores, cada uma com `(task-NN)`] — ou N/A
+- **Produz:** [nomes de função, parâmetros e tipos de retorno que tasks posteriores usarão] — ou N/A
+
+### Skills a invocar
 
 <!--
   MANDATORY — never leave empty, and never list a single skill by reflex.
@@ -102,3 +117,6 @@ Follow the required TDD step pattern — read `../references/required-task-step-
 
 - [Measurable success criteria]
 - [Acceptance criteria linked to FR-XXX if PRD exists]
+- [Each spec AC/INV this task makes true, the spec's text verbatim, level token `unit|int|db|unverified`: `- AC-03 [unit]: WHEN … THEN …` · `- INV-02 [db]: <enunciado> · Run: <comando>`]
+- [When this task runs the spec's migration: `- **Mecanismo:** <texto da spec>` and `- **Critério de fim:** <texto da spec>`]
+- [When this task implements an operation of the spec's `**Contrato:**`: its row, verbatim — `| POST /x/:id | entrada | 201 {…} | CODIGO → 409 |`]

@@ -38,7 +38,6 @@ const TASK_BODY = [
   '**Status:** PENDING',
   '**PRD:** ../prd/prd-x.md',
   '**Spec:** ../specs/x-design.md',
-  '**Depends on:** 1, 2',
   '',
   '## Steps',
   '- [ ] write the test',

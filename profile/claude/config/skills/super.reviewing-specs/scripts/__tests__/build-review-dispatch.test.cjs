@@ -5,7 +5,7 @@
 // invariants: every reviewer is tier "capable" with an explicit model, Lens 3 is
 // present iff tasks exist, and the emitted manifest actually passes validate-dispatch.
 //
-// Run: node --test scripts/__tests__/build-review-dispatch.test.cjs
+// Run: node --test super.reviewing-specs/scripts/__tests__/build-review-dispatch.test.cjs
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,7 +25,9 @@ function build(targets, extraArgs = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-'));
   const targetsPath = path.join(dir, 'targets.json');
   fs.writeFileSync(targetsPath, JSON.stringify(targets), 'utf8');
-  const out = execFileSync('node', [SCRIPT, '--targets', targetsPath, ...extraArgs], {
+  let args = extraArgs.includes('--language') ? extraArgs : ['--language', 'pt-BR', ...extraArgs];
+  if (!args.includes('--prompt-dir')) args = [...args, '--prompt-dir', path.join(dir, 'prompts')];
+  const out = execFileSync('node', [SCRIPT, '--targets', targetsPath, ...args], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
   return { dir, manifest: JSON.parse(out) };
@@ -172,4 +174,101 @@ test('"auto" capable model resolves to auto and still passes validate-dispatch',
     // "auto" is a legitimate harness-picks: equality gate skipped, model non-empty.
     assert.equal(v.valid, true, `validate-dispatch errors: ${JSON.stringify(v.errors)}`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---- rendered dispatches -------------------------------------------------------------
+// A cheap controller built the manifest, saw valid:true, then reviewed inline or sent
+// subagents with `model:` omitted (15 eval runs, 2026-09-10). So the script renders the
+// prompts; these tests pin what "ready to send" means. The rendered prompt lives in a file
+// and the entry carries only short fields: a block printed on the controller's stdout was
+// narrated, retyped without `model:`, or run inline (QA, 2026-09-11).
+
+const specOnly = () => ({
+  featureName: 'x', repoRoot: '/repo',
+  spec: { path: '/repo/docs/superpowers/x/specs/x-design.md', found: true },
+  prd: { found: false }, tasksIndex: { found: false }, taskFiles: [],
+  corporateArtifacts: { found: false, entries: [] },
+});
+
+const promptOf = (d) => fs.readFileSync(d.promptFile, 'utf8');
+
+test('dispatches[]: description, model and a one-line pointer per agent; the filled prompt lives in promptFile', () => {
+  const { dir, manifest } = build(specOnly(), ['--capable-model', 'sonnet', '--domain-expertise', 'rate limiting / NestJS']);
+  assert.equal(manifest.dispatches.length, manifest.agents.length);
+  assert.equal(manifest.promptDir, path.join(dir, 'prompts'));
+  manifest.dispatches.forEach((d, i) => {
+    assert.deepEqual(Object.keys(d).sort(), ['description', 'label', 'model', 'prompt', 'promptFile'], 'no rendered block on stdout');
+    assert.equal(d.label, manifest.agents[i].label);
+    assert.equal(d.model, 'sonnet');
+    assert.equal(d.description, `Review spec — ${manifest.agents[i].label.replace(/^lens-\d-/, '')}`);
+    assert.ok(path.isAbsolute(d.promptFile) && d.promptFile.startsWith(manifest.promptDir));
+    assert.ok(!d.prompt.includes('\n') && d.prompt.includes(d.promptFile), 'prompt is a one-line pointer to the file');
+    const body = promptOf(d);
+    assert.equal((body.match(/\{[A-Z_]+\}/g) || []).length, 0, `placeholders left in ${d.label}`);
+    assert.ok(!/^Subagent \(|^ {2}model:|^ {2}description:/m.test(body), 'the file is the prompt body, not the dispatch header');
+    assert.match(body, /^You are a principal-level software architect/, 'body dedented out of the prompt: | scalar');
+    assert.ok(body.includes('rate limiting / NestJS'), 'domain expertise filled');
+    assert.ok(body.includes('in pt-BR'), 'language filled');
+    assert.ok(body.includes('/repo/docs/superpowers/x/specs/x-design.md'), 'spec path filled');
+    assert.ok(body.includes('- PRD:          none'), 'absent companions read "none"');
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('each prompt file carries the probes of ITS lens, from references/review-lenses.md', () => {
+  const { dir, manifest } = build(specOnly(), ['--capable-model', 'sonnet']);
+  const byLabel = Object.fromEntries(manifest.dispatches.map((d) => [d.label, promptOf(d)]));
+  const lens1 = byLabel['lens-1-Coerência interna & completude'];
+  const lens2 = byLabel['lens-2-Spec ↔ realidade do código'];
+  assert.ok(lens1.includes('Every named decision is closed'), 'lens 1 probe present in lens 1');
+  assert.ok(!lens2.includes('Every named decision is closed'), 'lens 1 probe absent from lens 2');
+  assert.ok(lens1.includes('## Your lens: Coerência interna & completude'));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('without --prompt-dir the prompt files go to a fresh temp directory', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-'));
+  const targetsPath = path.join(dir, 'targets.json');
+  fs.writeFileSync(targetsPath, JSON.stringify(specOnly()), 'utf8');
+  const manifest = JSON.parse(execFileSync('node', [SCRIPT, '--targets', targetsPath, '--capable-model', 'sonnet', '--language', 'pt-BR'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  try {
+    assert.ok(path.basename(manifest.promptDir).startsWith('superpowers-review-dispatch-'));
+    assert.ok(manifest.dispatches.every((d) => fs.existsSync(d.promptFile)));
+  } finally {
+    fs.rmSync(manifest.promptDir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('with tasks and corporate artifacts the companion lines are filled and the URL entries are marked not fetchable', () => {
+  const targets = {
+    ...specOnly(),
+    tasksIndex: { found: true, path: '/repo/plans/tasks-x.md' },
+    taskFiles: ['/repo/plans/task-01.md'],
+    corporateArtifacts: { found: true, entries: [
+      { kind: 'path', exists: true, resolvedPath: '/repo/corp/policy.md' },
+      { kind: 'url', url: 'https://intranet/policy' },
+    ] },
+  };
+  const { manifest } = build(targets, ['--capable-model', 'sonnet']);
+  const lens3 = promptOf(manifest.dispatches.find((d) => d.label.startsWith('lens-3')));
+  assert.ok(lens3.includes('- Tasks index:  /repo/plans/tasks-x.md'));
+  assert.ok(lens3.includes('- Task files:   /repo/plans/task-01.md'));
+  const lens5 = promptOf(manifest.dispatches.find((d) => d.label.startsWith('lens-5')));
+  assert.ok(lens5.includes('/repo/corp/policy.md'));
+  assert.ok(lens5.includes('https://intranet/policy (URL: not fetchable'));
+  assert.equal(validate(manifest).valid, true, 'dispatches[] does not break validate-dispatch');
+});
+
+test('--language is required; --domain-expertise defaults to generic', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-'));
+  const targetsPath = path.join(dir, 'targets.json');
+  fs.writeFileSync(targetsPath, JSON.stringify(specOnly()), 'utf8');
+  assert.throws(
+    () => execFileSync('node', [SCRIPT, '--targets', targetsPath, '--capable-model', 'sonnet'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+    (e) => /--language <lang> is required/.test(e.stderr),
+  );
+  const { manifest } = build(specOnly(), ['--capable-model', 'auto']);
+  assert.ok(promptOf(manifest.dispatches[0]).includes('Domain expertise for this review: generic.'));
+  assert.equal(manifest.dispatches[0].model, 'auto');
 });

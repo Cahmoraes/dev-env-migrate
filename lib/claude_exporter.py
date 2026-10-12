@@ -249,7 +249,14 @@ def copy_claude_config(catalog: dict, sanitized_settings: dict) -> list:
             copy_text_sanitized(src, CONFIG_OUT / name)
             copied.append(name)
 
-    ignore = shutil.ignore_patterns("node_modules", ".git", "*.log", ".DS_Store")
+    by_pattern = shutil.ignore_patterns("node_modules", ".git", "*.log", ".DS_Store")
+    # Exclusão por caminho exato (catálogo), não por nome: 'skills/synced' não pega
+    # uma subpasta 'synced' dentro de uma skill.
+    excluded = {CLAUDE_DIR / p for p in cfg.get("exclude_subpaths", [])}
+
+    def ignore(d, names):
+        return set(by_pattern(d, names)) | {n for n in names if Path(d) / n in excluded}
+
     for name in cfg["dirs"]:
         src = CLAUDE_DIR / name
         if not src.exists() or not src.is_dir():

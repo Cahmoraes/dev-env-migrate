@@ -70,12 +70,17 @@ if [ -n "${GIT_CEILING_DIRECTORIES-}" ]; then
   IFS=$OLD_IFS
 fi
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
+# One spawn answers "is this a repo" plus three topology facts: rev-parse prints one
+# line per flag, in order, and fails (printing nothing) outside a repository.
+if ! rev_parse=$(git rev-parse --is-bare-repository --absolute-git-dir --git-common-dir 2>/dev/null); then
   neutral_payload
   exit 0
 fi
+{ IFS= read -r is_bare_repo; IFS= read -r absolute_git_dir; IFS= read -r common_dir_arg; } <<EOF
+$rev_parse
+EOF
+[ -n "$is_bare_repo" ] || is_bare_repo='false'
 
-is_bare_repo=$(git rev-parse --is-bare-repository 2>/dev/null || printf 'false')
 current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || printf '')
 git_root=''
 worktree_path=''
@@ -83,26 +88,27 @@ is_worktree='false'
 current_worktree_resolved=''
 
 if [ "$is_bare_repo" = 'true' ]; then
-  git_root=$(git rev-parse --absolute-git-dir 2>/dev/null || printf '')
+  git_root=$absolute_git_dir
 else
-  git_root=$(git rev-parse --show-toplevel 2>/dev/null || printf '')
+  # --show-toplevel first: --show-superproject-working-tree prints NOTHING outside a
+  # submodule, so it must be the last line to keep the positions unambiguous.
+  top_and_super=$(git rev-parse --show-toplevel --show-superproject-working-tree 2>/dev/null || printf '')
+  superproject=''
+  { IFS= read -r git_root; IFS= read -r superproject; } <<EOF
+$top_and_super
+EOF
   worktree_path="$git_root"
   if [ -n "$worktree_path" ]; then
     current_worktree_resolved=$(cd "$worktree_path" 2>/dev/null && pwd -P)
   fi
-  absolute_git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null || printf '')
-  common_dir_arg=$(git rev-parse --git-common-dir 2>/dev/null || printf '')
   common_dir=''
   if [ -n "$common_dir_arg" ]; then
     common_dir=$(cd "$common_dir_arg" 2>/dev/null && pwd -P)
   fi
-  if [ -n "$absolute_git_dir" ] && [ -n "$common_dir" ] && [ "$absolute_git_dir" != "$common_dir" ]; then
-    # Guard: GIT_DIR != GIT_COMMON-DIR is also true inside git submodules.
-    # Check --show-superproject-working-tree; if non-empty, we are in a submodule — treat as normal repo.
-    superproject=$(git rev-parse --show-superproject-working-tree 2>/dev/null || printf '')
-    if [ -z "$superproject" ]; then
-      is_worktree='true'
-    fi
+  # Guard: GIT_DIR != GIT_COMMON_DIR is also true inside git submodules, where
+  # --show-superproject-working-tree is non-empty; treat those as a normal repo.
+  if [ -n "$absolute_git_dir" ] && [ -n "$common_dir" ] && [ "$absolute_git_dir" != "$common_dir" ] && [ -z "$superproject" ]; then
+    is_worktree='true'
   fi
 fi
 

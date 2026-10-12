@@ -1,105 +1,31 @@
 ---
 name: super.verification-before-completion
-description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
+description: Before claiming work is complete, fixed or passing — run the verification command and cite its output.
 user-invocable: false
 ---
 
 # Verification Before Completion
 
-## Overview
+Claim only what a command's output showed you this turn. **Core principle: evidence before claims.** Before saying "passes", "fixed" or "done", before committing or opening a PR: identify the command that proves the claim, run it, read the full output and the exit code, then state the claim with that evidence — or the actual status when the output disagrees. "Should work", "probably passes", "seems fixed", or moving to the next task, is the moment to run it.
 
-Claiming work complete without verification is dishonesty, not efficiency. **Core principle: evidence before claims, always.**
+This is the author's own self-check, in-session. Proving that a test discriminates (mutation testing) is the MUTATE step of `super.test-driven-development`, run per task; this check proves the claim at hand, nothing more.
 
-**Violating the letter of this rule is violating the spirit of this rule.**
+## Unavailable Verification Command
 
-**Relationship to super.independent-verification:** This skill is the controller's own self-check, run in the SAME session by the author of the work. It is complemented by `super.independent-verification` - an always-on, blind gate run once at the end of a feature by a FRESH Verifier (author != verifier) with mutation testing. Distinct lenses that do not overlap: this one keeps the author honest in-session; that one independently re-derives spec coverage before finishing.
-
-## The Iron Law
-
-```
-NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
-```
-
-If you haven't run the verification command in this message, you cannot claim it passes.
-
-## The Gate Function
-
-```
-BEFORE claiming any status or expressing satisfaction:
-
-1. IDENTIFY: What command proves this claim?
-2. RUN: Execute the command in full (fresh, complete) — at the scope defined below
-3. READ: Full output, check exit code, count failures
-4. VERIFY: Does output confirm the claim?
-   - If NO: State actual status with evidence
-   - If YES: State claim WITH evidence
-5. ONLY THEN: Make the claim
-
-Skip any step = lying, not verifying
-```
+When the configured verification command cannot start because its executable, SDK or runtime is missing — including shell exit 126 or 127 — the gate result is `NOT_RUN` and the work status is `BLOCKED`. Preserve the first definitive failure as evidence and do not retry equivalent commands until the environment changes. Static review or static inspection may identify likely defects, but it never substitutes for executable verification and cannot unlock a completion claim, commit, tracker `DONE` state, or the next task. Report the missing capability and the exact command that remains to be run.
 
 ## Scope: per-task = affected tests, not the whole suite
 
-"Fresh, complete" means the command runs in full and unfaked — it does **not** mean re-running the entire suite on every task. For a **per-task** check, the required evidence is the tests **affected by the task** (the file/module the task touched, plus what imports it) at exit 0. Re-running the whole suite once per task is redundant re-execution, not extra rigor: the complete suite runs once as a wave/batch safety net (owned by `super.subagent-driven-development`), and the authoritative terminal full run belongs to `super.independent-verification`. The "evidence before claims" principle is unchanged — only the *scope* of what a per-task claim must run is narrowed to what the task can affect. When a change is genuinely cross-cutting (shared util, config, build) so "affected" is effectively the whole suite, run the whole suite.
+"Fresh, complete" means the command runs in full and unfaked — it does **not** mean re-running the entire suite on every task. For a **per-task** check, the required evidence is the tests **affected by the task** (the file/module the task touched, plus what imports it) at exit 0. Re-running the whole suite once per task is redundant re-execution, not extra rigor: the complete suite runs once per batch as a safety net (owned by `super.subagent-driven-development`), and the authoritative terminal full run is the green-suite precondition of `super.finishing-a-development-branch`. The "evidence before claims" principle is unchanged — only the *scope* of what a per-task claim must run is narrowed to what the task can affect. When a change is genuinely cross-cutting (shared util, config, build) so "affected" is effectively the whole suite, run the whole suite.
 
 **Confirm the scoping actually applied — read the file count, not just the exit code.** A scoped command that silently loses its filter reports *everything green* and costs a full suite, so it reads as rigor while being the redundancy this section exists to prevent. Monorepo runners are the usual culprit: an extra `--` (`pnpm --filter <ws> test -- <path>`) or a path written from the repo root instead of the workspace can leave the runner with no usable filter, and a name filter with no file argument (`vitest run -t "<name>"`) still collects every file. If you named two test files and the output says 132, the filter did not apply — fix the command before treating the run as per-task evidence.
 
-**Out of scope for this gate:** this self-check never runs mutation testing and never re-derives spec coverage from the spec — those are `super.independent-verification`'s lenses, not the VBC self-check's. Do not read any wording here as asking for them.
+## What each claim needs
 
-## Common Failures
-
-| Claim | Requires | Not Sufficient |
+| Claim | Evidence | Not sufficient |
 |-------|----------|----------------|
-| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
-| Linter clean | Linter output: 0 errors | Partial check, extrapolation |
-| Build succeeds | Build command: exit 0 | Linter passing, logs look good |
-| Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
-| Regression test works | Red-green cycle verified | Test passes once |
-| Agent completed | VCS diff shows changes | Agent reports "success" |
-| Requirements met | Line-by-line checklist | Tests passing |
-
-## Red Flags - STOP
-
-- Using "should", "probably", "seems to"
-- Expressing satisfaction before verification ("Great!", "Perfect!", "Done!", etc.)
-- About to commit/push/PR without verification
-- Trusting agent success reports
-- Relying on partial verification
-- Thinking "just this once"
-- Tired and wanting work over
-- **ANY wording implying success without having run verification**
-
-## Rationalization Prevention
-
-| Excuse | Reality |
-|--------|---------|
-| "Should work now" | RUN the verification |
-| "I'm confident" | Confidence ≠ evidence |
-| "Just this once" | No exceptions |
-| "Linter passed" | Linter ≠ compiler |
-| "Agent said success" | Verify independently |
-| "I'm tired" | Exhaustion ≠ excuse |
-| "Partial check is enough" | Partial proves nothing |
-| "Different words so rule doesn't apply" | Spirit over letter |
-
-## Key Patterns
-
-Good (✅) vs insufficient (❌) for the cases needing a specific procedure (see the tables above for the rest):
-
-- **Regression tests (TDD Red-Green):** ✅ Write → Run (pass) → Revert fix → Run (MUST FAIL) → Restore → Run (pass) — ❌ "I've written a regression test" (without red-green verification)
-- **Requirements:** ✅ Re-read plan → Create checklist → Verify each → Report gaps or completion — ❌ "Tests pass, phase complete"
-- **Agent delegation:** ✅ Agent reports success → Check VCS diff → Verify changes → Report actual state — ❌ Trust agent report
-
-## Why This Matters
-
-From 24 failure memories: partner said "I don't believe you" (trust broken); undefined functions shipped (would crash); missing requirements shipped (incomplete features); false completion wasted time on redirect/rework. Violates: "Honesty is a core value. If you lie, you'll be replaced."
-
-## When To Apply
-
-**ALWAYS before:** ANY variation of success/completion claims; ANY expression of satisfaction; ANY positive statement about work state; committing, PR creation, task completion; moving to next task; delegating to agents.
-
-**Rule applies to:** exact phrases; paraphrases and synonyms; implications of success; ANY communication suggesting completion/correctness.
-
-## The Bottom Line
-
-**No shortcuts for verification.** Run the command. Read the output. THEN claim the result. This is non-negotiable.
+| Tests pass | test command output: 0 failures | a previous run, "should pass" |
+| Linter clean / build succeeds | that tool's own output, exit 0 | one standing in for the other |
+| Bug fixed | the original symptom's test passes — and fails again with the fix reverted | code changed, assumed fixed |
+| Agent completed | VCS diff shows the changes | the agent's report of success |
+| Requirements met | line-by-line checklist against the plan | tests passing |

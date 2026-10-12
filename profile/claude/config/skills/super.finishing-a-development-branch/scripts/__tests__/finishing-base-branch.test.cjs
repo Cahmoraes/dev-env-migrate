@@ -6,7 +6,7 @@
  *
  * Regression guard for an observed real run: execution ran on `main`, so at finishing
  * there was no feature branch to merge. The skill's environment table had no row for
- * "current branch == base", and Step 5 mandated "present exactly 4 options" whose
+ * "current branch == base", and Step 4 mandated "present exactly 4 options" whose
  * option 1 (merge to base) is a no-op on `main` — forcing the model to improvise the
  * menu. This test pins the on-base-branch environment, menu, execution, and the
  * relaxed Red Flag so the path is canonical, not improvised.
@@ -20,8 +20,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/superpowers/skills
-const SKILL = path.join(SKILLS, 'super.finishing-a-development-branch', 'SKILL.md');
-const body = fs.readFileSync(SKILL, 'utf8');
+const FIN = path.join(SKILLS, 'super.finishing-a-development-branch');
+const body = fs.readFileSync(path.join(FIN, 'SKILL.md'), 'utf8');
+// Step 5 execution lives in one reference per menu; the on-base commands are pinned there.
+const onBase = fs.readFileSync(path.join(FIN, 'references', 'options-on-base.md'), 'utf8');
 
 test('Step 3 detection captures the current branch and the default branch', () => {
   assert.match(body, /git rev-parse --abbrev-ref HEAD/,
@@ -37,22 +39,24 @@ test('the environment table has an on-base-branch row distinct from the feature-
     'the table must add a row for work committed straight onto the base branch');
 });
 
-test('Step 5 presents an on-base-branch menu (no merge), starting with push to base', () => {
+test('Step 4 presents an on-base-branch menu (no merge), starting with push to base', () => {
   assert.match(body, /On the base branch[^\n]*present exactly these 4 options/i,
-    'Step 5 must present a dedicated on-base-branch menu');
+    'Step 4 must present a dedicated on-base-branch menu');
   assert.match(body, /Push to origin\/<base-branch>/,
     'the on-base menu option 1 must be a direct push, not a merge-to-self');
   assert.match(body, /Move the commits to a new branch and open a Pull Request/,
     'the on-base menu must offer moving the commits to a branch + PR');
 });
 
-test('Step 6 gives execution for the on-base-branch options without merge/worktree cleanup', () => {
-  assert.match(body, /#### On-base-branch options/,
-    'Step 6 must have an execution subsection for the on-base-branch options');
-  assert.match(body, /no feature branch to merge or delete/i,
+test('Step 5 gives execution for the on-base-branch options without merge/worktree cleanup', () => {
+  assert.match(body, /On-base-branch 4 options → `references\/options-on-base\.md`/,
+    'Step 5 must route the on-base-branch menu to its reference');
+  assert.match(onBase, /^# On-base-branch options/m,
+    'the reference must open with the menu it executes');
+  assert.match(onBase, /no feature branch to merge or delete/i,
     'the execution must state there is nothing to merge or delete');
   // Moving to a branch must capture the work before any rewind (safety invariant).
-  assert.match(body, /capture the work on a branch FIRST/i,
+  assert.match(onBase, /capture the work on a branch FIRST/i,
     'the move-to-branch path must capture the branch before reset --hard');
 });
 

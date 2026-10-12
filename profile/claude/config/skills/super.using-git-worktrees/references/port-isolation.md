@@ -115,11 +115,9 @@ Isolating ports and stopping there leaves collisions that look identical to the 
 
 ## Scope: this is a per-worktree mechanism
 
-Blocks are allocated to **linked worktrees**. In-tree parallel execution
-(`super.parallel-subagent-in-tree`) runs every task in one working tree, so there is one set
-of ports — the canonical ones — and nothing to allocate. That mode's safety comes from
-verified write-set disjointness instead, which is also why its tasks must not each boot the
-stack: concurrent tasks there share the runtime by construction.
+Blocks are allocated to **linked worktrees**. The sequential execution skill runs every task
+in one working tree, so there is one set of ports — the canonical ones — and nothing to
+allocate.
 
 ## Red flags
 

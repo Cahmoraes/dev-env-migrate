@@ -31,6 +31,17 @@ const path = require('path');
 
 const CONFIG_RELATIVE_PATH = path.join('.superpowers', 'corporate-artifacts.yml');
 
+// One stat call instead of existsSync + statSync (two syscalls and a race window between them).
+// Never throws, like existsSync: an unreadable path is simply not a file we can use.
+function isFile(p) {
+  try {
+    const st = fs.statSync(p, { throwIfNoEntry: false });
+    return Boolean(st && st.isFile());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Parse the flat `artifacts:` list. Hand-parsed rather than pulling in a YAML dep: the
  * file is simple by contract, and the contract is enforced by the guard that runs the
@@ -54,7 +65,7 @@ function parseCorporateEntries(raw, repoRoot) {
       entries.push({ kind: 'url', value, resolvedPath: null, exists: null, fetchable: false });
     } else {
       const resolvedPath = path.isAbsolute(value) ? value : path.join(repoRoot, value);
-      const exists = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile();
+      const exists = isFile(resolvedPath);
       entries.push({ kind: 'path', value, resolvedPath, exists });
     }
   }
@@ -86,10 +97,10 @@ function resolveCorporateArtifacts(repoRoot, { enabled } = {}) {
     entries: [],
     count: 0,
   };
-  if (!repoRoot) return { ...empty, enabled: consented };
+  if (!repoRoot) return empty;
 
   const configPath = path.join(repoRoot, CONFIG_RELATIVE_PATH);
-  if (!fs.existsSync(configPath) || !fs.statSync(configPath).isFile()) return empty;
+  if (!isFile(configPath)) return empty;
 
   let raw;
   try {

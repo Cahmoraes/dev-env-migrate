@@ -3,7 +3,7 @@
 // Tests resolve-review-targets.cjs — deterministic discovery of a spec's companion
 // artifacts (PRD, tasks index, individual task files, mockups) from the spec path.
 //
-// Run: node --test scripts/__tests__/resolve-review-targets.test.cjs
+// Run: node --test super.reviewing-specs/scripts/__tests__/resolve-review-targets.test.cjs
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

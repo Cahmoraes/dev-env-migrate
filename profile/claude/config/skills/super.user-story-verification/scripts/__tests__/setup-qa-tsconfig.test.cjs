@@ -12,7 +12,7 @@
  * picked up the transient copy mid-removal. This script is the official,
  * scaffolded alternative.
  *
- * Run with: node --test super.user-story-verification/scripts/__tests__/
+ * Run with: node --test super.user-story-verification/scripts/__tests__/setup-qa-tsconfig.test.cjs
  */
 
 const test = require('node:test');

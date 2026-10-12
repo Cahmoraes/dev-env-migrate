@@ -37,7 +37,7 @@ Rode `claude plugin marketplace list` primeiro; adicione só os que faltam:
 - `chrome-devtools-plugins` → `ChromeDevTools/chrome-devtools-mcp` (`claude plugin marketplace add ChromeDevTools/chrome-devtools-mcp`)
 - `context-mode` → `mksglu/context-mode` (`claude plugin marketplace add mksglu/context-mode`)
 
-## Fase 2 — Plugins (7 habilitados)
+## Fase 2 — Plugins (6 habilitados)
 Para cada plugin em `manifest.plugins`, rode `claude plugin install <name>` (o
 `<name>` já vem como `plugin@marketplace`). Respeite o campo `enabled`:
 - `enabled: false` → instale e depois `claude plugin disable <name>` (ou não instale).
@@ -77,14 +77,13 @@ Mescle `config/settings.json` no `~/.claude/settings.json`. Os paths usam
 **Pergunte ao usuário antes de aplicar estas flags de segurança:**
   - `permissions.defaultMode` = `"bypassPermissions"`
   - `skipDangerousModePermissionPrompt` = `true`
-  - `skipAutoPermissionPrompt` = `true`
 
   Elas desativam confirmações de permissão. Numa máquina nova/compartilhada o
   usuário pode NÃO querer isso.
 
 ## Fase 5 — Hooks, statusline, keybindings, agents, skills
 Copie de `config/` para `~/.claude/`. **Atenção a trechos específicos de
-plataforma** encontrados: `wsl-screenshot-cli`, `~/bin/claude-notify`
+plataforma** encontrados: `wsl-screenshot-cli`, `powershell.exe`, `~/bin/claude-notify`
 
 Hooks que chamam binários externos só funcionam se o binário existir no PATH —
 garanta que as dependências da Fase 3.5 foram instaladas antes de confiar nesses

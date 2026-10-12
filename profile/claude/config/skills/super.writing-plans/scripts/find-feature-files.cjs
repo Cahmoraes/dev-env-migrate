@@ -108,18 +108,10 @@ function buildDirEntry(candidateDir) {
 // be the dangerous direction). The phrase itself is specific enough to avoid false hits.
 const VISUAL_SECTION_RE = /^#{1,6}[ \t].*\bEspecifica[çc][ãa]o[ \t]+Visual\b/im;
 
-function specHasVisualSection(specPath) {
-  try {
-    return VISUAL_SECTION_RE.test(fs.readFileSync(specPath, 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
 // A spec can carry the PRD content INLINE instead of in a physical prd/prd-<feature>.md file.
-// The "Large, known-domain fast path" merges brainstorming + PRD into one pass, so the user
-// stories (US-NN) and functional requirements (FR-NNN) live in the spec's requirements section
-// rather than a standalone PRD. By the SAME condition a physical PRD would exist, that inline
+// A small feature may fold the requirements into the spec, so the user stories (US-NN) and
+// functional requirements (FR-NNN) live in the spec's requirements section rather than a
+// standalone PRD. By the SAME condition a physical PRD would exist, that inline
 // content must still pass the deterministic FR-coverage gate (validate-tasks --prd). If the
 // tokens are present but no physical PRD file exists, the orchestrator would omit --prd and the
 // FR gate is silently skipped — the exact false "pass" this surfaces. Mirrors the visual-section
@@ -128,11 +120,11 @@ function specHasVisualSection(specPath) {
 // match is tolerant of position. Three+ digits on FR/RF avoids firing on incidental "FR-1" prose.
 const EMBEDDED_PRD_RE = /\bUS-\d+\b|\b(?:FR|RF)-\d{3,}\b/iu;
 
-function specHasEmbeddedPrd(specPath) {
+function readSpec(specPath) {
   try {
-    return EMBEDDED_PRD_RE.test(fs.readFileSync(specPath, 'utf8'));
+    return fs.readFileSync(specPath, 'utf8');
   } catch {
-    return false;
+    return '';
   }
 }
 
@@ -148,8 +140,9 @@ function main() {
     : path.join(repoRoot, 'docs', 'superpowers');
   const featureDir = path.join(baseDir, featureName);
   const spec = buildFileEntry(path.join(featureDir, 'specs', `${featureName}-design.md`));
-  spec.visualSection = spec.found ? specHasVisualSection(spec.path) : false;
-  spec.embeddedPrd = spec.found ? specHasEmbeddedPrd(spec.path) : false;
+  const specText = spec.found ? readSpec(spec.path) : '';
+  spec.visualSection = VISUAL_SECTION_RE.test(specText);
+  spec.embeddedPrd = EMBEDDED_PRD_RE.test(specText);
   const mockups = buildDirEntry(path.join(featureDir, 'specs', 'mockups'));
   const prd = buildFileEntry(path.join(featureDir, 'prd', `prd-${featureName}.md`));
   const warnings = [];
@@ -164,7 +157,7 @@ function main() {
     });
   }
   // Embedded-PRD signal: the spec carries US-NN / FR-NNN inline but no physical PRD file exists
-  // (the Large known-domain fast path). Expose the spec as the PRD source (prd.embeddedIn) so the
+  // (folded PRD). Expose the spec as the PRD source (prd.embeddedIn) so the
   // orchestrator passes --prd <spec> and the FR-coverage gate runs instead of being silently
   // skipped. Backward-compat: when the physical PRD exists (prd.found), this is inert — prd.path
   // stays unchanged and no field/warning is added.

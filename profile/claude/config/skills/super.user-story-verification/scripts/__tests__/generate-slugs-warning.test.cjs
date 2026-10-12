@@ -113,10 +113,10 @@ test('a legacy HU- annotation maps onto the normalized US- id', () => {
   assert.deepEqual(r.userStories[0].requirements, ['FR-001']);
 });
 
-test('story lines dropped by the shape are counted, not swallowed', () => {
+test('benefit written as "para <verbo>" is a story, not a dropped line', () => {
   // Real PRD shape: only the first story ends in "para que ..."; the rest use
-  // "para <verbo> ...". Zero extraction has its own guard; PARTIAL extraction used to
-  // return a clean-looking success with most of the feature missing.
+  // "para <verbo> ...". The extractor used to require "para que" literally and a real
+  // run fell back to manual extraction over it. The connector is not the story.
   const prd = writePrd([
     '# PRD',
     '',
@@ -125,6 +125,27 @@ test('story lines dropped by the shape are counted, not swallowed', () => {
     '- **US-01** — Como admin, eu quero desativar uma academia para que ela suma das buscas',
     '- **US-02** — Como admin, eu quero ver uma confirmação para evitar cliques acidentais',
     '- **US-03** — Como admin, eu quero acessar o detalhe para poder reativá-la',
+    '',
+  ].join('\n'));
+  const r = run(prd);
+  assert.equal(r.count, 3);
+  assert.equal(r.warnings.find((w) => /look like user stories but only/.test(w)), undefined);
+  assert.deepEqual(r.userStories.map((u) => u.benefit), [
+    'ela suma das buscas', 'evitar cliques acidentais', 'poder reativá-la',
+  ]);
+});
+
+test('story lines dropped by the opening are counted, not swallowed', () => {
+  // Zero extraction has its own guard; PARTIAL extraction used to return a
+  // clean-looking success with most of the feature missing.
+  const prd = writePrd([
+    '# PRD',
+    '',
+    '## Histórias de Usuário',
+    '',
+    '- **US-01** — Como admin, eu quero desativar uma academia para que ela suma das buscas',
+    '- **US-02** — Como admin eu quero ver uma confirmação', // no comma after the persona
+    '- **US-03** — Perfil admin: Como admin, quero acessar o detalhe', // stray prefix before "Como"
     '',
   ].join('\n'));
   const r = run(prd);

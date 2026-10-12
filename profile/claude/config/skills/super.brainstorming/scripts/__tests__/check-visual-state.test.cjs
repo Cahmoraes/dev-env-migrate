@@ -94,12 +94,12 @@ test('server up with zero screens is a hard render debt (the exact observed bug)
   assert.match(out.action, /BEFORE ending this turn/);
 });
 
-test('the debt message names the checkpoints that stole the turn in the real session', () => {
+test('the debt message names the turn-ending steps it pre-empts', () => {
   const root = tmpRoot();
   makeSession(root);
   const out = run(['--project-dir', root]);
-  assert.match(out.action, /complexity checkpoints/);
-  assert.match(out.action, /consent gates/);
+  assert.match(out.action, /approach proposals/);
+  assert.match(out.action, /deep-research offer/);
 });
 
 test('a real screen clears the debt', () => {

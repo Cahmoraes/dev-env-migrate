@@ -16,10 +16,10 @@ stateDiagram-v2
         🔵 Etapa opcional / revisao (fora do fluxo obrigatorio)
         🔴 Debug / correcao de bug (super.systematic-debugging)
         ⚪ Estado terminal (fim do fluxo local)
-        ▪ Modos de execucao (opcao 5):
-        🩵 Sequencial
-        💜 Paralelo in-tree
-        🧡 Paralelo worktrees
+        ▪ Modos de execucao:
+        🧵 Inline (bounded, sem gate)
+        🩵 Subagent-driven (opcao 1, sequencial)
+        🧍 Implementador unico (opcao 3, opt-in, --single)
         ▪ Opcoes da Pergunta de Abertura:
         0 ⚙️ Preferencias
         1 🔍 Research
@@ -35,76 +35,110 @@ stateDiagram-v2
     %% ===================== SESSION BOOTSTRAP =====================
     [*] --> ChecandoPreferencias
     state "⚙️ Checando Preferências" as ChecandoPreferencias
-    ChecandoPreferencias --> Onboarding : preferencias ausentes
-    ChecandoPreferencias --> Triagem : preferencias carregadas
+    state "📦 Passo do Perfil do Projeto" as PassoPerfilProjeto
+    ChecandoPreferencias --> Onboarding : preferencesFound = false (arquivo ausente)
+    ChecandoPreferencias --> PassoPerfilProjeto : preferencesFound = true, projectProfile.declared = false (arquivo anterior a secao project:)
+    ChecandoPreferencias --> Triagem : preferencesFound = true e perfil declarado
     Onboarding --> Triagem : preferencias salvas
+    PassoPerfilProjeto --> Triagem : perfil salvo no MESMO turno do Session Summary, antes de qualquer triagem
+    note right of PassoPerfilProjeto
+        ▪ roda SO o step do perfil do wizard, nunca o wizard inteiro
+        ▪ detect-project.cjs propoe, o usuario confirma, write-preferences.cjs grava
+        ▪ stack vazio com declared=true e resposta ("ainda nao decidido"),
+          nao pergunta pendente
+    end note
 
     state "🛠️ Onboarding" as Onboarding {
         direction TB
         [*] --> ColetandoPreferencias
         state "📝 Coletando Preferências" as ColetandoPreferencias
         state "🏢 Coletando Artefatos Corporativos" as ColetandoArtefatos
+        state "🎚️ Coletando Model Tiers" as ColetandoTiers
+        state "📦 Coletando Perfil do Projeto" as ColetandoPerfil
         state "💾 Salvando Preferências" as SalvandoPreferencias
-        ColetandoPreferencias --> ColetandoArtefatos : preferencias operacionais coletadas
-        ColetandoArtefatos --> SalvandoPreferencias : artefatos registrados (ou etapa pulada)
+        ColetandoPreferencias --> ColetandoArtefatos : preferencias operacionais coletadas (steps 2-3)
+        ColetandoArtefatos --> ColetandoTiers : artefatos registrados (step 4, opcional/pulavel)
+        ColetandoTiers --> ColetandoPerfil : mapa cheap/standard/capable ou "auto" (step 4a, obrigatorio)
+        ColetandoPerfil --> SalvandoPreferencias : stack + manifest confirmados (step 4b, obrigatorio)
         SalvandoPreferencias --> [*]
     }
     note right of Onboarding
         ▪ ColetandoPreferencias inclui perguntas condicionais por plataforma
-        ▪ Copilot CLI: copilot.rubber_duck (forca Rubber Duck) e
-          copilot.review_final (review no final) — default false
-        ▪ Claude Code: claude_code.simplify e code_review_final
-          (+ code_review_effort, default medium) — default false
+        ▪ Copilot CLI: copilot.review_final (review no final) — default false
+        ▪ Claude Code: claude_code.review_final
+          (+ review_effort, default medium) — default false
         ▪ outras plataformas pulam os steps que nao se aplicam
           (secao YAML ignorada)
+        ▪ ColetandoTiers (6a) e obrigatorio: escolha explicita ou "auto",
+          nunca pulado em silencio; avisa quando standard == cheap
+        ▪ ColetandoPerfil (6b) e obrigatorio e grava SO o que o repo E
+          (project.stack + project.manifest) — comando de teste/setup/format
+          nao e preferencia, vem do AGENTS.md/CLAUDE.md e do manifesto
+        ▪ ColetandoPerfil detecta primeiro (detect-project.cjs) e so grava
+          apos confirmacao; sugestao nao confirmada nunca e escrita
     end note
 
     %% ===================== TRIAGEM (hub de decisao) =====================
     state "🧭 Triagem" as Triagem
     state "❓ Pergunta de Abertura (0-7)" as PerguntaDeAbertura
+    state "⚙️ Atualizando Preferências (opção 0)" as AtualizandoPreferencias
     Triagem --> PerguntaDeAbertura : saudacao ou pedido ambiguo
-    PerguntaDeAbertura --> Triagem : opcao escolhida (numero 1-7 ou descricao livre)
+    PerguntaDeAbertura --> Triagem : opcao escolhida (numero 0-7 ou descricao livre)
+    Triagem --> AtualizandoPreferencias : (0) ⚙️ preferencias - revisar/atualizar o preferences.yml ou refazer o onboarding
+    AtualizandoPreferencias --> Triagem : write-preferences.cjs grava, session_* re-derivadas, volta pra triagem
     Triagem --> Pesquisando : (1) 🔍 research - pesquisa / investigacao / estado da arte
     Triagem --> Explorando : (2) 🧠 brainstorming - feature, design, migracao ou refactor
     Triagem --> Depurando : (3) 🐛 debugging - bug/erro reportado diretamente
     Triagem --> Planejando : (4) 📋 planejamento - spec ou PRD ja aprovado
-    Triagem --> Executando : (5) ⚡ execucao - task index ou task file existente (handoff oferece opcao 0 de revisao + 3 opcoes de execucao, com recommended eleito dinamicamente via executionRecommendation do parse-waves.cjs)
+    Triagem --> Executando : (5) ⚡ execucao - task index ou task file existente (handoff oferece opcao 0 de revisao + opcao 1 subagent-driven sempre recommended + opcao 3 single so quando elegivel)
     Triagem --> RevisandoSpec : (6) 🔎 revisao de spec/design existente (pontos abertos, inconsistencias, spec<->code, spec<->tasks)
     Triagem --> GateQA : (7) ✅ review/QA de trabalho ja implementado (super.user-story-verification, sem passar por Executando nesta sessao)
     note right of Triagem
         ▪ usuario escolhe um numero 0-7 ou descreve livremente
-        ▪ (5) nunca invoca skill de execucao diretamente — apresenta
-          os 3 modos e aguarda escolha do usuario (excecao: modo
-          nomeado explicitamente no pedido)
+        ▪ (0) re-roda o wizard: read-preferences.cjs carrega os valores
+          atuais como default, write-preferences.cjs grava, session_*
+          sao re-derivadas e o fluxo volta pra triagem
+        ▪ (5) nunca invoca skill de execucao diretamente — abre o
+          gate (0 revisao, 1 subagent-driven recommended, 3
+          implementador unico so quando elegivel) e aguarda a escolha
+          do usuario (excecao: modo nomeado explicitamente no pedido)
         ▪ (6) revisao de spec/design existente vai direto para
           super.reviewing-specs (item proprio na triagem)
         ▪ (7) review/QA de trabalho ja implementado vai direto para
           super.user-story-verification / GateQA
-        ▪ (2) checagem de escopo leve antes de brainstorming: se
-          trivial (~1-3 arquivos, sem arquitetura nova, reversivel,
-          sem user story propria) oferece lightweight path —
-          brainstorming+writing-plans em modo reduzido (fan-out
-          unico, design curto, pula PRD/companion), mantendo todos
-          os gates por-task — ver references/lightweight-path.md
-        ▪ (2) tier Micro (checkpoint 0 via assess-complexity.cjs,
-          advisory): 1 arquivo, tweak trivial/reversivel, sem
-          abstracao nova → confirming question; se confirmado, pula
-          super.brainstorming E super.writing-plans e vai direto ao
-          Modo Inline + gate combinado. Tier vinculante e re-checado
-          escalate-only nos checkpoints 1-2 (brainstorming) e 3
-          (execucao, medium-inline-path.md) —
-          ver references/complexity-checkpoints.md
-        ▪ (2) tier Complex (checkpoint 0 via assess-complexity.cjs):
-          dominio novo / ambiguidade / risco cross-cutting → emite
-          consentGates. Oferta 1 (consent, default pular): rodar
-          super.deep-research ANTES do brainstorming; oferta 2 (consent,
-          no checkpoint 2 pos-design): super.reviewing-specs antes do
-          plano. Execucao = Large (fan-out inalterado) — complex-path.md
+        ▪ (2) tres caminhos, classificados antes da primeira
+          pergunta (rotulo interno, o usuario ve o que o caminho faz e
+          pode corrigir), sem script nem
+          subagente: spike (pergunta de viabilidade → sonda e
+          recomendacao, sem codigo mantido), bounded (fluxo que ja
+          existe no repo, ~1-3 arquivos, sem componente novo, sem user
+          story → anuncia arquivos, passos e o fechamento numa
+          mensagem, sem pergunta, "full" e a saida, direto ao Modo
+          Inline + revisor final) e architectural (o resto →
+          super.brainstorming)
+        ▪ na duvida, o caminho mais pesado. A escalada so sobe:
+          complexidade escondida no meio do trabalho para, avisa e
+          sobe de caminho (tripwire em bounded-path.md); nada desce
+        ▪ deep-research e reviewing-specs sao ofertas com consent
+          dentro de uma mensagem que o fluxo ja deve: um no da
+          arvore do grilling sem fato pesquisado, e a opcao (d)
+          do gate da spec
+    end note
+
+    %% ===================== SPIKE (opcao 2, caminho de viabilidade) =====================
+    state "🧪 Sondando (spike)" as Sondando
+    Triagem --> Sondando : (2) spike - pergunta de viabilidade, pergunta + sonda em 2-3 frases
+    Sondando --> [*] : aceno do usuario, investigacao barata, recomendacao (codigo feito e descartavel)
+    Sondando --> Triagem : manter o codigo = pedido novo, classificado de novo
+    note right of Sondando
+        ▪ sem spec, sem plano, sem brainstorming
+        ▪ unica pausa: o aceno na sonda
     end note
 
     %% ===================== RESEARCH / BRAINSTORMING / PRD / SPEC REVIEW =====================
     state "🔍 Pesquisando (opção 1)" as Pesquisando
     Pesquisando --> Explorando : research concluida, handoff para brainstorming (com artefato)
+    Explorando --> Pesquisando : no da arvore sem fato pesquisado — oferta de deep-research aceita (consent, custa creditos)
     note right of Pesquisando
         ▪ entry: execucao paralela via harness nativo (deep-research)
           ou fan-out de subagents
@@ -112,22 +146,51 @@ stateDiagram-v2
         ▪ etapa opcional (usuario pode pular para brainstorming direto)
     end note
 
-    state "🧠 Explorando (opção 2)" as Explorando
+    state "🧠 Explorando (opção 2)" as Explorando {
+        direction TB
+        [*] --> RodadaAbertura
+        state "🔭 Fan-out de pesquisa + rodada de abertura" as RodadaAbertura
+        state "🔥 Rodada de grilling" as RodadaGrilling
+        state "⚖️ Abordagens radicalmente diferentes" as Abordagens
+        state "📐 Design + spec + self-review" as EscrevendoSpec
+        state "🗳️ Gate da spec (uma pergunta)" as GateSpec
+        RodadaAbertura --> RodadaGrilling : relatorios chegam, raizes na fronteira
+        RodadaGrilling --> RodadaGrilling : resposta recalcula a fronteira (poda, filhos novos)
+        RodadaGrilling --> Abordagens : raizes resolvidas (caracteristicas, dono do dado)
+        Abordagens --> RodadaGrilling : filhos da escolhida (falha, idempotencia, migracao)
+        RodadaGrilling --> EscrevendoSpec : fronteira vazia ou so folhas (default + gatilho)
+        EscrevendoSpec --> GateSpec : linhas Self-review e Boundaries
+        GateSpec --> EscrevendoSpec : ajustar
+        GateSpec --> [*] : aprovar, com ou sem PRD
+    }
+    note right of RodadaGrilling
+        ▪ fronteira = decisoes com pais resolvidos
+        ▪ no maximo 4 perguntas numeradas por rodada
+        ▪ cada pergunta com recomendacao e o porque
+        ▪ sem resposta = segue a recomendacao
+        ▪ fato vem da pesquisa, citado com fonte
+        ▪ usuario decide e diz o que so ele sabe
+          (volume, prazo, consumidores, provedor)
+        ▪ lentes abertas por sinal estabelecido:
+          atributos de qualidade, propriedade do dado,
+          integracao, falhas, consistencia, rollout,
+          seguranca (references/grilling.md)
+    end note
     state "📄 Formalizando — PRD" as Formalizando
     state "🔎 Revisando Spec (opção 6 / opção 0 do handoff)" as RevisandoSpec
     state "📋 Planejando (opção 4)" as Planejando
 
     Explorando --> Formalizando : spec aprovada (default)
+    Explorando --> ModoInline : entrada direta classificada bounded — sai com o anuncio, sem spec
+    Explorando --> Sondando : entrada direta classificada spike
     Explorando --> Planejando : PRD pulado
     Explorando --> RevisandoSpec : revisao critica opcional da spec antes de planejar (super.reviewing-specs)
     Formalizando --> RevisandoSpec : revisao critica opcional apos PRD (super.reviewing-specs)
     RevisandoSpec --> Planejando : correcoes aplicadas com consentimento, opcionalmente writing-plans atualiza/cria tasks
     RevisandoSpec --> Triagem : manter como referencia (relatorio salvo em specs/<feature>-review.md ou prd/<feature>-review.md, spec intocada)
     note right of RevisandoSpec
-        ▪ entry (tier Complex): oferta proativa com consent no
-          checkpoint 2 (consentGates=[reviewing-specs]) — a revisao
-          de spec deixa de ser so "disponivel" e passa a ser oferecida
-          antes do plano pelo brainstorming — ver complex-path.md
+        ▪ entry: opcao (d) do gate de aprovacao da spec no
+          brainstorming, sempre listada e nunca recomendada
         ▪ entry: path da spec como argumento
           (/super.reviewing-specs path/to/spec.md), via
           triagem opcao 6, OU via opcao 0 do handoff de
@@ -147,8 +210,8 @@ stateDiagram-v2
         ▪ do: reporta achados por severidade, no idioma da sessao,
           honesto quando nao ha nada a corrigir (nunca inventa,
           nunca over-build)
-        ▪ exit: edicoes cirurgicas so apos consentimento (updated_at
-          bump), oferece atualizar tasks via super.writing-plans
+        ▪ exit: edicoes cirurgicas so apos consentimento, oferece
+          atualizar tasks via super.writing-plans
         ▪ exit: OU persiste o relatorio como referencia, sem
           editar a spec
         ▪ exit sem mudanca nas tasks: volta pra Triagem se entrou
@@ -157,156 +220,198 @@ stateDiagram-v2
           quem chamou decide o retorno, RevisandoSpec nao muda
     end note
     note right of Explorando
-        ▪ entry: indice de historico de features (feature-index.cjs,
-          derivado de docs/superpowers/ na hora — sem store, sem sync)
-        ▪ do: analise arquitetural via references sob demanda
-          (caracteristicas priorizadas, componentes logicos,
-          trade-offs, riscos)
-        ▪ do: clarifying questions por arvore de dependencia
-          (migracao/greenfield/brownfield — raizes antes de
-          folhas); flat para mudancas triviais/reversiveis
-        ▪ exit: spec com Caracteristicas Arquiteturais + Decisoes
-          (ADR-lite) + Riscos
+        ▪ entry: carga inline das licoes confirmadas (uma chamada)
+        ▪ entry: o historico de features e uma TRACK DE SUBAGENTE
+          (agents/feature-history-recall.md), despachada no mesmo turno
+          das outras tracks de pesquisa; e ele que roda o indice
+          (feature-index.cjs, derivado de docs/superpowers/ na hora —
+          sem store, sem sync) e devolve um relatorio curto. O indice
+          NUNCA entra na thread principal
+        ▪ entry: classifica antes da 1a pergunta (spike / bounded /
+          architectural, rotulo interno); so architectural segue aqui
+        ▪ do: grilling em rodadas sobre a arvore de decisoes
+          (raizes antes de folhas); a profundidade e a propria
+          fronteira, sem tabela por tamanho
+        ▪ do: atributos de qualidade viram pergunta com top 3
+          recomendado e criterio mensuravel, nunca escolha
+          silenciosa do modelo
+        ▪ do: abordagens diferem em forma (fronteira, dono do
+          dado, sync/async), nunca so em biblioteca
+        ▪ do: stack fork — projectProfile.stack vazio (ou nao declarado
+          e sem manifesto) faz do stack a PRIMEIRA clarifying question;
+          confirmado, e persistido na hora em project: via
+          write-preferences.cjs. Stack conhecido e fato: enuncia e segue
+        ▪ do: framework fork — stack conhecido NAO fecha o framework:
+          dependencia ja declarada no manifesto e fato, silencio e
+          pergunta antes da secao de arquitetura; o runner nao e
+          pergunta, mas a secao Testes da spec precisa NOMEA-LO
+        ▪ exit: spec escalada por lente aberta — Escopo,
+          Caracteristicas, Componentes (interface e o que oculta),
+          Fronteiras e Contratos, Falhas e Erros, Decisoes
+          (alternativas, consequencias, conformidade), Riscos
         ▪ do: a oferta do visual-companion e gateada por
           workflow.visual_companion (default true) — false pula
           o companion em silencio, sem pergunta de consentimento
         ▪ exit: se houve mockup aprovado, artefato visual curado em
           specs/mockups/&lt;feature&gt;-visual.md + secao
           Especificacao Visual (super.brainstorming visual-companion)
-        ▪ Large fast-path (dominio conhecido, sem decisao aberta):
-          auto-dispatch de super.generating-prd (PRD standalone),
-          pulando so a confirming question — anulado se checkpoint
-          1/2 escalar para Complex — ver large-known-domain-fast-path.md
+        ▪ do: nota de entendimento (3-5 linhas, dito x assumido) abre
+          a pergunta de abordagens (passo 4), nunca um round trip proprio
+        ▪ do: premissa comum a todas as abordagens (onde o dado vive,
+          se persiste, quem chama) vai na nota para correcao, nunca
+          embutida em todas as opcoes
+        ▪ do: self-review da spec com os checks INLINE no SKILL.md
+          (passo 7), incluindo fronteiras: todo valor que cruza camada
+          tem um significado escrito (data, dinheiro, estado-alvo, falha)
+        ▪ exit: UM gate de aprovacao na spec escrita, com a decisao
+          de PRD como opcao (aprovar+PRD / aprovar sem PRD / ajustar
+          / (d) revisao profunda por subagente, nunca recomendada)
+          — sem aprovacao por secao, sem pergunta separada de PRD
+        ▪ exit: o gate abre com a linha Self-review e a linha
+          Boundaries (valor = significado), antes do path da spec
     end note
 
-    Formalizando --> Planejando : PRD aprovado
+    Formalizando --> Planejando : PRD aprovado (UM gate: aprovar e planejar / ajustar)
 
     %% ===================== PLANEJAMENTO =====================
-    Planejando --> Executando : plano criado (handoff oferece opcao 0 de revisao + 3 opcoes de execucao, com recommended eleito dinamicamente via executionRecommendation do parse-waves.cjs)
+    Planejando --> Executando : architectural — plano criado (handoff oferece opcao 0 de revisao + opcao 1 subagent-driven sempre recommended + opcao 3 single so quando parse-plan.cjs diz elegivel + string de resume — a pergunta e a ultima call do turno)
+    Triagem --> ModoInline : (2) bounded — anuncio e implementacao no mesmo turno, sem spec nem plano
     Planejando --> RevisandoSpec : opcao 0 do handoff de execucao — revisao final opcional da spec+tasks antes de escolher o modo (sem sair da sessao)
     Executando --> RevisandoSpec : opcao 0 do mesmo handoff, agora a partir de tasks ja existentes (triagem opcao 5) — mesma revisao, path da spec resolvido via featureName
-    RevisandoSpec --> Executando : retorno do handoff de execucao (opcao 0, de qualquer origem): sem mudanca nas tasks (nada a aplicar, achados recusados, ou relatorio salvo p/ depois) — reapresenta as 3 opcoes com a mesma recomendacao
+    RevisandoSpec --> Executando : retorno do handoff de execucao (opcao 0, de qualquer origem): sem mudanca nas tasks (nada a aplicar, achados recusados, ou relatorio salvo p/ depois) — reapresenta as opcoes com a mesma recomendacao
     note right of Planejando
-        ▪ exit: Execution Waves derivadas do campo "Depends on"
-          via parse-waves.cjs
-        ▪ exit (Large): consolidation judgment call antes de travar
+        ▪ exit: tasks citadas em "Consome" validadas por parse-plan.cjs
+          (so task anterior; fan-in e sinal de tier)
+        ▪ exit: consolidation judgment call antes de travar
           a lista de tasks — funde tasks adjacentes só quando as 3
           batem juntas (mesmo arquivo + dependencia real +
-          diff ainda revisavel em 1 passe); nunca atravessa
-          fronteira de arquivo independente/wave paralela nem
+          diff ainda revisavel em 1 passe); nunca funde uma
           superfície crítica (auth/security/middleware); decisao
           automatica do controlador, sem consentimento do usuario
           (super.writing-plans, "Task Decomposition Granularity")
+        ▪ exit: decomposicao com ate 4 tasks o controller escreve
+          os task files; 5+ vai para o task-writer subagente
         ▪ exit: se mockups.found (find-feature-files.cjs), tasks
           de UI recebem subsecao Fidelidade Visual + gate
           validate-tasks.cjs --mockups (mockup orfao reprova)
     end note
 
-    %% ===================== EXECUCAO (3 modos, eixo ortogonal ao paralelismo) =====================
+    %% ===================== EXECUCAO (modo inline + 2 modos de dispatch) =====================
     state "⚡ Executando (opção 5)" as Executando {
         direction TB
         [*] --> EscolhendoModo
         state "🗳️ Escolhendo Modo" as EscolhendoModo
-        EscolhendoModo --> ModoInline : Micro/Small/Medium — inline, sem fan-out per task (medium-inline-path.md)
-        EscolhendoModo --> ModoSequencial : Large/Complex — subagent-driven (1 workspace)
-        EscolhendoModo --> ModoParaleloInTree : Large/Complex — parallel-subagent-in-tree (waves + tree compartilhado, sem worktrees)
-        EscolhendoModo --> ModoParalelo : Large/Complex — parallel-subagent (waves + worktrees)
+        EscolhendoModo --> ModoSequencial : plano em disco — subagent-driven (1 workspace)
+        EscolhendoModo --> ModoImplementadorUnico : opcao 3, opt-in — ≤6 tasks sem task capable, nunca (recommended)
 
-        state "🧵 Modo Inline (Micro/Small/Medium)" as ModoInline {
+        state "🧵 Modo Inline (bounded)" as ModoInline {
             direction TB
             [*] --> ImplementandoInline
             state "👷 Implementando Inline" as ImplementandoInline
             state "📝 Self-Review por Cluster" as SelfReviewCluster
             ImplementandoInline --> SelfReviewCluster : cluster concluído (checklist file:line)
             SelfReviewCluster --> ImplementandoInline : próximo cluster
-            SelfReviewCluster --> [*] : todos os clusters ok → gate combinado (sem revisor por task)
+            SelfReviewCluster --> [*] : todos os clusters ok + MUTATE do TDD → revisor final (sem revisor por task)
         }
+        note right of ModoInline
+            ▪ tripwire: passos alem de ~3 ou ~3 arquivos, componente
+              novo, user story ou decisao aberta → para, avisa e
+              sobe para architectural (bounded-path.md); nada desce
+        end note
 
-        state "🧵 Modo Sequencial" as ModoSequencial {
+        state "🩵 Modo Subagent-Driven (opção 1, sequencial)" as ModoSequencial {
             direction TB
             [*] --> Implementando
             state "👷 Implementando" as Implementando
             state "🔎 Em Revisão" as EmRevisao
+            state "✅ Task Marcada DONE" as TaskConcluida
             state "🐛 Depurando" as DepurandoExec
-            Implementando --> EmRevisao : tarefa submetida
-            EmRevisao --> Implementando : issues, corrigir
-            EmRevisao --> [*] : todas as tarefas ok
+            Implementando --> EmRevisao : tarefa submetida, testes do escopo verdes e linha Mutation: do TDD → task reviewer: spec + qualidade (1 dispatch, 2 vereditos)
+            EmRevisao --> Implementando : findings com file:line, corrigir e re-revisar (cap ~3 rodadas → BLOCKED)
+            EmRevisao --> TaskConcluida : gates ✅ (VBC + spec + qualidade)
+            TaskConcluida --> Implementando : proxima task
+            TaskConcluida --> [*] : todas as tarefas ok
             Implementando --> DepurandoExec : bug encontrado
             DepurandoExec --> Implementando : causa raiz identificada, fix aplicado
             DepurandoExec --> [*] : 3+ tentativas falhas, questiona arquitetura com humano (super.systematic-debugging)
+            state "❗ Operação Destrutiva" as OperacaoDestrutiva
+            Implementando --> OperacaoDestrutiva : BLOCKED — comando que destroi dados (reset de banco, wipe)
+            OperacaoDestrutiva --> Implementando : usuario aprova UMA vez, controller roda o comando e retoma o implementer
         }
+        note right of Implementando
+            ▪ entrada numa chamada: sdd-start.cjs (session + plan +
+              tasks + branch guard + ledger), parte em errors = STOP
+            ▪ sdd-start grava a tabela Pre-flight no ledger (1x): cada
+              linha conflict ganha "Pre-flight Fk/Tn: Ruling" antes
+              do primeiro dispatch
+            ▪ todo prompt e RENDERIZADO por build-task-dispatch.cjs e
+              enviado como ponteiro de uma linha, nunca parafraseado
+            ▪ --start marca IN_PROGRESS e grava "Task N: started (base)"
+              no ledger na mesma chamada
+            ▪ implementer grava RED/GREEN em task-N-report.md, no
+              workspace git-ignorado .superpowers/sdd/&lt;feature&gt;/
+            ▪ ledger progress.md no mesmo workspace: started/complete/
+              fix round/Pre-flight sao dos scripts, minor/declined/
+              unverified/Ruling sao do controller
+            ▪ o controller escreve SO em ledger.path (saida do sdd-start),
+              nunca num caminho derivado; nao ha ledger legado
+            ▪ implementer nunca roda operacao destrutiva: reporta
+              BLOCKED com o comando; consentimento repassado nao vale
+            ▪ conflito ou defeito de plano vira Ruling no ledger, nunca
+              pergunta — so 4 coisas param a execucao
+        end note
+        note right of EmRevisao
+            ▪ o builder do reviewer recusa range fora da linha do BASE
+              ou vazio com auto_commit — recusa e STOP
+            ▪ reviewer le o pacote review-&lt;b&gt;..&lt;h&gt;.diff, recebe PRD e
+              Restricoes Globais, rotula plan-mandated quando a task
+              file prescreve o defeito
+            ▪ toda linha Declined to judge vira "Task N: declined" no
+              ledger e chega a revisao final
+            ▪ DONE so via mark-task-status --verify exit 0, que grava
+              "Task N: complete (commits a..b)" no ledger
+            ▪ o comando do --verify e o GREEN do task-N-report.md,
+              rodado no diretorio em que rodou — sem procurar o teste
+            ▪ um task reviewer por task, sempre — nunca pulado, nunca rebaixado
+            ▪ dois vereditos num dispatch: conformidade com a spec, depois qualidade
+            ▪ reviewer tem piso standard: task cheap e revisada uma
+              familia acima, nunca pelo tier que a escreveu
+        end note
 
-        state "🌿 Modo Paralelo In-Tree" as ModoParaleloInTree {
+        state "🧍 Modo Implementador Único (--single)" as ModoImplementadorUnico {
             direction TB
-            [*] --> ProximaWaveIT
-            state "➡️ Próxima Wave" as ProximaWaveIT
-            state "✂️ Gate Disjunção" as GateDisjuncao
-            state "🌿 Wave Paralela" as WaveParalelaIT
-            state "➡️ Wave Sequencial" as WaveSequencialIT
-            state "🚧 Barreira Integração" as BarreiraIntegracao
-            state "✅ Verificando Merge" as VerificandoMergeIT
-            state "🐛 Depurando" as DepurandoExecIT
-            ProximaWaveIT --> GateDisjuncao : wave com 2+ tasks independentes
-            ProximaWaveIT --> WaveSequencialIT : wave com 1 task
-            GateDisjuncao --> WaveParalelaIT : write-sets disjuntos (check-wave-disjoint.cjs safeForInTreeParallel)
-            GateDisjuncao --> WaveSequencialIT : overlap ou unverificavel → cai para sequencial nessa wave
-            WaveParalelaIT --> BarreiraIntegracao : implementers write-only/no-commit retornam
-            WaveSequencialIT --> BarreiraIntegracao : task revisada in-place
-            BarreiraIntegracao --> VerificandoMergeIT : lint-fix, tsc-check, test, build + commit (1x por wave)
-            VerificandoMergeIT --> ProximaWaveIT : VBC ok, proxima wave
-            VerificandoMergeIT --> WaveParalelaIT : falha de integracao, corrigir
-            WaveParalelaIT --> DepurandoExecIT : bug encontrado na task
-            WaveSequencialIT --> DepurandoExecIT : bug encontrado na task
-            DepurandoExecIT --> BarreiraIntegracao : causa raiz identificada, fix aplicado (super.systematic-debugging)
-            DepurandoExecIT --> [*] : 3+ tentativas falhas, questiona arquitetura com humano
-            ProximaWaveIT --> [*] : todas as waves integradas e verificadas
-        }
-
-        state "🌳 Modo Paralelo (Worktrees)" as ModoParalelo {
-            direction TB
-            [*] --> ProximaWave
-            state "➡️ Próxima Wave" as ProximaWave
-            state "🌳 Wave Paralela" as WaveParalela
-            state "➡️ Wave Sequencial" as WaveSequencial
-            state "🔀 Integrando" as Integrando
-            state "✅ Verificando Merge" as VerificandoMerge
-            state "🐛 Depurando" as DepurandoExecP
-            ProximaWave --> WaveParalela : wave com 2+ tasks independentes
-            ProximaWave --> WaveSequencial : wave com 1 task
-            WaveParalela --> Integrando : worktrees revisados (1 worktree por task, super.using-git-worktrees)
-            WaveSequencial --> Integrando : task revisada in-place
-            Integrando --> VerificandoMerge : merge no branch base
-            VerificandoMerge --> ProximaWave : VBC ok no merge, proxima wave
-            VerificandoMerge --> WaveParalela : conflito/bug de integracao, corrigir
-            WaveParalela --> DepurandoExecP : bug encontrado na task
-            WaveSequencial --> DepurandoExecP : bug encontrado na task
-            DepurandoExecP --> Integrando : causa raiz identificada, fix aplicado (super.systematic-debugging)
-            DepurandoExecP --> [*] : 3+ tentativas falhas, questiona arquitetura com humano
-            ProximaWave --> [*] : todas as waves integradas e verificadas
+            [*] --> ChecandoElegibilidade
+            state "🔎 Checando Elegibilidade" as ChecandoElegibilidade
+            state "👷 Um Implementer, Todas as Tasks" as ImplementandoTudo
+            state "✅ Task Marcada DONE (--verify)" as TaskConcluidaUnico
+            ChecandoElegibilidade --> ImplementandoTudo : singleImplementer.eligible true — 1 dispatch, controller aguarda
+            ChecandoElegibilidade --> [*] : false — STOP, reabre o gate 0/1
+            ImplementandoTudo --> TaskConcluidaUnico : TDD por task, mark-task-status --verify exit 0
+            TaskConcluidaUnico --> ImplementandoTudo : proxima task, sem revisor entre tasks
+            TaskConcluidaUnico --> [*] : todas DONE → final stage completo (review final capable + QA)
+            ImplementandoTudo --> [*] : BLOCKED em N — tasks seguintes "not started", controller decide
         }
 
         ModoInline --> [*]
         ModoSequencial --> [*]
-        ModoParaleloInTree --> [*]
-        ModoParalelo --> [*]
+        ModoImplementadorUnico --> [*]
     }
     note right of Executando
-        ▪ Micro/Small/Medium → Modo Inline: controlador escreve o codigo
-          na thread principal (self-review por cluster, sem fan-out
-          nem revisor por task); a verificacao vem 1x no gate
-          combinado. Large/Complex → os 3 modos de fan-out abaixo
-        ▪ paralelismo e isolamento sao eixos ortogonais: in-tree
-          (tree compartilhado, write-sets disjuntos verificados +
-          implementers write-only + barreira de integracao
-          serializada) ou worktree (1 worktree isolado por task)
-        ▪ tasks dependentes sao serializadas pelas waves
+        ▪ bounded → Modo Inline, sem passar por Escolhendo
+          Modo: o controlador escreve o codigo na thread principal
+          (self-review por cluster, sem fan-out nem revisor por task)
+          e o trabalho so esta pronto quando o veredito do revisor
+          novo (revisor final) esta na thread. Plano em disco →
+          o gate 0/1 (+3 quando singleImplementer.eligible) e os
+          2 modos de dispatch abaixo
+        ▪ a ordem do indice e a ordem de execucao; tasks pequenas
+          do mesmo tipo podem ir num so dispatch (batch)
         ▪ Claude Code (opcional, aditivo aos gates spec+quality que
-          sempre rodam): /simplify por task se claude_code.simplify;
-          /code-review no review final (effort
-          claude_code.code_review_effort, default medium, ultra
-          indisponivel) se claude_code.code_review_final
-        ▪ Copilot CLI (opcional, sem niveis de esforco): review no
-          review final se copilot.review_final
+          sempre rodam): /code-review na Revisao Final (effort
+          claude_code.review_effort, default medium, ultra
+          indisponivel) se claude_code.review_final
+        ▪ Copilot CLI (opcional, sem niveis de esforco): review na
+          Revisao Final se copilot.review_final
         ▪ em ambos os casos o reviewer final amplo sempre roda —
           esses reviews opcionais sao camada extra, nunca substituto
     end note
@@ -327,37 +432,59 @@ stateDiagram-v2
         QuestionandoArquitetura --> [*] : decisao tomada com humano
     }
 
-    Executando --> VerificacaoIndependente : execucao concluida (apos final code review)
-
-    state "Verificação Independente" as VerificacaoIndependente
-    state "🧠 Registrando Lição (lessons.py)" as RegistrandoLicao
-    state "🗳️ Controlador Decide Correção" as DecideCorrecao
-    state "🔧 Corrigindo Inline" as CorrigindoInline
-    VerificacaoIndependente --> RegistrandoLicao : FAIL (gap / mutante sobrevivente)
-    RegistrandoLicao --> DecideCorrecao : lição via lessons.py (antes de corrigir)
-    DecideCorrecao --> CorrigindoInline : simples/localizado → controlador corrige
-    DecideCorrecao --> Executando : complexo/cross-cutting → delega implementer subagent
-    CorrigindoInline --> VerificacaoIndependente : re-verifica (Verifier fresco, ≤3 rounds)
-    VerificacaoIndependente --> GateQA : PASS + PRD existe + usuario OPTA por QA (opt-in)
-    VerificacaoIndependente --> Finalizando : PASS, sem PRD, pula gate
-    VerificacaoIndependente --> Finalizando : PASS, usuario declina QA (opt-in em todos os tiers)
-    note right of VerificacaoIndependente
-        ▪ gate SEMPRE-ON: roda 1x por feature, mesmo sem PRD
-        ▪ Micro/Small/Medium: É o gate combinado (absorve o final code
-          review + IV num único Verifier cego); Large/Complex:
-          roda apos o final code review separado
-        ▪ Verifier fresco (autor != verificador) re-deriva a
-          cobertura do spec (evidence-or-zero)
-        ▪ discrimination sensor: mutation testing em git-scratch
-          state prova que os testes matam regressoes
-        ▪ QA (user-observable) NUNCA entra aqui — gate opt-in
-          separado em todos os tiers, so roda com consentimento
-        ▪ FAIL: registra licao (lessons.py), entao o
-          controlador decide por complexidade (corrige inline OU
-          delega subagent)
+    state "🔍 Revisão Final (gate 1 do final stage)" as RevisaoFinal
+    Executando --> RevisaoFinal : plano em disco — todas as tasks DONE + checkpoint de suite completa verde
+    ModoInline --> RevisaoFinal : bounded — TDD com MUTATE no controlador, depois um revisor final fresco
+    ModoInline --> Explorando : tripwire — escala para architectural
+    RevisaoFinal --> RevisaoFinal : Critical/Important → UM fixer com a lista inteira (--role final-fix), RED→GREEN e a re-review
+    RevisaoFinal --> Depurando : mesmo finding sobrevive ~2 rodadas de fix (super.systematic-debugging ou humano)
+    RevisaoFinal --> GateQA : nenhum Critical/Important aberto + session_qa_gate_enabled + PRD (a preferencia e o consentimento — com session_qa_gate_ask, UMA pergunta no gate)
+    RevisaoFinal --> GateDoneState : nenhum aberto, sem PRD / QA desligado na preferencia → pula o gate de QA em silencio
+    note right of RevisaoFinal
+        ▪ SEMPRE tier capable, whole-branch, nunca piso no tier das tasks
+        ▪ build-task-dispatch --role final deriva o merge-base da branch
+          padrao e recusa range fora da linha ou vazio — recusa e STOP
+        ▪ recebe Foco de Revisao, Restricoes Globais e o ledger
+          (minor/unverified/declined/parked) como itens adiados
+        ▪ opcional e aditivo: /code-review (Claude Code) ou review
+          (Copilot CLI) como camada extra de bugs
+        ▪ review_final: false tira SO a camada extra; o revisor
+          final e despachado sempre (build-task-dispatch --role final
+          grava "Final review: dispatched" no ledger)
+        ▪ controller re-gradua pelo efeito e decide cada Declined e
+          cada plan-mandated a partir das citacoes do revisor, gravando
+          "Final review: Ruling" no ledger
+        ▪ final-fix: tier maximo das tasks com piso standard, report
+          proprio final-fix-R-report.md, linha "fix round R" gravada
+          pelo script — a suite do report nao e re-rodada
+        ▪ Minor: corrige se barato, senao "Final review: minor (deferred)"
+        ▪ cobra a linha Mutation: de cada task (MUTATE do TDD) e a
+          cobertura AC/INV da spec com teste em file:line
+        ▪ bounded: revisor fresco via super.requesting-code-review
+          sobre o diff + lista de passos, sem task files
     end note
 
-    Depurando --> Finalizando : bug como tarefa principal → resolvido (debug standalone sem feature: precondicao IV N/A, exige testes verdes)
+    state "🔒 Gate Done-State" as GateDoneState
+    GateDoneState --> Finalizando : sdd-finish.cjs allDone — entrega os rulings ao usuario e invoca o finishing
+    GateDoneState --> Executando : allDone false — task aberta ou index divergente do task-NN.md (ledger intacto, nada commitado)
+    note right of GateDoneState
+        ▪ gates do final stage, na ordem fixa: final code review →
+          QA → done-state → finishing (references/final-stage.md e a fonte)
+        ▪ deterministico: exige todo task [x] no indice E
+          **Status:** DONE no task-NN.md, nunca inspecao visual
+        ▪ uma chamada (sdd-finish.cjs): roda parse-tasks.cjs
+          --assert-all-done e, se passa, devolve rulings e deferred
+        ▪ apaga o workspace .superpowers/sdd/<feature>/ com o
+          ledger dentro (scratch, nunca commitados) e, com auto_commit,
+          commita as marcacoes do tracker no diretorio de planos
+        ▪ errors = o gate nao rodou → STOP, nunca aprovado
+        ▪ sem a linha "Final review: dispatched" no ledger o
+          sdd-finish recusa e nao apaga nada (gate 1 nao e opcional)
+        ▪ na entrega: todo Ruling vai ao usuario sob um heading no idioma
+          da sessao ("Decisoes que tomei"), cada um com o custo se errado
+    end note
+
+    Depurando --> Finalizando : bug como tarefa principal → resolvido (debug standalone sem feature: exige testes verdes)
 
     state "✅ Gate QA (opção 7)" as GateQA {
         direction TB
@@ -369,25 +496,38 @@ stateDiagram-v2
         Verificando --> Reprovado : FAILED
     }
 
-    Aprovado --> Finalizando
-    Reprovado --> Executando : corrigir e re-executar
+    Aprovado --> GateDoneState : PASSED ou PARTIAL devolve o controle ao orquestrador
+    Reprovado --> Verificando : task da story reaberta (IN_PROGRESS) → implementer + task review com o failure_details → re-QA da story (1 round)
+    Reprovado --> Executando : 2o FAILED → STOP, nao entra no finishing — usuario escolhe systematic-debugging ou parar
 
     %% ===================== FINALIZACAO =====================
     state "🏁 Finalizando" as Finalizando {
         direction TB
         [*] --> TestesVerificados
-        state "✅ Testes Verificados" as TestesVerificados
+        state "✅ Precondições Verificadas" as TestesVerificados
         state "🗳️ Apresentando Opções" as ApresentandoOpcoes
         state "🔀 Merge" as Merge
         state "📬 Pull Request" as PullRequest
         state "📌 Manter Branch" as Manter
         state "🗑️ Descartar" as Descartar
-        TestesVerificados --> ApresentandoOpcoes
+        TestesVerificados --> ApresentandoOpcoes : suite verde + working tree limpa
         ApresentandoOpcoes --> Merge
         ApresentandoOpcoes --> PullRequest
         ApresentandoOpcoes --> Manter
         ApresentandoOpcoes --> Descartar
     }
+    note right of Finalizando
+        ▪ step 1: se veio um tasks index, parse-tasks.cjs --assert-all-done
+          confirma de novo (backstop); sem index, o passo e pulado
+        ▪ vindo do SDD com auto_commit, a arvore ja chega limpa: o
+          sdd-finish.cjs commitou o tracker e apagou ledger e workspace
+        ▪ step 2 sao DUAS precondicoes: suite verde e working
+          tree limpa
+        ▪ as opcoes variam pelo ambiente detectado (step 3-5): repo
+          normal / worktree com branch nomeado = 4 opcoes; HEAD
+          destacado = 3 opcoes; trabalho commitado direto na base = 4
+          opcoes proprias (push, mover pra branch + PR, manter, descartar)
+    end note
 
     Merge --> [*]
     PullRequest --> [*]
@@ -401,19 +541,16 @@ stateDiagram-v2
     classDef nominal fill:#14532D,stroke:#4ADE80,stroke-width:2px,color:#DCFCE7
     classDef optional fill:#0C4A6E,stroke:#38BDF8,stroke-width:2px,color:#E0F2FE
     classDef execSeq fill:#155E75,stroke:#67E8F9,stroke-width:2px,color:#ECFEFF
-    classDef execIT fill:#4C1D95,stroke:#A78BFA,stroke-width:2px,color:#F5F3FF
-    classDef execWT fill:#9A3412,stroke:#FDBA74,stroke-width:2px,color:#FFF7ED
     classDef execInline fill:#166534,stroke:#86EFAC,stroke-width:2px,color:#F0FDF4
     classDef debug fill:#9F1239,stroke:#FDA4AF,stroke-width:2px,color:#FFF1F2
     classDef terminal fill:#374151,stroke:#9CA3AF,stroke-width:2px,color:#F9FAFB
 
-    class ChecandoPreferencias,GateQA,GateDisjuncao,VerificacaoIndependente,RegistrandoLicao gate
-    class Triagem,PerguntaDeAbertura,EscolhendoModo,ApresentandoOpcoes,DecideCorrecao hub
+    class ChecandoPreferencias,GateQA,GateDoneState,RevisaoFinal gate
+    class Triagem,PerguntaDeAbertura,EscolhendoModo,ApresentandoOpcoes hub
     class Pesquisando,Explorando,Formalizando,Planejando,Executando,Finalizando nominal
-    class RevisandoSpec,Onboarding optional
-    class ModoSequencial execSeq
-    class ModoParaleloInTree execIT
-    class ModoParalelo execWT
+    class GateSpec hub
+    class RevisandoSpec,Onboarding,AtualizandoPreferencias,PassoPerfilProjeto,Sondando optional
+    class ModoSequencial,ModoImplementadorUnico execSeq
     class ModoInline execInline
-    class Depurando,DepurandoExec,DepurandoExecIT,DepurandoExecP,QuestionandoArquitetura,Investigando,Analisando,Corrigindo,Reprovado,CorrigindoInline debug
+    class Depurando,DepurandoExec,OperacaoDestrutiva,QuestionandoArquitetura,Investigando,Analisando,Corrigindo,Reprovado debug
     class Merge,PullRequest,Manter,Descartar terminal

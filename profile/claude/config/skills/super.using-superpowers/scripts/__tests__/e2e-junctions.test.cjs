@@ -14,9 +14,9 @@
  *
  *   template real            -> validador          (tasks-template.md -> validate-tasks)
  *   write-preferences        -> derive-session-state
- *   parse-waves (PRODUZ)     -> manifesto (APLICA) -> validate-dispatch (VERIFICA)
+ *   parse-plan (PRODUZ tier) -> mark-task-status (APLICA) -> parse-tasks (VERIFICA)
  *   render-screen (ESCREVE)  -> check-visual-state (CLASSIFICA)
- *   validation-report-template.md -> check-verification-report
+ *   run-mutation (MUTA)      -> teste real (MATA ou SOBREVIVE) -> arvore restaurada
  *   prd-template.md (SECOES) -> feature-index (RECALL)
  *   resolve-review-targets   -> build-review-dispatch -> validate-dispatch
  *
@@ -40,7 +40,7 @@ const gitDisponivel = git.status === 0;
 if (process.env.SUPERPOWERS_SKIP_E2E === '1') {
   test('e2e das juncoes', { skip: 'SUPERPOWERS_SKIP_E2E=1' }, () => {});
 } else if (!gitDisponivel) {
-  // As fases 1 e 7 fazem `git init`, criam branches e leem o estado do repo. Sem git
+  // A fase 1 faz `git init`, cria branches e le o estado do repo. Sem git
   // o harness nao tem o que exercitar — skipar e honesto, falhar seria ruido.
   test('e2e das juncoes', { skip: 'git indisponivel no PATH' }, () => {});
 } else {
@@ -53,7 +53,6 @@ if (process.env.SUPERPOWERS_SKIP_E2E === '1') {
   require('./e2e/phase-4-verification.cjs');
   require('./e2e/phase-5-recall.cjs');
   require('./e2e/phase-6-visual.cjs');
-  require('./e2e/phase-7-integration.cjs');
 
   test.after(cleanup);
 }

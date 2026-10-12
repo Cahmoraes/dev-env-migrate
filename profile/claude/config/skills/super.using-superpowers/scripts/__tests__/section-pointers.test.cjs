@@ -19,7 +19,7 @@
  *     file — while `visual-companion-contract.test.cjs` FORBIDS them from SKILL.md
  *     ("the numbered rules are NOT restated in the always-paid tier"). Following the
  *     pointer was guaranteed to come up empty.
- *   - The tier table: `medium-inline-path.md` sent the reader to `SKILL.md` after
+ *   - The tier table: `bounded-path.md` sent the reader to `SKILL.md` after
  *     `skillmd-eager-cost.test.cjs` had moved ownership to `references/triage-sizing.md`
  *     ("the tier table must NOT be pasted back into SKILL.md").
  *
@@ -53,12 +53,12 @@ const CASES = [
     pinnedBy: 'visual-companion-contract.test.cjs — "the numbered rules are NOT restated in the always-paid tier"',
   },
   {
-    what: 'the tier table',
-    source: 'super.using-superpowers/references/medium-inline-path.md',
-    pointer: /see the tier table in `triage-sizing\.md`/,
-    destination: 'super.using-superpowers/references/triage-sizing.md',
-    anchor: /^\| \*\*Micro\*\* \|/m,
-    pinnedBy: 'skillmd-eager-cost.test.cjs — "the tier table lives in the reference, not in the eager SKILL.md"',
+    what: 'the bounded path definition',
+    source: 'super.using-superpowers/references/bounded-path.md',
+    pointer: /\(`session-start\.md`, "Scope sizing \(option 2\)"\)/,
+    destination: 'super.using-superpowers/references/session-start.md',
+    anchor: /^## Scope sizing \(option 2\) — three paths$/m,
+    pinnedBy: 'skillmd-eager-cost.test.cjs — "the path definitions ride the bootstrap call, not the eager SKILL.md"',
   },
   // The execution-loop decomposition points the OTHER way — SKILL.md naming a section of a
   // reference — which the sweep below does not cover (it reads references pointing INTO
@@ -83,7 +83,7 @@ const CASES = [
     pinnedBy: 'compaction-survival-window.test.cjs — the mechanics moved out of the over-cap SKILL.md',
   },
   {
-    what: 'the review-loop caps and reviewShape',
+    what: 'the review-loop caps',
     source: 'super.subagent-driven-development/SKILL.md',
     pointer: /`\.\/references\/execution-loop\.md`, "Review loop bounds"/,
     destination: 'super.subagent-driven-development/references/execution-loop.md',
@@ -218,7 +218,7 @@ test('no reference sends the reader to SKILL.md for content another guard forbid
   // of something the eager tier is explicitly not allowed to carry.
   const forbidden = [
     { rel: 'super.brainstorming/references/visual-companion-operation.md', re: /three rules[^.]*in `SKILL\.md`/i, what: 'render-debt rules' },
-    { rel: 'super.using-superpowers/references/medium-inline-path.md', re: /tier table in `SKILL\.md`/i, what: 'tier table' },
+    { rel: 'super.using-superpowers/references/bounded-path.md', re: /(three paths|bounded path)[^.]*in `SKILL\.md`/i, what: 'path definitions' },
   ];
   for (const f of forbidden) {
     assert.doesNotMatch(

@@ -10,7 +10,6 @@ Skills use Claude Code tool names. Use your platform equivalent:
 | `Bash` (run commands) | `bash` (`command`\*, `description`\*, `timeout`, `workdir`) |
 | file-content search | `grep` (`pattern`, `path`, `include`) |
 | file-name search | `glob` (`pattern`, `path`) ⚠️ see limitation below |
-| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep` if it doesn't resolve immediately. |
 | `Skill` tool (invoke a skill) | `skill` (`name`) |
 | `AskUserQuestion` (structured user question) | `question` (`questions[]`) — see "Asking the user structured questions" |
 | session task list (task tracking, optional) | `todowrite` (`todos[]`) |
@@ -36,7 +35,7 @@ Pick a model for the orchestrator accordingly, and treat the `model_tiers` floor
 
 This is the one place where opencode genuinely differs from every other supported platform, and it changes how a core superpowers invariant is satisfied.
 
-The execution skills require that **every dispatch names its model explicitly** and that a subagent **never inherits the controller's model** — a task whose plan header says `**Tier:** cheap` must run on `model_tiers.cheap`, not on whatever the orchestrator happens to be running. On Claude Code and Copilot CLI the dispatch call itself carries a `model:` field, so the tier is resolved at dispatch time.
+The execution skill requires that **every dispatch names its model explicitly** and that a subagent **never inherits the controller's model** — a task whose plan header says `**Tier:** cheap` must run on `model_tiers.cheap`, not on whatever the orchestrator happens to be running. On Claude Code and Copilot CLI the dispatch call itself carries a `model:` field, so the tier is resolved at dispatch time.
 
 **opencode's `task` tool accepts only `description`, `prompt`, `subagent_type` (required), plus optional `task_id` and `command`. There is no `model` parameter.** In opencode a subagent's model is a property of the **agent definition**, resolved from its `model:` frontmatter (`Agent.model = { providerID, modelID }`).
 
@@ -62,15 +61,15 @@ If the script is unavailable, the definitions are markdown files with YAML front
 ---
 description: Superpowers implementer, cheap tier. Dispatch target for tasks whose plan header says Tier cheap.
 mode: subagent
-model: github-copilot/gemini-3.5-flash
+model: <cheap-model>
 temperature: 0.1
 ---
 You are the implementer for a superpowers task. Follow the task file exactly.
 ```
 
-`model:` is `providerID/modelID` — the same identifiers `opencode models` prints.
+`model:` is the `providerID/modelID` configured in `model_tiers.<tier>` — the same identifiers `opencode models` prints (e.g. `github-copilot/gemini-3.5-flash`).
 
-**The tier rules are unchanged, only their mechanism is.** The written `**Tier:**` is still binding, escalation is still the only path to a higher tier and still needs a reason recorded in the thread, and the `validate-dispatch.cjs` pre-flight still runs before every wave. When building the manifest for that gate, record each agent's `tier` and set its `model` to the model configured on the agent you dispatched to — that keeps the deterministic backstop meaningful instead of blank.
+**The tier rules are unchanged, only their mechanism is.** The written `**Tier:**` is still binding, escalation is still the only path to a higher tier and still needs a reason recorded in the thread, and the `validate-dispatch.cjs` pre-flight still runs before every concurrent fan-out (research tracks, review lenses, QA stories). When building the manifest for that gate, record each agent's `tier` and set its `model` to the model configured on the agent you dispatched to — that keeps the deterministic backstop meaningful instead of blank.
 
 **When `model_tiers` is empty/`auto`**, the generated agents carry no `model:` line at all and opencode picks the model itself — exactly what the `auto` contract says. Dispatching to the built-in `general` agent is equally valid there.
 
@@ -91,7 +90,7 @@ The superpowers toolset rule — reviewers, exploration, research and sync-worke
 ---
 description: Read-only reviewer. Reports findings; never edits.
 mode: subagent
-model: github-copilot/claude-sonnet-4.6
+model: <standard-model>
 permission:
   read: allow
   grep: allow
@@ -117,9 +116,9 @@ An older `tools: { <name>: bool }` map also exists on agent definitions but is *
 
 **opencode's `task` blocks and returns the subagent's output directly.** There is no background/async dispatch mode and no separate "read result" tool, so the skills' instruction — *"After dispatching, await its result — never poll"* — is satisfied natively: issue the `task` call and read its return value. Never insert a `bash sleep`, a wakeup loop, or a `question` call to "wait for" a subagent.
 
-**Parallel fan-out is issuing several `task` calls in the same turn.** For a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, or the research fan-out, emit all of the independent `task` calls together in one turn; they run concurrently and you receive every result. Keep dependent tasks sequential, but never serialize independent dispatches just to get a simpler history.
+**Parallel fan-out is issuing several `task` calls in the same turn.** For the research fan-out, or the QA story verifiers, emit all of the independent `task` calls together in one turn; they run concurrently and you receive every result. Keep dependent tasks sequential, but never serialize independent dispatches just to get a simpler history.
 
-**`task_id` resumes a subagent session.** Passing a prior `task_id` continues that same subagent instead of starting a fresh one. Use it for the **fix → re-review loop**, where the reviewer benefits from remembering its own earlier findings. Do **not** use it where the flow requires a *fresh* agent: the `super.independent-verification` Verifier must be blind (author ≠ verifier), so it always gets a new dispatch, never a resumed one.
+**`task_id` resumes a subagent session.** Passing a prior `task_id` continues that same subagent instead of starting a fresh one. Use it for the **fix → re-review loop**, where the reviewer benefits from remembering its own earlier findings. Do **not** use it where the flow requires a *fresh* agent: the final code reviewer must not have written the code (author ≠ reviewer), so it always gets a new dispatch, never a resumed one.
 
 ## Asking the user structured questions
 
@@ -132,15 +131,15 @@ Two behaviors to respect:
 
 **`opencode run` (non-interactive) removes `question` entirely** — a scripted run must never hang waiting for input, so the tool is simply absent from the session's toolset there. Verified on 1.15.3: in a `run` session the model holds `bash, edit, glob, grep, read, skill, task, todowrite, webfetch, websearch, write` and no `question`. When it is absent, fall back to a numbered prose list; if no human can reply, proceed with the documented default for each question. Do not report a gate as blocked because `question` is missing — this is the same rule as `codex exec`.
 
-**`question` is a consent tool, never a synchronization primitive.** Do not call it to pause between a dispatch and reading its result, or to ask "continue?" while work is in flight — `task` already blocks. The only legitimate `question` calls are the flow's explicit, named gates: the **Branch Guard** (current branch is the repo default), the **QA gate** (a PRD exists *and* `workflow.qa_gate` is enabled), the **auto-commit suggestion** (`workflow.auto_commit: false`), and the **execution-mode election**. Everything between them — dispatch, review, fix loop, verification — runs without a single `question`.
+**`question` is a consent tool, never a synchronization primitive.** Do not call it to pause between a dispatch and reading its result, or to ask "continue?" while work is in flight — `task` already blocks. The only legitimate `question` calls are the flow's explicit, named gates: the **Branch Guard**'s two exceptions (the feature branch already exists, or the repo pins work to the default branch — otherwise the branch is created and announced), the **auto-commit suggestion** (`workflow.auto_commit: false`), and the **execution-mode election** (always asked, every plan). The QA gate is preference-decided (`workflow.qa_gate`), never asked. Everything between them — dispatch, review, fix loop, verification — runs without a single `question`.
 
 **The same rule governs phase handoffs.** A `{ continue: boolean }` re-confirmation at a phase boundary ("continuar com o plano?", "proceed to planning?") is the identical anti-pattern. At the **brainstorming → `super.writing-plans`** handoff the PRD suggestion *is* the single go/no-go; once it is answered, invoke the next skill directly rather than re-asking a decision the user just made.
 
 ## ⚠️ Known limitation: `glob` and hidden directories
 
-**`glob` does not return files inside hidden directories** (names starting with `.`): `.superpowers/`, `.github/`, any dotdir. opencode's glob runs ripgrep *without* `--hidden`, so those paths are invisible to it. Never use `glob` to detect files there.
+**`glob` does not return files inside hidden directories** (names starting with `.`): `.superpowers/`, `.github/`, any dotdir. opencode's glob does not search hidden paths, so they are invisible to it. Never use `glob` to detect files there.
 
-`grep` is **not** affected — it runs ripgrep with `--hidden` unconditionally and does search hidden paths. Do not generalize the glob limitation to grep, and do not rely on grep as the detection route either; use the script below.
+`grep` is **not** affected — it does search hidden paths. Do not generalize the glob limitation to grep, and do not rely on grep as the detection route either; use the script below.
 
 **Preferred — the deterministic script:**
 
@@ -150,6 +149,8 @@ node <super.using-superpowers-base-dir>/scripts/read-preferences.cjs --repo-root
 ```
 
 `<super.X-base-dir>` is never filled in for you: the harness injects the base directory of the skill it just invoked, and only that one. **For a sibling skill:** parent of your header's base directory + `/super.X`. Do not search for it — skill directories live under a dotdir, search skips those, and a false "not found" ends with a gate quietly skipped. A gate script that will not run is a **STOP**.
+
+**`${CLAUDE_SKILL_DIR}` is a Claude Code literal and is NOT expanded here** (measured: Copilot CLI 1.0.82, opencode 1.18.18). A `SKILL.md` that shows it is not telling you a path — use the base directory this harness states with the skill content instead.
 
 It detects the root via `git rev-parse --show-toplevel`, handles nested YAML, returns defaults for missing keys, and marks malformed files. See `read-preferences.cjs --help` for the JSON schema.
 
@@ -193,13 +194,15 @@ opencode discovers `SKILL.md` skills natively and exposes them through the `skil
 
 Confirm what the session sees with `opencode debug skill` (lists all discovered skills). If the `super.*` skills are missing, the skill directories are not on opencode's discovery path — a deployment problem, not a flow problem.
 
+Discovery paths (measured on 1.18.18): `.opencode/skills/` in the project, plus `~/.claude/skills` and `~/.agents/skills` scanned by default — so the same symlinks a Claude Code install uses are already visible here, unless `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is set.
+
 ## No native review skills
 
-opencode has **no** equivalent of Claude Code's `/simplify` and `/code-review`, or Copilot CLI's `review` and Rubber Duck Agent. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are **silently ignored** here, and `derive-session-state.cjs --platform opencode` resolves every native-review variable to its safe default.
+opencode has **no** equivalent of Claude Code's `/code-review` or Copilot CLI's `review`. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are **silently ignored** here, and `derive-session-state.cjs --platform opencode` resolves every native-review variable to its safe default.
 
-**During onboarding, skip the "Copilot CLI: Additional Steps" and "Claude Code: Native Skills Additional Steps" sections entirely** — do not ask about them, do not mention them.
+**During onboarding, skip the "Copilot CLI: Additional Step" and "Claude Code: Native Skill Additional Step" sections entirely** — do not ask about them, do not mention them.
 
-Nothing is lost from the review pipeline: **the per-task spec compliance review and code quality review gates always run, on every platform**, as do the default final code reviewer and the always-on `super.independent-verification` gate. Those native skills were only ever extra passes layered on top.
+Nothing is lost from the review pipeline: **the per-task spec compliance review and code quality review gates always run, on every platform**, as does the default final code reviewer. Those native skills were only ever extra passes layered on top.
 
 ## Environment detection
 

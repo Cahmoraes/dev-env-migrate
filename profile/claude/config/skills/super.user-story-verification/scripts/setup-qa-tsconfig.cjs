@@ -149,7 +149,7 @@ const SKIP_DIRS = new Set([
 	// QA evidence never contains an app (no package.json there), and skipping
 	// it avoids uselessly re-walking every past evidence folder on each run.
 	"docs",
-	// super.parallel-subagent-development creates git worktrees under
+	// A harness or super.using-git-worktrees run can leave git worktrees under
 	// .claude/worktrees/<name>/ that mirror the repo's own app directories
 	// (their own apps/frontend, apps/backend...) — a real run against a repo
 	// with an active worktree misclassified as "ambiguous" because the
@@ -240,14 +240,19 @@ function findAppCandidates(repoRoot) {
 		} catch {
 			return;
 		}
-		const hasPackageJson = entries.some((e) => e.isFile() && e.name === "package.json");
-		const hasTsconfig = entries.some((e) => e.isFile() && e.name === "tsconfig.json");
-		if (hasPackageJson && hasTsconfig) {
-			candidates.push(dir);
+		let hasPackageJson = false;
+		let hasTsconfig = false;
+		const subdirs = [];
+		for (const e of entries) {
+			if (e.isDirectory()) {
+				if (!SKIP_DIRS.has(e.name)) subdirs.push(e.name);
+			} else if (e.isFile()) {
+				if (e.name === "package.json") hasPackageJson = true;
+				else if (e.name === "tsconfig.json") hasTsconfig = true;
+			}
 		}
-		entries
-			.filter((e) => e.isDirectory() && !SKIP_DIRS.has(e.name))
-			.forEach((e) => walk(path.join(dir, e.name), depth + 1));
+		if (hasPackageJson && hasTsconfig) candidates.push(dir);
+		if (depth < MAX_WALK_DEPTH) for (const name of subdirs) walk(path.join(dir, name), depth + 1);
 	}
 	walk(repoRoot, 0);
 	return candidates;
@@ -280,8 +285,9 @@ function classifyAppRoot(appRoot) {
 	const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
 	const isFrontend = FRONTEND_MARKERS.some((marker) => deps[marker]);
 	const isBackend = BACKEND_MARKERS.some((marker) => deps[marker]);
-	if (isFrontend && !isBackend) return { kind: "frontend", reason: null };
-	if (isBackend && !isFrontend) return { kind: "backend", reason: null };
+	// The parsed tsconfig rides along so ensureTemplates does not re-read it.
+	if (isFrontend && !isBackend) return { kind: "frontend", reason: null, tsconfig };
+	if (isBackend && !isFrontend) return { kind: "backend", reason: null, tsconfig };
 	if (isFrontend && isBackend) return { kind: null, reason: "matches both frontend and backend markers" };
 	return { kind: null, reason: "no recognized frontend/backend dependency markers" };
 }
@@ -414,8 +420,8 @@ function ensureTemplates(flags) {
 			return;
 		}
 		const appTsconfigPath = path.join(resolved.appRoot, "tsconfig.json");
-		let tsconfig;
-		try {
+		let tsconfig = resolved.classification.tsconfig;
+		if (!tsconfig) try {
 			tsconfig = parseJsonc(fs.readFileSync(appTsconfigPath, "utf8"));
 		} catch (error) {
 			warnings.push(`${kind} app root ${resolved.appRoot} has an unreadable tsconfig.json (${error.message}); skipped.`);

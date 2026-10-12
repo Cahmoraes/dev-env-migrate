@@ -1,14 +1,8 @@
 # Feature History Recall Prompt Template
 
-Use this template when dispatching the feature-history recall subagent — the **Always** track of the research fan-out (`../references/research-fan-out.md`), launched in the same turn as the other tracks.
+**Purpose:** the **Always** track of the research fan-out (`../references/research-fan-out.md`), dispatched in the same turn as the other tracks: find every past feature the new topic touches, read their artifacts, and return the decisions already closed. The index and the artifacts stay inside the subagent; only the report reaches the interview. **One subagent covers every relevant feature**, never one per slug — a single reader is the only one who can say where they agree and where they contradict each other; a later, narrower pass is a separate dispatch routed by `../references/research-fan-out.md`.
 
-**Purpose:** find every past feature the new topic touches, read their artifacts, and return the decisions already closed. The index and the artifacts stay inside the subagent and only the report reaches the interview — which is the whole reason this is a dispatch and not a read.
-
-**Dispatch as a read-only subagent** — file reading, searching and the shell, nothing else (no editing, no writing, no dispatching). Withholding the write/dispatch tools keeps their schemas out of its context window. The shell is granted for the two index commands below and nothing else: it is a write surface, so a repo script that formats, builds or stages is out of bounds here even though no rule about "editing" mentions it.
-
-**One subagent covers every relevant feature**, never one per slug: they share a topic, and a single reader is the only one who can tell you where they agree and where they contradict each other. A later, narrower pass — once the interview knows more than the topic sentence did — is a separate dispatch, routed by `../references/research-fan-out.md`.
-
-**Resolve the placeholder before dispatching.** Paste the absolute path from this skill's header in place of `<super.brainstorming-base-dir>`: a subagent receives plain text and gets no base-dir expansion from the harness.
+**Toolset:** read-only — file reading, searching, and the shell for the two index commands below and nothing else (a repo script that formats, builds or stages is out of bounds even though no rule about "editing" names it). **Resolve the placeholder before dispatching:** paste the absolute path from this skill's header in place of `<super.brainstorming-base-dir>` — a subagent receives plain text and gets no base-dir expansion from the harness.
 
 **Names first, detail on a shortlist.** The two calls below are strong at different things — slugs alone are enough to *find* candidates, while the out-of-scope lines are what let you *reject* a look-alike. Scoping the second call with `--feature` costs O(candidates), not O(repo), so the index never reaches the budget ladder that degrades every entry at once.
 

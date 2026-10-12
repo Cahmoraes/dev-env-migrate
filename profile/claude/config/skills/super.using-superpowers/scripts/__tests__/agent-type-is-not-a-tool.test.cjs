@@ -35,7 +35,7 @@ const path = require('node:path');
 
 const SKILLS = path.resolve(__dirname, '..', '..', '..');
 const REFS = path.join(SKILLS, 'super.using-superpowers', 'references');
-const SKIPPED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules', 'evals']);
+const SKIPPED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules']);
 
 /** Anti-staleness floor: a walk that stops matching sweeps nothing and passes forever. */
 const MIN_FILES_SWEPT = 110;

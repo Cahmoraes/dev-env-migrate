@@ -1,8 +1,3 @@
----
-created_at: "YYYY-MM-DDTHH:MM:SS±HH:MM"
-updated_at: "YYYY-MM-DDTHH:MM:SS±HH:MM"
----
-
 # QA Report — [Feature Name]
 
 ## Resumo

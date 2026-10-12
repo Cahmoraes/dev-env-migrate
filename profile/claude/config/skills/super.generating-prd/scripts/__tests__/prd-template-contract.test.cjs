@@ -41,8 +41,8 @@ function templateSections() {
 }
 
 function restatedSections() {
-  // "... sections (in Portuguese): A, B, C, plus `created_at`/`updated_at` frontmatter."
-  const m = /sections \(in Portuguese\):\s*([^.]+?),\s*plus `created_at`/.exec(skillMd);
+  // "... sections (in Portuguese): A, B, C. The template also defines ..."
+  const m = /sections \(in Portuguese\):\s*([^.]+?)\.\s+The template/.exec(skillMd);
   if (!m) return null;
   return m[1].split(',').map((s) => s.trim()).filter(Boolean);
 }

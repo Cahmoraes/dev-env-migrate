@@ -1,9 +1,13 @@
 'use strict';
 
 /**
- * Tests for write-preferences.cjs + the read-preferences.cjs module refactor.
+ * write-preferences.cjs — the writer's own contract: round-trip, partial writes that never
+ * reset what they do not name, null/empty handling, --dry-run.
  *
- * Run with: node --test super.using-superpowers/scripts/__tests__/
+ * Per-option coverage (every boolean, effort levels, clamping, locale tags) lives in
+ * preferences-options-matrix.test.cjs; the loader's internals in read-preferences.coverage.
+ *
+ * Run with: node --test super.using-superpowers/scripts/__tests__/write-preferences.test.cjs
  */
 
 const test = require('node:test');
@@ -57,17 +61,17 @@ test('a partial write preserves keys it does not name (no silent reset to defaul
   try {
     // Persist non-default values first.
     write(root, {
-      communication: { language: 'en-US' },
-      optimization: { caveman: true, caveman_level: 'ultra' },
+      model_tiers: { capable: 'opus-x' },
+      claude_code: { review_final: true, review_effort: 'high' },
       workflow: { auto_commit: true },
     });
     // A one-key partial write must change ONLY that key — never reset the rest.
     write(root, { workflow: { auto_commit: false } });
     const r = read(root).preferences;
     assert.equal(r.workflow.auto_commit, false); // changed
-    assert.equal(r.communication.language, 'en-US'); // preserved
-    assert.equal(r.optimization.caveman, true); // preserved
-    assert.equal(r.optimization.caveman_level, 'ultra'); // preserved
+    assert.equal(r.model_tiers.capable, 'opus-x'); // preserved
+    assert.equal(r.claude_code.review_final, true); // preserved
+    assert.equal(r.claude_code.review_effort, 'high'); // preserved
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -78,78 +82,58 @@ test('custom values survive the write→read round-trip', () => {
   try {
     const input = {
       workflow: { auto_commit: false },
-      communication: { language: 'en' },
+      context: { has_corporate_artifacts: true },
       model_tiers: { cheap: 'haiku-x', standard: 'sonnet-x', capable: 'opus-x' },
     };
     write(root, input);
     const r = read(root).preferences;
     assert.equal(r.workflow.auto_commit, false);
-    assert.equal(r.workflow.confirm_destructive_actions, true); // default preserved
-    assert.equal(r.communication.language, 'en');
+    assert.equal(r.workflow.qa_gate, true); // default preserved
+    assert.equal(r.context.has_corporate_artifacts, true);
     assert.deepEqual(r.model_tiers, { cheap: 'haiku-x', standard: 'sonnet-x', capable: 'opus-x' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('claude_code native-skill flags default to false and survive the round-trip', () => {
-  const root = mkRepo();
+test('finish_action round-trips verbatim and an invalid value is clamped to ask before the write', () => {
+  let root = mkRepo();
   try {
-    // Defaults: both off until the user opts in during onboarding.
-    const w = write(root, {});
+    const w = write(root, { workflow: { finish_action: 'merge' } });
     assert.equal(w.roundTripValid, true);
-    assert.deepEqual(w.preferences.claude_code, { simplify: false, code_review_final: false, code_review_effort: 'medium' });
-
-    // Opt-in values persist and read back identically.
-    write(root, { claude_code: { simplify: true, code_review_final: true } });
-    const r = read(root).preferences;
-    assert.equal(r.claude_code.simplify, true);
-    assert.equal(r.claude_code.code_review_final, true);
+    assert.equal(read(root).preferences.workflow.finish_action, 'merge');
+    assert.equal(read(root).preferences.workflow.qa_gate, true); // untouched sibling key
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  root = mkRepo();
+  try {
+    const w = write(root, { workflow: { finish_action: 'discard' } });
+    assert.equal(w.roundTripValid, true, 'clamping happens before rendering, so the round-trip still holds');
+    assert.equal(w.preferences.workflow.finish_action, 'ask');
+    assert.match(fs.readFileSync(w.path, 'utf8'), /finish_action: ask/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('code_review_effort (final review) defaults to medium and a valid level survives the round-trip', () => {
-  const root = mkRepo();
+test('qa_gate: ask round-trips as a bare scalar; an invalid value is clamped to true before the write', () => {
+  let root = mkRepo();
   try {
-    assert.equal(write(root, {}).preferences.claude_code.code_review_effort, 'medium');
-    write(root, { claude_code: { code_review_effort: 'high' } });
-    assert.equal(read(root).preferences.claude_code.code_review_effort, 'high');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('an ultra or invalid code_review_effort is clamped to medium and never persisted', () => {
-  const root = mkRepo();
-  try {
-    // ultra is unsupported (cloud, separate tier) — must clamp, not write through.
-    const w = write(root, { claude_code: { code_review_effort: 'ultra' } });
+    const w = write(root, { workflow: { qa_gate: 'ask' } });
     assert.equal(w.roundTripValid, true);
-    assert.equal(w.preferences.claude_code.code_review_effort, 'medium');
-    const onDisk = fs.readFileSync(w.path, 'utf8');
-    assert.ok(!/code_review_effort:\s*ultra/.test(onDisk), 'ultra must not reach the file');
-    assert.equal(read(root).preferences.claude_code.code_review_effort, 'medium');
-
-    // A garbage value clamps the same way.
-    write(root, { claude_code: { code_review_effort: 'bogus' } });
-    assert.equal(read(root).preferences.claude_code.code_review_effort, 'medium');
+    assert.match(fs.readFileSync(w.path, 'utf8'), /^  qa_gate: ask$/m, 'rendered unquoted, like finish_action');
+    assert.equal(read(root).preferences.workflow.qa_gate, 'ask');
+    assert.equal(read(root).preferences.workflow.finish_action, 'ask'); // untouched sibling key
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-});
-
-test('copilot review_final defaults to false and survives the round-trip', () => {
-  const root = mkRepo();
+  root = mkRepo();
   try {
-    const w = write(root, {});
-    assert.deepEqual(w.preferences.copilot, { rubber_duck: false, review_final: false });
-
-    write(root, { copilot: { review_final: true } });
-    const r = read(root).preferences;
-    assert.equal(r.copilot.review_final, true);
-    assert.equal(r.copilot.rubber_duck, false); // unrelated default preserved
+    const w = write(root, { workflow: { qa_gate: 'always' } });
+    assert.equal(w.roundTripValid, true, 'clamping happens before rendering, so the round-trip still holds');
+    assert.equal(w.preferences.workflow.qa_gate, true);
+    assert.match(fs.readFileSync(w.path, 'utf8'), /qa_gate: true/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -158,11 +142,10 @@ test('copilot review_final defaults to false and survives the round-trip', () =>
 test('a partial claude_code object keeps the unspecified flag at its default', () => {
   const root = mkRepo();
   try {
-    write(root, { claude_code: { simplify: true } });
+    write(root, { claude_code: { review_final: true } });
     const r = read(root).preferences;
-    assert.equal(r.claude_code.simplify, true);
-    assert.equal(r.claude_code.code_review_final, false); // default preserved
-    assert.equal(r.claude_code.code_review_effort, 'medium'); // default preserved
+    assert.equal(r.claude_code.review_final, true);
+    assert.equal(r.claude_code.review_effort, 'medium'); // default preserved
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -181,36 +164,26 @@ test('null model tiers round-trip back to null (not the string "null")', () => {
   }
 });
 
-test('--dry-run does not create the file', () => {
+test('empty project fields are persisted as null (stack not decided yet)', () => {
   const root = mkRepo();
   try {
-    const w = write(root, { communication: { language: 'es' } }, ['--dry-run']);
-    assert.equal(w.written, false);
-    assert.equal(w.dryRun, true);
-    assert.equal(fs.existsSync(path.join(root, '.superpowers', 'preferences.yml')), false);
+    const w = write(root, { project: { stack: '', manifest: '' } });
+
+    assert.equal(w.roundTripValid, true);
+    assert.equal(w.projectDeclared, true);
+    assert.deepEqual(read(root).preferences.project, { stack: null, manifest: null });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('read-preferences.cjs is requireable as a module with stable exports', () => {
-  const mod = require(READ);
-  assert.equal(typeof mod.parseYaml, 'function');
-  assert.equal(typeof mod.deepMerge, 'function');
-  assert.ok(mod.DEFAULTS.model_tiers);
-  // Requiring it must not have executed the CLI (no stdout side effects to assert,
-  // but the merge helper must behave):
-  const merged = mod.deepMerge(mod.DEFAULTS, { workflow: { auto_commit: false } });
-  assert.equal(merged.workflow.auto_commit, false);
-  assert.equal(merged.communication.language, 'pt-BR');
-});
-
-test('read-preferences.cjs still works as a CLI on a missing file (regression)', () => {
+test('--dry-run does not create the file', () => {
   const root = mkRepo();
   try {
-    const r = read(root);
-    assert.equal(r.found, false);
-    assert.equal(r.preferences.optimization.caveman_level, 'full');
+    const w = write(root, { workflow: { auto_commit: false } }, ['--dry-run']);
+    assert.equal(w.written, false);
+    assert.equal(w.dryRun, true);
+    assert.equal(fs.existsSync(path.join(root, '.superpowers', 'preferences.yml')), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

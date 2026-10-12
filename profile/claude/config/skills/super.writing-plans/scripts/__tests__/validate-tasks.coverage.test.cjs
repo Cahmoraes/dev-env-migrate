@@ -47,14 +47,13 @@ function runJson(args) {
   return JSON.parse(out);
 }
 
-function taskFile({ status = 'PENDING', prd = '`../prd/prd-x.md`', spec = '`../specs/x-design.md`', depends = 'N/A', title = '# Task 1: Do the thing', rfBody = '' } = {}) {
+function taskFile({ status = 'PENDING', prd = '`../prd/prd-x.md`', spec = '`../specs/x-design.md`', title = '# Task 1: Do the thing', rfBody = '' } = {}) {
   return [
     title,
     '',
     `**Status:** ${status}`,
     `**PRD:** ${prd}`,
     `**Spec:** ${spec}`,
-    `**Depends on:** ${depends}`,
     '',
     '## Passos',
     rfBody,
@@ -201,12 +200,12 @@ test('warns when a task title is too long', () => {
   }
 });
 
-// ─── FR appears in file but not declared in the index (warning, lines 209-210, 237-238) ──
+// ─── FR appears in the file body but not in its title (warning) ──
 
-test('warns when an FR appears in the task file but not in the index line', () => {
+test('warns when an FR appears in the task file body but not in its title', () => {
   const dir = mkdir();
   try {
-    // Index declares no FR; the file body cites FR-005 — a softer signal (warning).
+    // The title declares no FR; the body cites FR-005 — a softer signal (warning).
     fs.writeFileSync(
       path.join(dir, 'task-01.md'),
       taskFile({ title: '# Task 1: Endpoint', rfBody: 'Implements FR-005 in the body.' }),
@@ -216,7 +215,7 @@ test('warns when an FR appears in the task file but not in the index line', () =
     const r = runJson(['--tasks-index', index]);
     // The warning alone does not flag the plan invalid.
     assert.equal(r.valid, true);
-    assert.ok(r.warnings.some((w) => /FR-005 appears in task-01\.md but is not declared in the index/.test(w.message)));
+    assert.ok(r.warnings.some((w) => /FR-005 appears in task-01\.md but is not declared in its title/.test(w.message)));
     assert.deepEqual(r.taskFiles[0].rfInFile, ['FR-005']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

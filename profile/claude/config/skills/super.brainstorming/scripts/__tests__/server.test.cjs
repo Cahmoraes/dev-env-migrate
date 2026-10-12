@@ -3,7 +3,7 @@
 /**
  * Regression tests for the brainstorm visual-companion server.
  *
- * Run with: node --test super.brainstorming/scripts/__tests__/
+ * Run with: node --test super.brainstorming/scripts/__tests__/server.test.cjs
  *
  * Covers the pure protocol/serving helpers exported by server.cjs:
  *  - computeAcceptKey: RFC 6455 handshake vector.

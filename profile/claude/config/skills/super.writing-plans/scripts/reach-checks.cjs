@@ -1,11 +1,9 @@
 'use strict';
 
 /**
- * Coverage-side companion to validate-tasks.cjs's wave disjointness check.
+ * Plan reach: does the task set *reach* everything the change touches?
  *
- * Disjointness proves two tasks in a wave do not collide. It never proves the
- * task set *reaches* everything the change touches, so a plan can be provably
- * safe to parallelize and still be provably incomplete. Incompleteness of that
+ * A plan can be internally consistent and still be incomplete. Incompleteness of that
  * second kind comes from mapping dependencies by feature narrative instead of by
  * technical reach, and shows up in three recurring shapes:
  *
@@ -121,31 +119,47 @@ function buildRepoIndex(repoRoot) {
 }
 
 /**
- * Does `spec`, written inside `importerRel`, point at `targetRel`?
- *
- * Relative specifiers resolve exactly. Alias/bare specifiers cannot be resolved
- * without reading every tsconfig `paths` map, so they match on a path tail of at
- * least two segments — `@/core/domain/model` matches `apps/api/src/core/domain/model`.
- * The two-segment floor is what keeps `../model` from matching every `model.ts`
- * in the repo; a missed importer is a quieter failure than a false one here.
+ * The key a specifier resolves to, independent of any target: a relative specifier
+ * resolves exactly (`rel`), an alias/bare one can only be matched by path tail (`tail`).
+ * Alias/bare specifiers cannot be resolved without reading every tsconfig `paths` map,
+ * so they match on a path tail of at least two segments — `@/core/domain/model` matches
+ * `apps/api/src/core/domain/model`. The two-segment floor is what keeps `../model` from
+ * matching every `model.ts` in the repo; a missed importer is a quieter failure than a
+ * false one here. Null when the specifier can never match a repo file.
  */
-function specifierResolvesTo(importerRel, spec, targetRel) {
-  const targetNoExt = stripExt(targetRel);
+function specifierKey(importerRel, spec) {
   if (spec.startsWith('.')) {
-    const resolved = toPosix(path.posix.normalize(
-      path.posix.join(path.posix.dirname(importerRel), spec),
-    ));
-    const relNoExt = stripExt(resolved);
-    return relNoExt === targetNoExt || `${relNoExt}/index` === targetNoExt;
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(importerRel), spec));
+    return { kind: 'rel', key: stripExt(resolved) };
   }
   const tail = stripExt(spec.replace(/^[~@]\//u, ''));
-  if (tail.split('/').filter(Boolean).length < 2) return false;
-  return (
-    targetNoExt === tail
-    || targetNoExt.endsWith(`/${tail}`)
-    || targetNoExt === `${tail}/index`
-    || targetNoExt.endsWith(`/${tail}/index`)
-  );
+  if (tail.split('/').filter(Boolean).length < 2) return null;
+  return { kind: 'tail', key: tail };
+}
+
+/**
+ * Every key under which an importer of `targetRel` would be indexed: the exact
+ * extensionless path (and its directory for an `index` file) for relative specifiers,
+ * and every segment-boundary suffix of those for alias tails.
+ */
+function targetKeys(targetRel) {
+  const targetNoExt = stripExt(targetRel);
+  const exact = [targetNoExt];
+  if (targetNoExt.endsWith('/index')) exact.push(targetNoExt.slice(0, -'/index'.length));
+  const tails = new Set();
+  for (const full of exact) {
+    const parts = full.split('/');
+    for (let i = 0; i < parts.length; i += 1) tails.add(parts.slice(i).join('/'));
+  }
+  return { rel: exact, tails };
+}
+
+/** Does `spec`, written inside `importerRel`, point at `targetRel`? */
+function specifierResolvesTo(importerRel, spec, targetRel) {
+  const resolved = specifierKey(importerRel, spec);
+  if (!resolved) return false;
+  const keys = targetKeys(targetRel);
+  return resolved.kind === 'rel' ? keys.rel.includes(resolved.key) : keys.tails.has(resolved.key);
 }
 
 /**
@@ -172,15 +186,30 @@ function isCovered(rel, coveredSet) {
  * the plan says so.
  */
 function checkImporterCoverage({ repoIndex, modified, coveredSet }) {
+  // Invert the import graph once — key → importers — so each modified file is a few
+  // map lookups instead of a scan of every specifier of every repo file.
+  const byRel = new Map();
+  const byTail = new Map();
+  for (const file of repoIndex) {
+    for (const spec of file.specifiers) {
+      const resolved = specifierKey(file.rel, spec);
+      if (!resolved) continue;
+      const map = resolved.kind === 'rel' ? byRel : byTail;
+      let set = map.get(resolved.key);
+      if (!set) { set = new Set(); map.set(resolved.key, set); }
+      set.add(file.rel);
+    }
+  }
   const findings = [];
   for (const target of modified) {
-    const importers = repoIndex
-      .filter((file) => file.rel !== target
-        && file.specifiers.some((spec) => specifierResolvesTo(file.rel, spec, target)))
-      .map((file) => file.rel);
-    const uncovered = importers.filter((rel) => !isCovered(rel, coveredSet)).sort();
+    const keys = targetKeys(target);
+    const importers = new Set();
+    for (const key of keys.rel) for (const rel of byRel.get(key) || []) importers.add(rel);
+    for (const key of keys.tails) for (const rel of byTail.get(key) || []) importers.add(rel);
+    importers.delete(target);
+    const uncovered = [...importers].filter((rel) => !isCovered(rel, coveredSet)).sort();
     if (uncovered.length > 0) {
-      findings.push({ file: target, importerCount: importers.length, uncovered });
+      findings.push({ file: target, importerCount: importers.size, uncovered });
     }
   }
   return findings.sort((a, b) => b.uncovered.length - a.uncovered.length);
@@ -213,21 +242,19 @@ function identifiersFor(relPath) {
 
 /** Nearest ancestor directory holding a package.json — the deployable unit a file belongs to. */
 function packageRootOf(rel, repoRoot, cache) {
+  const visited = [];
   let dir = path.posix.dirname(rel);
+  let root;
   for (;;) {
-    if (cache.has(dir)) return cache.get(dir);
-    const isRoot = fs.existsSync(path.join(repoRoot, dir, 'package.json'));
-    if (isRoot) {
-      cache.set(dir, dir);
-      return dir;
-    }
+    if (cache.has(dir)) { root = cache.get(dir); break; }
+    visited.push(dir);
+    if (fs.existsSync(path.join(repoRoot, dir, 'package.json'))) { root = dir; break; }
     const parent = path.posix.dirname(dir);
-    if (parent === dir || dir === '.') {
-      cache.set(dir, '.');
-      return '.';
-    }
+    if (parent === dir || dir === '.') { root = '.'; break; }
     dir = parent;
   }
+  for (const seen of visited) cache.set(seen, root);
+  return root;
 }
 
 /**
@@ -253,7 +280,7 @@ function checkRegistryCoverage({ repoIndex, created, coveredSet, repoRoot }) {
     const minSiblings = suffix.startsWith('.') && suffix.indexOf('.', 1) === -1 ? 3 : 1;
     if (siblings.length < minSiblings) continue;
 
-    const siblingIds = siblings.map((file) => ({ rel: file.rel, ids: identifiersFor(file.rel) }));
+    const siblingIds = siblings.map((file) => [...identifiersFor(file.rel)]);
     const siblingRels = new Set(siblings.map((file) => file.rel));
 
     const ownPackage = packageRootOf(target, repoRoot, pkgCache);
@@ -261,7 +288,7 @@ function checkRegistryCoverage({ repoIndex, created, coveredSet, repoRoot }) {
     for (const file of repoIndex) {
       if (siblingRels.has(file.rel) || isTestPath(file.rel)) continue;
       if (packageRootOf(file.rel, repoRoot, pkgCache) !== ownPackage) continue;
-      const named = siblingIds.filter((sib) => [...sib.ids].some((id) => file.text.includes(id)));
+      const named = siblingIds.filter((ids) => ids.some((id) => file.text.includes(id)));
       if (named.length >= MIN_SIBLING_MENTIONS) {
         registries.push({ file: file.rel, siblingsNamed: named.length });
       }
@@ -280,7 +307,18 @@ const CONFIG_NAME_RE = /^(?:vitest|vite|jest)\.config[.\w-]*\.(?:[cm]?[jt]s)$|^(
 const INCLUDE_ARRAY_RE = /\binclude\s*:\s*\[([^\]]*)\]/u;
 const DEFAULT_INCLUDE = ['**/*.{test,spec}.?([cm])[jt]s?(x)'];
 
+const globCache = new Map();
+
 function globToRegExp(glob) {
+  let re = globCache.get(glob);
+  if (!re) {
+    re = compileGlob(glob);
+    globCache.set(glob, re);
+  }
+  return re;
+}
+
+function compileGlob(glob) {
   let out = '';
   for (let i = 0; i < glob.length; i += 1) {
     const char = glob[i];
@@ -336,7 +374,7 @@ function commandsForConfig(repoRoot, configRel) {
 /**
  * R3 — enumerate every test-runner config and its include globs. A repo with
  * more than one suite has no single "run the tests" command, and a plan that
- * names one command has silently scoped the barrier to a subset.
+ * names one command has silently scoped the checkpoint to a subset.
  */
 function discoverTestSuites(repoRoot, repoIndex) {
   const suites = [];
@@ -352,6 +390,9 @@ function discoverTestSuites(repoRoot, repoIndex) {
     // sits at a package root where the runner picks it up by convention. This drops
     // shared base configs (merged into others, never run) and one-off configs vendored
     // under docs/ as QA evidence, which are not part of the repo's verification surface.
+    // A package root under docs/ (QA evidence with its own package.json) is documentation,
+    // not the verification surface either — measured: it inflated a 8-suite repo to 9.
+    if (/^docs\//u.test(file.rel)) continue;
     const atPackageRoot = fs.existsSync(path.join(repoRoot, dir, 'package.json'));
     if (commands.length === 0 && !atPackageRoot) continue;
     suites.push({
@@ -410,7 +451,7 @@ function validateReach({ repoRoot, writeSetsByTask, testPathsByTask }, errors, w
       : finding.uncovered.join(', ');
     warnings.push({
       line: 0,
-      message: `Reach: ${finding.file} is modified by the plan but ${finding.uncovered.length} of its ${finding.importerCount} importers are in no task's write-set: ${listed}. If this task changes an exported signature, type or DTO, those files change with it — add them to a write-set or confirm the change is additive.`,
+      message: `Reach: ${finding.file} is modified by the plan but ${finding.uncovered.length} of its ${finding.importerCount} importers are in no task's write-set: ${listed}. If this task changes an exported signature, type or DTO, those files change with it — add them to that task's write-set. If the change is additive there is nothing to do: the confirmation is a reading, never a line in the plan.`,
     });
   }
 
@@ -463,7 +504,7 @@ function validateReach({ repoRoot, writeSetsByTask, testPathsByTask }, errors, w
       .join('; ');
     warnings.push({
       line: 0,
-      message: `Reach: the repo has ${testSuites.length} test-runner configs, so no single command is "the full suite". State the complete verification command set in the plan and in the wave barrier: ${inventory}.`,
+      message: `Reach: the repo has ${testSuites.length} test-runner configs, so no single command is "the full suite" — the full-suite checkpoint and the final gate resolve each suite from the project's own scripts. Use the inventory only to check the runner the task-writer briefing records per test kind; do not copy it into the plan: ${inventory}.`,
     });
   }
 
@@ -480,10 +521,7 @@ function validateReach({ repoRoot, writeSetsByTask, testPathsByTask }, errors, w
 
 module.exports = {
   buildRepoIndex,
-  checkImporterCoverage,
-  checkRegistryCoverage,
   discoverTestSuites,
-  globToRegExp,
   identifiersFor,
   kindSuffix,
   specifierResolvesTo,

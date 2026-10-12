@@ -2,19 +2,17 @@
 
 /**
  * execution-loop-heading.test.cjs — the unconditional execution loop must live under its own
- * heading, never nested inside the conditional "Caveman Mode Activation" step.
+ * `### Execution Loop` heading, never nested inside a pre-flight gate.
  *
  * Regression guard for a structural defect found by a heading-span sweep: the entire core of
  * this skill (tracker handling, the per-task dispatch/review loop, the full-suite checkpoint,
- * the finish tail, the IV gate and the done-state gate — ~77 lines) sat with no heading of its
- * own, so the nearest preceding heading was `#### Caveman State Check`. By markdown structure
- * the whole execution loop read as a sub-step of a *presentation preference*. A controller that
- * resolved caveman to off and skipped to the next heading would skip straight to `## QA Gate`,
- * jumping the entire implementation procedure.
+ * the final stage) once sat with no heading of its own, so by markdown structure it read as a
+ * sub-step of the conditional gate above it. A controller that resolved that gate to a no-op and
+ * skipped to the next heading would jump the entire implementation procedure.
  *
  * The suite was blind to this: 917 tests passed both before and after the fix. This test exists
  * so the structure cannot silently regress — it asserts the *nearest preceding heading* of each
- * execution-loop marker is not a caveman heading, which stays valid if the heading is renamed.
+ * execution-loop marker is the loop's own heading.
  *
  * Run: node --test super.subagent-driven-development/scripts/__tests__/execution-loop-heading.test.cjs
  */
@@ -49,24 +47,24 @@ function enclosingHeading(text, offset) {
 const EXECUTION_MARKERS = [
   '**If a tracker exists:**',
   '**Per task (sequential):**',
-  // The finish tail moved to references/finish-tail.md; what stays here is the five-gate
+  // The final stage moved to references/final-stage.md; what stays here is the five-gate
   // index that points at it. Its opening phrase is the marker now — the structural claim
-  // is unchanged (this step must not sit under a caveman heading), only the anchor moved.
-  '**After all tasks done — the finish tail.**',
+  // is unchanged (this step must sit under the loop's own heading), only the anchor moved.
+  '**After all tasks done — the final stage.**',
 ];
 
-test('the execution loop is not nested under the Caveman heading', () => {
+test('the execution loop markers sit under the Execution Loop heading, not a pre-flight gate', () => {
   for (const marker of EXECUTION_MARKERS) {
     const at = body.indexOf(marker);
     assert.notEqual(at, -1, `expected the execution loop to contain ${marker}`);
 
     const heading = enclosingHeading(body, at);
     assert.ok(heading, `${marker} must sit under some heading`);
-    assert.doesNotMatch(
+    assert.equal(
       heading.text,
-      /caveman/i,
+      'Execution Loop',
       `${marker} is unconditional but sits under "${heading.text}" — a controller that ` +
-        'resolves caveman to off and skips the section would skip the execution procedure',
+        'skips that section would skip the execution procedure',
     );
   }
 });
@@ -77,20 +75,19 @@ test('the execution loop has its own heading inside The Process', () => {
   assert.equal(heading.level, 3, 'the execution loop heading must be a ### step of The Process');
 
   // It comes after the pre-flight gates, which must still run first.
-  for (const gate of ['### Branch Guard', '### Caveman Mode Activation']) {
+  for (const gate of ['### Session State Re-Entry Guard', '### Branch Guard']) {
     const at = body.indexOf(gate);
     assert.notEqual(at, -1, `missing pre-flight gate ${gate}`);
     assert.ok(at < heading.offset, `${gate} must precede the execution loop heading`);
   }
 });
 
-test('the execution loop is marked unconditional so caveman state cannot gate it', () => {
+test('the execution loop is marked unconditional so no preference can gate it', () => {
   const heading = enclosingHeading(body, body.indexOf('**If a tracker exists:**'));
 
   // Scope to the blockquote that immediately follows the heading — NOT to the whole section.
-  // The section runs ~80 lines and already contains an unrelated "this gate is unconditional"
-  // (the IV gate), so a section-wide match passes even when this preamble is deleted. Mutation
-  // testing caught exactly that: removing the wording left a section-scoped assertion green.
+  // A section-wide match can pass on unrelated wording elsewhere in the section even when
+  // this preamble is deleted, so the assertion reads only the blockquote.
   const afterHeading = body.slice(heading.offset).split('\n').slice(1);
   const preamble = [];
   for (const line of afterHeading) {
@@ -104,6 +101,6 @@ test('the execution loop is marked unconditional so caveman state cannot gate it
     preamble.join('\n'),
     /unconditional/i,
     'the note under the execution loop heading must state the section is unconditional, ' +
-      'so caveman on/off never gates it',
+      'so no preference ever gates it',
   );
 });

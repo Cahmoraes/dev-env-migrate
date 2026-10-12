@@ -1,130 +1,169 @@
 ---
 name: figma-to-code
-description: >
-  Constrói layouts e interfaces React a partir de especificações do Figma usando Mistica Design System.
-  Use quando o usuário: 
-  (1) fornecer link do Figma, print, imagem ou mockup de tela e pedir
-  implementação; 
-  (2) disser frases como "implementa esse design", "converte esse Figma em código",
-  "cria a view dessa tela", "transforma esse mockup em React"; 
-  (3) precisar de implementação de layouts a partir de links do Figma, conversão de mockups/prints em código React, criação de views (.view.tsx) fiéis ao design, ou implementação de componentes visuais Mistica.
+description: "Implementa telas React com Mistica Design System a partir de um design do Figma, via Figma MCP. Use quando o usuário: (1) fornecer link/print/mockup do Figma e pedir implementação; (2) disser 'implementa esse design', 'converte esse Figma em código', 'cria a view dessa tela', 'transforma esse mockup em React', 'design to code'; (3) pedir uma View (`*-view.tsx`) ou Section fiel a um frame do Figma. NÃO use sem design artifact — para construir só com Mistica use a skill `mistica`; para validar visualmente o que já foi implementado use `figma-visual-tester`."
 ---
 
-# Figma to Code
+# Figma → Código (Mistica)
 
-Você é um especialista em implementar layouts React usando **Mistica Design System** da Telefónica a partir de especificações do Figma.
+Traduz um frame do Figma em uma **View** do Framework Brasil escrita com Mistica Web.
 
-## Contexto Técnico
+Esta skill é dona do **workflow de tradução design → código**. Ela não redefine o Mistica nem o
+estilo do projeto — delega:
 
-**Design System**: Mistica Web (Telefónica)
-- [Repositório oficial](https://github.com/Telefonica/mistica-web)
-- Componentes: ButtonPrimary, Form, TextField, Stack, Inline, Box, Text1-6, Icons, etc.
+| Assunto | Fonte de verdade |
+|---|---|
+| Mecânica do Figma MCP (tools, hints, assets, erros) | [`references/figma-mcp.md`](references/figma-mcp.md) |
+| API, tokens e composição do Mistica | skill `mistica` |
+| Forma do artefato, nomenclatura, React, testes | skill `code-style` |
+| Validação visual final | skill `figma-visual-tester` |
+| Mapeamento Figma → Mistica e checklist de fidelidade | [`references/mapping.md`](references/mapping.md) |
 
-**Stack**: React + TypeScript + Mistica Web
+## Pré-requisitos
 
-**Padrão Arquitetural**: Controller/View separation
-- `[.-]view.tsx`: apenas layout, visual, Skeletons e animações
-- `[.-]controller.tsx`: lógica de negócio (não implementado por esta skill)
+O servidor Figma MCP precisa estar conectado. Se as tools `get_design_context` / `get_metadata` /
+`get_screenshot` não estiverem disponíveis, **pare** e peça ao usuário para conectá-lo. Não tente
+implementar a tela a partir do link, do nome do arquivo ou de suposições — sem o design real o
+resultado é ficção.
 
-**Contexto de Uso**: Webviews móveis, responsivo, modular
+## Workflow
 
-## Ferramentas Disponíveis
+### 1. Extraia o contexto do design
 
-- **figma/mcp-server-guide**: Consulta detalhes de componentes e layouts do Figma
-- **figma-mcp/\***: Tools do Figma MCP para análise de designs
-- **grep_search**: Busca exemplos no código e validação de tipos
-- **file_search / read_file**: Leitura de views existentes para referência de padrões
-- **playwright-cli** Skill para testes e validação via browser integrado
-- **mistica-web-docs** Consulta de informações na documentação oficial
+Leia [`references/figma-mcp.md`](references/figma-mcp.md) — é o contrato de uso do Figma MCP — e
+chame `get_design_context` no nó alvo. Uma única chamada devolve código de referência, screenshot e
+hints.
 
-## Workflow de Implementação
+- O `nodeId` vem do parâmetro `node-id` da URL. URL sem `node-id`: peça um link do frame específico.
+- A primeira chamada pode voltar um script pedindo para o usuário mapear Code Connect. Repasse o
+  script literalmente e obedeça à resposta — não é erro.
+- Chame também `get_variable_defs` no mesmo nó **sempre que a tela tiver cor, raio ou espaçamento a
+  decidir** — ou seja, quase sempre. É a fonte dos tokens; sem ela você estará adivinhando.
 
-**EXECUTE SUBAGENTS para cada tarefa de pesquisa de informações externas!**
+O código devolvido é **React + Tailwind de referência**, nunca entregável. Ele descreve intenção
+visual; o entregável é Mistica.
 
-Siga o [workflow completo de análise e implementação](references/figma-workflow.md) em cada tarefa:
+Se o design usa a biblioteca Mistica, os nós voltam embrulhados em `CodeConnectSnippet` — esse é o
+sinal mais forte que você tem, e ler errado é a maior fonte de retrabalho. As regras de leitura
+(descartar o wrapper, obedecer `data-user-rules`, descartar props de metadado do Figma, conferir todo
+nome no `index.d.ts`) estão em [`references/figma-mcp.md`](references/figma-mcp.md) — **leia antes de
+escrever o JSX.**
 
-1. `#runSubagent` **Consulte o Figma MCP** usando com Subagente usando a tool `#figma/mcp-server-guide`
-2. **Analise o design**: identifique componentes, hierarquia, tokens
-3. **Crie um plano de ação** usando agente `RubberDuck` usando `manage_todo_list`
-4. **Implemente a view** no arquivo indicado pelo usuário
-5. **Valide** seguindo a [checklist de validação](references/validation-checklist.md)
-6. **Consulte outras views** implementadas para respeitar o padrão de escrita de código do projeto.
+### 2. Ancore no código que já existe
 
-## Diretrizes Obrigatórias
+Antes de escrever qualquer JSX, leia **pelo menos uma View já implementada no módulo alvo** e
+reaproveite o que ela usa. Padrão da casa vence padrão genérico. Reaproveite, nessa ordem:
 
-### Tokens Mistica
+1. Sections e componentes já existentes no módulo.
+2. Componentes Mistica compostos (`Boxed`, `BoxedRow`, `DataCard`, `RowList`, `Tag`, `Circle`) —
+   preferíveis a remontar o mesmo visual com `Box` + `Stack` na mão.
+3. Primitivas (`Box`, `Stack`, `Inline`, `ResponsiveLayout`).
 
-Consulte [tokens e padrões Mistica](references/mistica-tokens.md) para:
-- Cores: use `vars.colors.*`
-- Spacing: use valores de Stack/Inline (4, 8, 12, 16, 24, 32, 40)
-- Tipografia: Text1-6, Title1-3, Heading1-6 com weight correto
-- Nunca use valores literais (ex: `#FF0000`, `margin: 10px`)
+### 3. Mapeie e implemente
 
-### Componentes e Estrutura
+Traduza cada nó do Figma para o componente Mistica correspondente usando
+[`references/mapping.md`](references/mapping.md). Ao encontrar um componente cuja API você não tem
+certeza, consulte a skill `mistica` ou o arquivo de tipos antes de usar:
 
-- Use **apenas componentes Mistica** — nunca `<div>`, `<span>` ou tags HTML
-- Implemente **somente views** (.view.tsx) — sem controllers ou lógica de negócio
-- Use Stack para layout vertical, Inline para horizontal, Box para containers
-- Valide props no arquivo de tipos: `../../node_modules/@telefonica/mistica/dist/index.d.ts`
-
-### Restrições Críticas
-
-Consulte [restrições completas](references/restrictions.md) para lista detalhada. Principais:
-
-- **NÃO** implemente elementos nativos: Tab Bar, Nav Bar, modals, sheets, status bar
-- **NÃO** crie arquivos de estilo separados (style.ts/css)
-- **NÃO** implemente testes, controllers ou regras de negócio
-- **NÃO** use mistica-web-docs quando construir do Figma (só Figma MCP)
-
-## Validação Final
-
-Antes de entregar, valide passo a passo usando a [checklist](references/validation-checklist.md):
-
-✅ Componentes e ícones fiéis à documentação oficial Mistica  
-✅ Tokens oficiais (cores, spacing, tipografia)  
-✅ Propriedades corretas validadas no arquivo de tipos  
-✅ Acessibilidade, layout e semântica respeitados  
-✅ Componentes aderentes às especificações do Figma  
-✅ Apenas elementos principais da tela (sem headers nativos)  
-✅ Execute a skill `/figma-visual-tester` para realizar a validação final
-
-## Metodologia ReAct
-
-Use raciocínio estruturado em cada etapa:
-
-```
-Pensamento: [seu raciocínio sobre o design]
-Ação: [etapa concreta que você realizará]
-Observação: [o que você encontrou/validou]
-...
-Resposta Final: [implementação completa]
+```bash
+grep -n "ComponentName" node_modules/@telefonica/mistica/dist/index.d.ts
 ```
 
-## Formato de Entrega
+Implemente a View inteira de uma vez; divida o JSX em funções `render*()` internas, uma por bloco
+visual do design.
+
+### 4. Valide
+
+Rode a checklist de [`references/mapping.md`](references/mapping.md), depois a skill
+`figma-visual-tester` para o diff visual contra o frame original.
+
+## Escopo do entregável
+
+Implemente **apenas o conteúdo da tela**. Ignore no design:
+
+- Status bar do sistema, Tab Bar, Nav Bar e headers nativos de navegação (o app hospedeiro os provê).
+- Molduras de device, anotações de designer, réguas e specs de medida.
+
+Entregue **um** arquivo `<nome>-view.tsx` em `presentation/view/` (Sections em
+`presentation/view/components/`). Não crie controller, use case, teste, arquivo de estilo, hook,
+`types.ts` ou `constants.ts` — a menos que o usuário peça.
+
+A View é pura: tudo entra por props, zero `useState`/`useEffect`, zero gateway, zero regra de
+negócio. Handlers chegam prontos por props; se o design mostra uma ação sem callback definido,
+declare a prop (`onPress: () => void`) em vez de inventar a lógica.
+
+## Restrições
+
+1. **Sem valor literal de estilo.** Cor é `M.skinVars.colors.*`, raio é `M.skinVars.borderRadii.*`,
+   spacing é a escala do Mistica (`0 2 4 8 12 16 24 32 40 48 56 64 72 80`) em `Stack`/`Inline`/`Box`,
+   tipografia é `Text1`–`Text10` / `Title1`–`Title4`. Nunca `#hex`, `rgb()`, `fontSize`, `margin`,
+   `padding` em px cru. O nome da variável do Figma é o nome do token — o procedimento está em
+   [`references/figma-mcp.md`](references/figma-mcp.md).
+2. **Sem prop inventada.** Não achou no `index.d.ts`, não usa.
+3. **Sem dependência nova.** Só `@telefonica/mistica` e React.
+4. **Sem HTML cru para layout.** Use as primitivas Mistica; `as="p"` / `as="h1"` em `Text*`/`Title*`
+   resolve a semântica.
+5. **Ícone/imagem nunca é inventado.** Nunca escreva `<svg>`/`<path>` à mão. Use o ícone Mistica cujo
+   glifo corresponde de fato, ou o asset exportado pelo Figma — ver [`references/figma-mcp.md`](references/figma-mcp.md).
+
+## Fidelidade: o que priorizar quando não bate
+
+Quando o design não tem equivalente exato no Mistica, **não force pixel com CSS cru**. Ordem de
+prioridade:
+
+1. Hierarquia e ordem dos elementos.
+2. Componente Mistica semanticamente equivalente, mesmo com pequena diferença visual.
+3. Token mais próximo na escala (spacing 14px do Figma → `12` ou `16`, nunca `14`).
+4. Só então, uma nota ao usuário explicando a divergência.
+
+Divergência assumida e explicada é resultado correto. Pixel exato obtido com `style={{}}` é
+resultado errado.
+
+## Formato de entrega
 
 ```tsx
-// arquivo.view.tsx
+// presentation/view/parcela-segura-view.tsx
 import * as M from "@telefonica/mistica"
+import type { ParcelaSegura } from "@/parcela-segura/domain/parcela-segura"
 
-DetalhesAssinaturaView.testId = "detalhes-assinatura-view"
-export function DetalhesAssinaturaView() {
-	return (
-		<M.Stack
-			space={0}
-			dataAttributes={{ testid: DetalhesAssinaturaView.testId }}
-		>
-    // ... restante da implementação
-    </M.Stack>
+export interface ParcelaSeguraViewProps {
+  readonly data: ParcelaSegura
+  readonly onTriggerInsurance: () => void
+}
+
+ParcelaSeguraView.testId = "parcela-segura-view"
+export function ParcelaSeguraView({ data, onTriggerInsurance }: ParcelaSeguraViewProps) {
+  function renderProtectionCard() {
+    return (
+      <M.Boxed>
+        <M.Box padding={16}>
+          <M.Stack space={16}>
+            <M.Tag type="active">{data.status}</M.Tag>
+            <M.Title3>{data.protectionTitle}</M.Title3>
+            <M.Text2 regular color={M.skinVars.colors.textSecondary}>
+              {data.insuredServiceLabel}
+            </M.Text2>
+            <M.ButtonPrimary onPress={onTriggerInsurance}>
+              {data.insuranceTriggerLabel}
+            </M.ButtonPrimary>
+          </M.Stack>
+        </M.Box>
+      </M.Boxed>
+    )
+  }
+
+  return (
+    <M.ResponsiveLayout dataAttributes={{ testid: ParcelaSeguraView.testId }}>
+      <M.Box paddingY={24} paddingX={16}>
+        <M.Stack space={24}>
+          <M.Title2>{data.title}</M.Title2>
+          {renderProtectionCard()}
+        </M.Stack>
+      </M.Box>
+    </M.ResponsiveLayout>
   )
 }
 ```
 
-## Regras Críticas
-
-1. Sempre inicie consultando o Figma MCP com `#figma/mcp-server-guide`
-2. Crie plano de ação antes de implementar (use manage_todo_list)
-3. Use exclusivamente tokens e componentes Mistica oficiais
-4. Valide propriedades no arquivo de tipos antes de usar
-5. Foque apenas no componente principal da tela
-6. Nunca invente propriedades ou componentes
-7. Valide a checklist completa antes de entregar
+Pontos obrigatórios do formato: namespace `import * as M`, `export function` (nunca arrow), `testId`
+estático na linha anterior ao export, `dataAttributes={{ testid: X.testId }}` no nó raiz, props com
+sufixo `ViewProps` e campos `readonly`, blocos em `render*()`.

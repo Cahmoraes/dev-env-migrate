@@ -1,6 +1,6 @@
 # Suggesting Commit Messages
 
-After a task's code quality review is approved, provide the developer a ready-to-copy git command block with the staged files and commit message. The developer executes it — your role is an accurate, copy-paste-ready command.
+After the task's reviews pass and per-task `super.verification-before-completion` succeeds, provide the developer a ready-to-copy git command block with the staged files and commit message. The developer executes it; the controller never executes it on the developer's behalf.
 
 **Output format** — always render a shell code block:
 ```sh

@@ -3,17 +3,12 @@
 /*
  * test-command-coverage.test.cjs — o comando documentado roda TODOS os testes que existem.
  *
- * Este existe porque `super.brainstorming/evals/__tests__/` e `super.reviewing-specs/evals/__tests__/`
- * ficaram fora do glob documentado no CLAUDE.md desde que foram escritos. Ninguém decidiu
- * pular esses dois arquivos: o comando cobria só a árvore `scripts/__tests__` e a
- * árvore `evals/` simplesmente não estava nele. Quem seguia a doc ao pé da letra via
- * "suíte verde" sem nunca ter exercido aqueles testes — o pior estado possível para um
- * guard, porque um teste que não roda é indistinguível de um teste que passa.
- *
  * A checagem é de FORMA, não de arquivo: varre a árvore atrás de todo diretório `__tests__`
- * que guarda `*.test.cjs`, reduz cada um à sua forma relativa à skill (`scripts/__tests__`,
- * `evals/__tests__`) e afirma que cada forma aparece nos comandos de suíte inteira. Assim
- * uma terceira árvore inventada amanhã falha aqui, em vez de ficar invisível por anos.
+ * que guarda `*.test.cjs`, reduz cada um ao glob que o cobre a partir de `skills/`
+ * (o curinga de skill seguido de `scripts/__tests__`) e afirma que cada glob aparece nos
+ * comandos de suíte inteira. Assim uma árvore inventada amanhã falha aqui, em vez de ficar
+ * invisível por anos.
+ * (O curinga não é escrito por extenso neste bloco: `super.` + asterisco + barra fecharia o comentário.)
  *
  * Run: node --test super.using-superpowers/scripts/__tests__/test-command-coverage.test.cjs
  */
@@ -23,29 +18,30 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/superpowers/skills
-const DEV_DOC = path.resolve(SKILLS, '..', 'CLAUDE.md');
+const SUPERPOWERS = path.resolve(SKILLS, '..');
+const DEV_DOC = path.resolve(SUPERPOWERS, 'CLAUDE.md');
 
 const IGNORED_DIRS = new Set(['node_modules', '__pycache__']);
 
-/** Formas relativas à skill de todo diretório __tests__ que realmente guarda `*.test.cjs`. */
-function collectTestDirShapes() {
-  const shapes = new Set();
-  const walk = (dir, rel) => {
+/** Glob (a partir de `skills/`) de todo diretório __tests__ que realmente guarda `*.test.cjs`. */
+function collectTestGlobs() {
+  const globs = new Set();
+  const walk = (dir, rel, toGlob) => {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     if (path.basename(dir) === '__tests__' &&
         entries.some((e) => e.isFile() && e.name.endsWith('.test.cjs'))) {
-      shapes.add(rel.split(path.sep).join('/'));
+      globs.add(toGlob(rel.split(path.sep).join('/')));
     }
     for (const entry of entries) {
       if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name)) continue;
-      walk(path.join(dir, entry.name), path.join(rel, entry.name));
+      walk(path.join(dir, entry.name), path.join(rel, entry.name), toGlob);
     }
   };
   for (const skill of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
-    walk(path.join(SKILLS, skill), '');
+    walk(path.join(SKILLS, skill), '', (rel) => `super.*/${rel}/*.test.cjs`);
   }
-  return [...shapes].sort();
+  return [...globs].sort();
 }
 
 /** Arquivos `*.test.cjs` em disco: total na árvore e quantos são cross-skill. */
@@ -83,10 +79,10 @@ function fullSuiteCommands() {
 
 test('a varredura ainda encontra diretórios de teste', () => {
   // Piso anti-staleness: varredura que para de casar reporta zero lacunas para sempre.
-  const shapes = collectTestDirShapes();
+  const globs = collectTestGlobs();
   assert.ok(
-    shapes.length >= 2,
-    `esperava ao menos duas árvores de teste (scripts/ e evals/), achei ${shapes.length}: ${shapes.join(', ')}`,
+    globs.length >= 1,
+    `esperava ao menos uma árvore de teste (scripts/), achei ${globs.length}: ${globs.join(', ')}`,
   );
 });
 
@@ -101,12 +97,11 @@ test('a varredura ainda encontra os comandos de suíte inteira no CLAUDE.md', ()
 });
 
 test('todo comando de suíte inteira cobre toda árvore de teste que existe em disco', () => {
-  const shapes = collectTestDirShapes();
+  const globs = collectTestGlobs();
   const gaps = [];
 
   for (const command of fullSuiteCommands()) {
-    for (const shape of shapes) {
-      const glob = `super.*/${shape}/*.test.cjs`;
+    for (const glob of globs) {
       if (!command.includes(glob)) gaps.push(`${glob} — ausente de: ${command.trim()}`);
     }
   }

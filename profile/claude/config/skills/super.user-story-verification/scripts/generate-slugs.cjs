@@ -5,11 +5,16 @@ const fs = require("fs");
 const path = require("path");
 
 const HELP = `
-generate-slugs.cjs — Extract Portuguese user stories from a PRD.
+generate-slugs.cjs — Extract user stories from a PRD.
 
-Matches lines in "Como <persona>, eu quero <ação> para que <benefício>" form
-("eu" before "quero" is optional — "Como X, quero Y" also matches), with or
-without a leading ID marker (e.g. "- **US-01**: Como ...", "US-02 — Como ...").
+A story line opens with a persona and a want — "Como <persona>, eu quero <ação> ..."
+("eu" optional) or "As a <persona>, I want <ação> ..." — with or without a
+leading ID marker (e.g. "- **US-01**: Como ...", "US-02 — Como ...").
+The benefit clause is optional and is split off the want by whatever connector
+the author used: "para que", "a fim de (que)", "de modo/forma que", "so that",
+"in order to" — or a bare "para <verbo>" ("para consultar", "para não confundir").
+No connector => the whole remainder is the want and "benefit" is null; the story
+still counts.
 The canonical English prefix is US- ("User Story"). The legacy Portuguese prefix
 HU- ("História de Usuário") is also accepted and normalized to US- so older PRDs
 do not break — the prefix is an opaque ID, never translated in canonical output.
@@ -96,7 +101,7 @@ function isMarkdownBlockStart(line) {
 function isIdOnlyBoldHeader(line) {
 	return (
 		/^\s*(?:[-*]\s+)?\*\*\s*(?:US|HU)-\d+\b[^*\n]*\*\*\s*$/u.test(line) &&
-		!/\bComo\b/iu.test(line)
+		!/\b(?:Como|As)\b/iu.test(line)
 	);
 }
 
@@ -124,6 +129,36 @@ function mergeWrappedLines(rawLines) {
 		}
 	}
 	return merged;
+}
+
+// Split "<want> <connector> <benefit>" without tying the connector to one
+// phrasing or one language. Explicit connectors ("para que", "a fim de",
+// "so that", "in order to") win at their FIRST occurrence — they are never
+// part of a want. Failing those, a bare "para <verbo no infinitivo>" (optionally
+// "para não <verbo>") is taken at its LAST occurrence, because "para" also
+// introduces indirect objects inside the want ("enviar para o cliente").
+// Nothing found => the remainder is the want and the benefit is null.
+const EXPLICIT_BENEFIT =
+	/\s+(?:para\s+que|a\s+fim\s+de(?:\s+que)?|de\s+(?:modo|forma)\s+que|so\s+that|in\s+order\s+(?:to|that))\s+/iu;
+const BARE_BENEFIT = /\s+para\s+(?=(?:n[ãa]o\s+)?\p{L}+(?:ar|er|ir|or|ôr)\b)/giu;
+
+function splitBenefit(rest) {
+	const explicit = rest.match(EXPLICIT_BENEFIT);
+	if (explicit) {
+		return {
+			want: rest.slice(0, explicit.index).trim(),
+			benefit: rest.slice(explicit.index + explicit[0].length).trim() || null,
+		};
+	}
+	let last = null;
+	for (const m of rest.matchAll(BARE_BENEFIT)) last = m;
+	if (last && last.index > 0) {
+		return {
+			want: rest.slice(0, last.index).trim(),
+			benefit: rest.slice(last.index + last[0].length).trim() || null,
+		};
+	}
+	return { want: rest.trim(), benefit: null };
 }
 
 function buildNotFoundResult() {
@@ -202,11 +237,15 @@ function main() {
 	// The marker is captured so the PRD's own ID is preserved for QA traceability.
 	// After the ID marker, the title (bold or not) is consumed and discarded so
 	// the captured story text always starts at "Como".
-	// NEW: the entire story sentence may also be wrapped in bold, e.g.
+	// The entire story sentence may also be wrapped in bold, e.g.
 	// `**Como usuário, eu quero X para que Y**`. Leading/trailing `**` are
 	// consumed by the pattern and stripped from the captured text below.
+	// The pattern anchors only on the persona + want opening (Portuguese or
+	// English); the benefit is split off `rest` by splitBenefit below, so a story
+	// is never dropped because its author wrote "para consultar" instead of
+	// "para que" — that shape sent a real run into manual extraction.
 	const storyPattern =
-		/^\s*(?:[-*]\s+)?(?:\*\*\s*(?<idWholeBold>(?:US|HU)-\d+)\b[\s:.—–-]*[^*\n]+?\*\*\s*|\**\s*(?<id>(?:US|HU)-\d+)\b[*\s:.—–-]*(?:\*\*[^*\n]+\*\*[\s*:.—–-]*)?)?(?:\*\*\s*)?(?<full>Como\s+(?<role>.+?),\s*(?:eu\s+)?quero\s+(?<want>.+?)\s+para que\s+(?<benefit>.+?))(?:\s*\*\*)?\s*$/iu;
+		/^\s*(?:[-*]\s+)?(?:\*\*\s*(?<idWholeBold>(?:US|HU)-\d+)\b[\s:.—–-]*[^*\n]+?\*\*\s*|\**\s*(?<id>(?:US|HU)-\d+)\b[*\s:.—–-]*(?:\*\*[^*\n]+\*\*[\s*:.—–-]*)?)?(?:\*\*\s*)?(?<full>(?:Como|As\s+an?)\s+(?<role>.+?),\s*(?:(?:eu\s+)?quero|I\s+(?:want|need)(?:\s+to)?)\s+(?<rest>.+?))(?:\s*\*\*)?\s*$/iu;
 	const matches = [];
 	// The optional `**UI:** sim|não` marker rides at the end of the story line, so it must
 	// come off BEFORE storyPattern runs: the benefit group is anchored to end-of-line and
@@ -227,12 +266,15 @@ function main() {
 		// (e.g. a bare `**Como ...**` line) and any trailing `**` left by the non-
 		// greedy benefit group.
 		const full = normalizeWhitespace(match.groups.full).replace(/^\*\*|\*\*$/gu, "");
+		const { want, benefit } = splitBenefit(
+			normalizeWhitespace(match.groups.rest).replace(/^\*\*|\*\*$/gu, ""),
+		);
 		matches.push({
 			uiFacing,
 			explicitId,
 			role: normalizeWhitespace(match.groups.role).replace(/^\*\*|\*\*$/gu, ""),
-			want: normalizeWhitespace(match.groups.want).replace(/^\*\*|\*\*$/gu, ""),
-			benefit: normalizeWhitespace(match.groups.benefit).replace(/^\*\*|\*\*$/gu, ""),
+			want,
+			benefit,
 			full,
 		});
 	});
@@ -279,19 +321,20 @@ function main() {
 			uiFacing,
 		};
 	});
-	// Silent-failure guard: a PRD with a "## Histórias de Usuário" section but zero extractable
-	// stories means every line drifted from the "Como ..., eu quero ... para que ..." shape — the
-	// QA gate would then verify nothing while still looking like a success. Surface it.
+	// Silent-failure guard: a PRD with a user-stories section but zero extractable
+	// stories means every line drifted from the "Como <persona>, (eu) quero ..." /
+	// "As a <persona>, I want ..." opening — the QA gate would then verify nothing
+	// while still looking like a success. Surface it.
 	const warnings = [];
-	const hasStorySection = /^##\s+Hist[óo]rias de Usu[áa]rio\s*$/imu.test(content);
+	const hasStorySection = /^##\s+(?:Hist[óo]rias de Usu[áa]rio|User Stories)\s*$/imu.test(content);
 	if (hasStorySection && userStories.length === 0) {
 		const warning =
-			'A "## Histórias de Usuário" section is present but no line matched the "Como ..., eu quero ... para que ..." shape — 0 user stories extracted. The QA gate would have nothing to verify. Check the user-story line format in the PRD.';
+			'A user-stories section is present but no line opens with "Como <persona>, (eu) quero ..." or "As a <persona>, I want ..." — 0 user stories extracted. The QA gate would have nothing to verify. Check the user-story line format in the PRD.';
 		warnings.push(warning);
 		process.stderr.write(`Warning: ${warning}\n`);
 	}
 	// The QA gate needs each story's FRs at four points (subagent context, result.json
-	// `requirements`, the no-IV fallback, the re-run trace). When the PRD annotates
+	// `requirements`, the test lookup, the re-run trace). When the PRD annotates
 	// nothing, the controller reconstructs the mapping by reading intent -- which two
 	// measured sessions did differently for the same PRD. Say so instead of returning a
 	// confident empty array.
@@ -303,15 +346,16 @@ function main() {
 	}
 	// Partial extraction is worse than zero extraction: zero trips the guard above, while
 	// "7 story lines in, 2 stories out" looks like a clean success and the QA gate silently
-	// verifies a subset of the feature. Measured on a real PRD whose other five stories end
-	// in "para evitar ...", "para poder ...", "para não ..." rather than "para que ...".
+	// verifies a subset of the feature. A line that names a persona and a want but still
+	// fails storyPattern (missing comma after the persona, a stray token before "Como") is
+	// counted here so the drop is visible.
 	const storyish = content
 		.split("\n")
-		.filter((l) => /^\s*(?:[-*]\s+|>\s*)?\**\s*(?:(?:US|HU)-\d+\b[^\n]*?)?\bComo\b/iu.test(l) && /\bquero\b/iu.test(l))
+		.filter((l) => /^\s*(?:[-*]\s+|>\s*)?\**\s*(?:(?:US|HU)-\d+\b[^\n]*?)?\b(?:Como|As\s+an?)\b/iu.test(l) && /\b(?:quero|want|need)\b/iu.test(l))
 		.length;
 	if (userStories.length > 0 && storyish > userStories.length) {
 		const warning =
-			`${storyish} line(s) look like user stories but only ${userStories.length} matched the "Como ..., eu quero ... para que ..." shape — ${storyish - userStories.length} were dropped silently. The usual cause is a benefit clause written as "para <verbo>" instead of "para que ...". Fix the PRD lines, or extract the missing stories by hand (references/slug-extraction.md) before dispatching: the QA gate verifies only what comes out of here.`;
+			`${storyish} line(s) look like user stories but only ${userStories.length} matched the "<persona>, (eu) quero <ação>" / "<persona>, I want <ação>" opening — ${storyish - userStories.length} were dropped silently. Fix the PRD lines, or extract the missing stories by hand (references/slug-extraction.md) before dispatching: the QA gate verifies only what comes out of here.`;
 		warnings.push(warning);
 		process.stderr.write(`Warning: ${warning}\n`);
 	}

@@ -1,75 +1,83 @@
-# Architecture Characteristics — eliciting and prioritizing the "-ilities"
+# Architecture Characteristics — what the design must withstand
 
-Read before formulating clarifying questions. Specs that skip this describe *what* the system does, not *what it must withstand* — scalability, availability, security then surface as rework. Source: *Fundamentals of Software Architecture* (Richards & Ford, 2nd ed.), ch. 4-7.
+Read when the quality-attribute lens opens (`grilling.md`): the request or the research names a volume, a deadline, money, an external dependency, personal data or a contract others consume. Output: the `## Características Arquiteturais` section. Source: *Fundamentals of Software Architecture*, 2nd ed. (Richards & Ford), ch. 4-7 and 25.
 
-## What qualifies as an architecture characteristic
+## What counts
 
-A requirement is an architecture characteristic only when it meets **all three** criteria:
+A requirement is an architecture characteristic only when it meets all three criteria (ch. 4):
 
-1. **Non-domain design consideration** — describes *how/why* to build, not *what* the system does. ("Performance" never appears in user stories, yet shapes the whole design.)
-2. **Influences structure** — demands structural support, not just careful code. Security can be designed in (hashing, encryption in a monolith); scalability cannot — eventually it forces a distributed structure.
-3. **Critical to success** — each one added increases complexity. Support the fewest possible, not the most.
+1. **Nondomain** — how to build it and why, not what it does. Performance rarely appears in a user story, yet shapes the design.
+2. **Structural** — it needs structural support beyond careful coding. Security can usually be designed into any structure; scalability, past a point, forces one.
+3. **Critical** — every characteristic supported adds complexity, so support the fewest that success needs.
 
-## Translating domain concerns into characteristics
+"Simplicidade", "consistência visual" or "segue o AGENTS.md" are not characteristics: the first is a constraint, the second a UI requirement, the third conformance the plan already enforces. Maintainability belongs in the list only when a concrete change is expected (a second carrier, a new region) and the criterion names it.
 
-Stakeholders speak business language; the design needs architecture language. Translate what you hear:
+**Implicit** characteristics rarely appear in requirements yet underpin almost everything: availability, reliability, security. Domain knowledge adds others (money or health data → data integrity; trading → latency). **Explicit** ones hide in domain language: "milhões de usuários" is scalability though nobody said the word.
 
-| Domain concern (what the user says) | Architecture characteristics (what the design needs) |
+## Where they come from
+
+Three sources (ch. 5): domain concerns, requirements, implicit domain knowledge. Translate the stakeholder's language:
+
+| Domain concern | Characteristics |
 |---|---|
 | Fusões e aquisições / integração com outros sistemas | Interoperability, scalability, adaptability, extensibility |
-| Time to market / entregar rápido | Agility, testability, deployability |
+| Time to market | Agility, testability, deployability |
 | Satisfação do usuário | Performance, availability, fault tolerance, testability, deployability, agility, security |
 | Vantagem competitiva | Agility, testability, deployability, scalability, availability, fault tolerance |
-| Prazo e orçamento apertados | Simplicity, feasibility |
+| Prazo e orçamento | Simplicity, feasibility |
 
-**Beware composite characteristics.** "Agility" has no direct measure — it decomposes into deployability + modularity + testability. Decompose any stated goal: "o cálculo precisa terminar até as 18h por regulação" → performance, plus availability (fast is useless if down), scalability (more data next year), recoverability (restart from 85%, not zero), auditability (results correct?). Fixating on the single obvious characteristic is the most common elicitation failure.
+Decode buzzwords the same way (ch. 25) — "pra ontem" is time to market, "rápido" performance, "sem downtime" availability — then ask for the number. Turn "nines" into downtime the user can judge: 99,9% ≈ 8,8 h/ano; 99,99% ≈ 53 min/ano.
 
-## Quick catalog
+**Composite characteristics** have no single measure and decompose: agility = deployability + modularity + testability. A common failure is fixing on one part. "O cálculo precisa terminar até as 18h por regulação" is performance, and also availability (fast is useless when down), scalability (more data next year), reliability, recoverability (a crash at 85% restarts from where?) and auditability (are the numbers right?).
 
-A checklist for scanning implicit characteristics — not a menu to offer the user (they answer "all of them").
+## Questions that surface them
 
-- **Operational** (need the most structural support): availability, continuity/disaster recovery, performance, recoverability, reliability/safety, robustness, scalability, elasticity
-- **Structural**: configurability, extensibility, installability, reuse, localization/i18n, maintainability, portability, upgradeability
-- **Cross-cutting**: accessibility, archivability, authentication, authorization, legal/compliance (GDPR, LGPD), privacy, security, supportability, usability
+Ask the ones the topic makes relevant, inside a grilling round, each with your recommendation:
 
-Distinctions: *scalability* (grows steadily) ≠ *elasticity* (handles bursts — ticket sales, flash promotions). *Availability* (is it up?) ≠ *reliability* (behaves correctly while up?).
+- "Quantos usuários/requisições, e o tráfego é constante ou tem picos (virada de prazo, promoção)?" — steady growth is scalability; bursts are elasticity.
+- "Se isto ficar fora do ar por 1 hora, o que acontece? E por 1 minuto?" — the availability the feature really needs.
+- "Se o sistema externo cair ou ficar lento, a feature falha ou degrada? Degradar para quê?" — reliability and fault tolerance, and the fallback.
+- "Há dado pessoal, de pagamento ou exigência legal (LGPD)?" — security, privacy, legal, auditability.
+- "O número/resultado precisa ser reproduzível ou auditado depois?" — data integrity, auditability.
+- "Que mudança já é esperada (outro fornecedor, outra região, 10× volume)?" — extensibility or scalability, with the change named.
 
-## Explicit vs. implicit characteristics
+## Catalog — for scanning, never a menu
 
-- **Explicit** come from requirements — often in disguised domain language. "Milhões de usuários" means scalability though nobody said the word.
-- **Implicit** never appear in requirements but are necessary: availability, security, maintainability underpin almost every feature. Domain knowledge surfaces them — a payment feature implies data integrity; a registration deadline implies load spikes at the deadline, not spread evenly.
+Offered the catalog, stakeholders answer "all of them" (ch. 5). Use it to spot candidates the request implies. The book's grouping (2nd ed., partial by design):
 
-When trimming the list, cut explicit ones before implicit ones — the implicit ones usually sustain overall success.
+- **Operational:** availability, continuity (disaster recovery), performance, recoverability, reliability/safety, robustness, scalability, elasticity.
+- **Structural:** configurability, extensibility, installability, reuse, localization, maintainability, portability, upgradeability.
+- **Cloud:** on-demand scalability, on-demand elasticity, zone-based availability, region-based privacy (data residency).
+- **Cross-cutting:** accessibility, archivability, authentication, authorization, legal (LGPD), privacy, security, supportability (logs, diagnostics), usability.
 
-## Prioritization — the top-3 rule
+Pairs to keep apart: scalability (steady growth) vs elasticity (bursts); availability (is it up?) vs reliability (is it right while up?); interoperability (contracts with specific systems) vs compatibility (standards).
 
-Never present the full catalog asking "which do you want?" — the answer is always "all", and a design supporting everything supports nothing well (the *Vasa* sank trying to be both troop transport and gunship).
+## Prioritize — top 3
 
-1. Collect up to **7 candidate characteristics** from domain concerns + implicit analysis.
-2. Ask the user for the **top 3, in any order** — full ranking is a fool's errand; top-3 builds consensus fast.
-3. If the list resists trimming, invert: *"qual dessas é a MENOS importante? Se tivesse que eliminar uma, qual seria?"*
-4. Record the remaining candidates as "consideradas, não priorizadas" — they inform the design but don't drive structure.
+1. Collect up to ~7 candidates from the three sources.
+2. **Divide and conquer first** (ch. 25): "a feature inteira precisa disso, ou só a parte X?" A demanding characteristic usually belongs to one path (checkout, not the admin screen) — the cheapest guard against over-engineering.
+3. Put your **recommended top 3, in any order**, to the user, each with the domain concern it traces to. Full ranking is wasted effort; a design that supports everything supports nothing well (the *Vasa* sank trying to be troop transport and gunship).
+4. A list that resists trimming → "Se tivesse que eliminar uma, qual seria?"
+5. The rest inform the design and stay out of the spec: they don't drive structure.
 
-## Clarifying questions to weave in
+## Make each one verifiable
 
-Keep one-question-per-message. Pick questions relevant to the topic — never run through all mechanically:
+A prioritized characteristic with no measure is an opinion (ch. 6). Each gets a criterion the plan can turn into a test or a check:
 
-- "Quantos usuários/requisições esperamos, e o tráfego é constante ou tem picos?" (constant growth → scalability; bursts → elasticity)
-- "O que acontece se essa funcionalidade ficar fora do ar por 1 hora? E por 1 minuto?" (availability tier)
-- "Há integrações com sistemas externos? Se um deles cair, a feature deve falhar ou degradar?" (reliability vs. unnecessary fragility)
-- "Há dados sensíveis ou de pagamento envolvidos? Existe requisito legal/compliance (LGPD)?" (security, privacy, legal)
-- "Existe expectativa de expansão — mais idiomas, mais regiões, mais clientes corporativos?" (i18n, scalability, interoperability)
-- "Essa parte da feature precisa das mesmas garantias que o resto do sistema, ou exige mais (ou menos)?" (one quantum or several — see below)
+- **Performance pairs with a load and a percentile:** "p95 < 300 ms com 200 req/s". An average alone hides the 1% that take ten times longer; a number without the scale it holds at is not a requirement.
+- **Availability and fault tolerance as behavior under a named failure:** "timeout do gerador de PDF nunca falha a conclusão do curso; o certificado sai em até 10 min após o gerador voltar".
+- **Structural ones as a check:** an architecture rule, a dependency constraint, a test (a *fitness function*: any mechanism that objectively assesses a characteristic).
 
-## One set of characteristics or several?
+Overspecifying is as damaging as underspecifying (ch. 5): state what success needs, not the most the system could promise.
 
-The single most structural question: **does the whole feature need ONE set of characteristics, or do different parts need DIFFERENT sets?**
+## One set, or several? (scope, ch. 7-8)
 
-- One set → the feature fits the existing architecture style (usual answer for features inside an existing codebase).
-- Different sets (e.g., a public-facing part needing scalability + availability vs. a back-office part needing auditability + security) → separate them into distinct components/services so each meets its own demands.
+Does the whole feature need one set of characteristics?
 
-This decides component boundaries before any code structure is discussed.
+- **One set** — the usual answer inside an existing codebase: the feature fits the current deployable unit.
+- **Different sets inside the feature** (a public path needing elasticity, a back-office part needing auditability) → split **logical components** in the same deployable; the spec names the split and the characteristic that drove it.
+- **A set the current deployable cannot meet** (independent scaling, isolation from a failure domain) → a separate deployable with its own data. That is a root decision with its own block in Decisões Arquiteturais. Synchronous calls between parts with different operational characteristics fuse them: under a burst the slower part throttles the faster.
 
-## What goes in the spec
+## In the spec
 
-Record as a `## Características Arquiteturais` section (see `design-spec-structure.md`): the top 3 with one-line justification tracing to a domain concern, plus the "consideradas, não priorizadas" list. Each prioritized characteristic must be measurable — "performance" alone is not verifiable; "lista carrega em < 500ms com 10k registros" is.
+`## Características Arquiteturais` (template in `design-spec-structure.md`): the top 3, each with its domain concern and measurable criterion and the scope when it applies to one part only.

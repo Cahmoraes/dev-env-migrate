@@ -82,31 +82,44 @@ const tasksIndex = `# Tarefas: Cache LRU com TTL
 **Spec:** \`../specs/${FEATURE}-design.md\`
 **PRD:** \`../prd/prd-${FEATURE}.md\`
 
-**Goal:** Entregar um cache LRU+TTL testável e observável para uso interno.
-
-**Architecture:** Map + lista duplamente ligada, relógio injetado, lazy-evict no get.
-
-**Tech Stack:** TypeScript, Node, Vitest
-
 ---
 
 ## Tarefas
 
-- [ ] 1. Estrutura de dados e despejo LRU [FR-003] → \`task-01.md\`
-- [ ] 2. Relógio injetável [FR-006] → \`task-02.md\`
-- [ ] 3. set com TTL default [FR-001] → \`task-03.md\`
-- [ ] 4. get com lazy-evict de expirados [FR-002] → \`task-04.md\`
-- [ ] 5. delete e stats [FR-004, FR-005] → \`task-05.md\`
+- [ ] 1. Estrutura de dados e despejo LRU → \`task-01.md\`
+- [ ] 2. Relógio injetável → \`task-02.md\`
+- [ ] 3. set com TTL default → \`task-03.md\`
+- [ ] 4. get com lazy-evict de expirados → \`task-04.md\`
+- [ ] 5. delete e stats → \`task-05.md\`
 
-## Ondas de Execução
+## Foco de Revisão
 
-- **Wave 1** (parallel): 1, 2
-- **Wave 2** (sequential): 3
-- **Wave 3** (sequential): 4
-- **Wave 4** (sequential): 5
+- TTL zero ou negativo no set → entrada expira imediatamente, sem exceção → \`task-03\`
+- get de chave inexistente → \`undefined\` explícito, sem lançar → \`task-04\`
 `;
 
-function taskFile({ n, title, frs, tier, deps, creates = [], modifies = [], tests = [], skills }) {
+// O briefing que o controller escreve antes de despachar o writer: a secao `## Runner de testes`
+// e a unica fonte das linhas `Run:` (o indice nao carrega mais o runner).
+const taskWriterBriefing = `# Briefing do task writer: ${FEATURE}
+
+## Runner de testes
+
+- raiz · unit: \`npx vitest run <arquivo>\` (verificado: 1 arquivo coletado)
+
+## Digest
+
+- \`src/cache/\` e novo; relogio injetavel por construtor.
+
+## Decomposicao
+
+- task-01 Estrutura de dados e despejo LRU [FR-003]
+- task-02 Relogio injetavel [FR-006]
+- task-03 set com TTL default [FR-001]
+- task-04 get com lazy-evict de expirados [FR-002]
+- task-05 delete e stats [FR-004, FR-005]
+`;
+
+function taskFile({ n, title, frs, tier, consumes, creates = [], modifies = [], tests = [], skills }) {
   const frTag = frs.length ? ` [${frs.join(', ')}]` : '';
   const arquivos = [
     ...creates.map(f => `- Create: \`${f}\``),
@@ -119,7 +132,6 @@ function taskFile({ n, title, frs, tier, deps, creates = [], modifies = [], test
 **PRD:** \`../prd/prd-${FEATURE}.md\`
 **Spec:** \`../specs/${FEATURE}-design.md\`
 **Tier:** ${tier}
-**Depends on:** ${deps}
 
 ## Visão Geral
 
@@ -129,7 +141,12 @@ ${title} conforme a Especificação e ${frs.join(', ') || 'o design'}.
 
 ${arquivos}
 
-### Conformidade com as Skills Padrão
+## Interfaces
+
+- **Consome:** ${consumes}
+- **Produz:** N/A
+
+### Skills a invocar
 
 ${skills.map(s => `- \`${s.name}\`: ${s.why}`).join('\n')}
 
@@ -147,7 +164,15 @@ it('descreve o comportamento de ${title.toLowerCase()}', () => {
 - **Step 2: Make it pass**
 
 Implementa o mínimo em \`${creates[0] || modifies[0]}\` para o teste ficar verde.
+${[3, 4].includes(n) ? `
+- **Step 2b: Pin the implied input**
 
+Review Focus: ${n === 3 ? 'TTL zero ou negativo no set → entrada expira imediatamente, sem exceção' : 'get de chave inexistente → undefined explícito, sem lançar'}
+
+\`\`\`ts
+it('cobre a entrada que a spec implica', () => { expect(() => f()).not.toThrow(); });
+\`\`\`
+` : ''}
 - **Step 3: Refactor**
 
 Remove duplicação mantendo a suíte verde.
@@ -160,21 +185,21 @@ ${frs.map(fr => `- ${fr} verificável por teste automatizado`).join('\n') || '- 
 }
 
 const TASKS = [
-  { n: 1, title: 'Estrutura de dados e despejo LRU', frs: ['FR-003'], tier: 'standard', deps: 'N/A',
+  { n: 1, title: 'Estrutura de dados e despejo LRU', frs: ['FR-003'], tier: 'standard', consumes: 'N/A',
     creates: ['src/cache/node-list.ts'], tests: ['src/cache/__tests__/node-list.test.ts'],
     skills: [{ name: 'typescript-advanced', why: 'tipos genéricos da lista ligada' }] },
-  { n: 2, title: 'Relógio injetável', frs: ['FR-006'], tier: 'cheap', deps: 'N/A',
+  { n: 2, title: 'Relógio injetável', frs: ['FR-006'], tier: 'cheap', consumes: 'N/A',
     creates: ['src/cache/clock.ts'], tests: ['src/cache/__tests__/clock.test.ts'],
     skills: [{ name: 'typescript-advanced', why: 'assinatura do port de relógio' }] },
-  { n: 3, title: 'set com TTL default', frs: ['FR-001'], tier: 'standard', deps: 'task-01, task-02',
+  { n: 3, title: 'set com TTL default', frs: ['FR-001'], tier: 'standard', consumes: '`NodeList<V>` (task-01), `Clock` (task-02)',
     creates: ['src/cache/lru-cache.ts'], tests: ['src/cache/__tests__/lru-cache.set.test.ts'],
     skills: [{ name: 'typescript-advanced', why: 'API pública tipada' }, { name: 'zod', why: 'validação das opções de construção' }] },
-  { n: 4, title: 'get com lazy-evict de expirados', frs: ['FR-002'], tier: 'standard', deps: 'task-03',
+  { n: 4, title: 'get com lazy-evict de expirados', frs: ['FR-002'], tier: 'standard', consumes: '`LruCache.set(key, value, ttlMs?)` (task-03)',
     modifies: ['src/cache/lru-cache.ts'], tests: ['src/cache/__tests__/lru-cache.get.test.ts'],
     skills: [{ name: 'typescript-advanced', why: 'narrowing do retorno opcional' }] },
-  { n: 5, title: 'delete e stats', frs: ['FR-004', 'FR-005'], tier: 'standard', deps: 'task-04',
+  { n: 5, title: 'delete e stats', frs: ['FR-004', 'FR-005'], tier: 'standard', consumes: '`LruCache.get(key)` (task-04)',
     modifies: ['src/cache/lru-cache.ts'], creates: ['src/cache/stats.ts'], tests: ['src/cache/__tests__/lru-cache.stats.test.ts'],
     skills: [{ name: 'typescript-advanced', why: 'tipo do objeto de contadores' }] },
 ];
 
-module.exports = { FEATURE, DIR, spec, prd, tasksIndex, taskFile, TASKS };
+module.exports = { FEATURE, DIR, spec, prd, tasksIndex, taskWriterBriefing, taskFile, TASKS };

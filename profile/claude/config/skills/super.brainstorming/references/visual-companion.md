@@ -129,37 +129,26 @@ platform" section.
 
    **Claude Code / Copilot: run this as a background task** and let the harness notify
    you when it exits — never block the shell. It prints one JSON line and exits: `type`
-   is `selection`, `timeout`, `server-stopped`, or `no-server`, and every answer carries
-   `finalSelection`, `screenDir`, `renderDebt`, and an `_instructions` field that is the
-   authoritative next step for that exact outcome — **follow `_instructions` when it
-   conflicts with your recollection of this file.**
+   is `selection`, `timeout`, `server-stopped`, or `no-server`; every answer carries
+   `finalSelection`, `screenDir`, `renderDebt` and an `_instructions` field that is the
+   authoritative next step — **follow `_instructions` when it conflicts with your
+   recollection of this file.**
 
-   **A click is exploration; only the Send button is an answer.** The user can misclick,
-   compare two options, then change their mind — so the wait ends on an explicit
-   confirmation, not on the first click. The injected helper renders Send for you; you
-   never write it. One consequence worth designing for: `finalSelection` can hold
-   **several** choices (add `data-multiselect` to an ancestor and the user answers more
-   than one question on one screen — treat every entry as the answer, not just the
-   first). When `submitted` is `false`, they have not answered yet.
-
-   **A screen answers exactly once.** Send locks on commit and only a new screen unlocks
-   it, so a decision you want revised needs a new file (`layout-v2.html`) — telling the
-   user to press Send again hands them a dead button.
-
-   **Read `finalSelection` and move on — the click trail is not an answer.** Comparing
-   options, changing their mind, and taking their time is how the screen is *meant* to be
-   used; the Send button exists precisely so that exploration costs nothing. Treat
-   `path` as diagnostics: never quote it back, never turn it into a follow-up question,
-   never write it into the spec. A user who clicked eight times and one who clicked once
-   gave you the **same** answer.
+   **A click is exploration; only the Send button is an answer.** The wait ends on the
+   explicit confirmation, not the first click; the injected helper renders Send for you,
+   you never write it. `finalSelection` can hold **several** choices (`data-multiselect`
+   on an ancestor) — treat every entry as the answer, not just the first; `submitted:
+   false` means not answered yet. Send locks on commit and only a new screen unlocks it,
+   so a decision you want revised needs a new file (`layout-v2.html`). `path` is
+   diagnostics: never quote it back, never turn it into a question, never write it into
+   the spec — eight clicks and one click gave you the **same** answer.
 
    Ask them to answer **in the terminal** instead when the question needs words the
    browser cannot capture (a "why", a name, a number), when the screen is informational
-   with nothing clickable, or when you still have other work to do this turn. On
-   `timeout`, hand back to the conversation — do not immediately wait again.
-
-   Full protocol, flags, and the fallback for older servers: `references/visual-companion-reference.md`,
-   "Waiting for the browser" section.
+   with nothing clickable, or when you still have other work this turn. On `timeout`,
+   hand back to the conversation — do not immediately wait again. Full protocol and the
+   fallback for older servers: `references/visual-companion-reference.md`, "Waiting for
+   the browser".
 
 5. **Iterate or advance.** A `selection` from step 4 and the user's terminal message are
    both first-class answers. If feedback changes the current screen, write a new
@@ -184,16 +173,11 @@ platform" section.
 
 ## Writing content
 
-**First, apply the layout gate (above).** If the question is visual (positioning, layout,
-spacing, hierarchy, component appearance), write a bespoke mockup (the
-"Project-aware mockups" section) — not `render-screen.cjs`. The spec generator below is only for
-conceptual/textual choices.
-
-**For textual screens — generate from a compact spec, don't write HTML inline.** For the
-conceptual screen kinds (`options`, `cards`, `pros-cons`), pass a small JSON spec to
-`render-screen.cjs` and it writes the fragment file for you. This keeps verbose,
-repetitive markup out of your context and guarantees correct, escaped HTML — you never
-have to memorize the CSS classes. These kinds render **text cards**, never a layout.
+**First, apply the layout gate (above).** A visual question (positioning, layout, spacing,
+hierarchy, component appearance) gets a bespoke mockup ("Project-aware mockups") — never
+`render-screen.cjs`, which emits text cards, not a drawn layout. The generator is only for
+conceptual/textual choices (`options`, `cards`, `pros-cons`): pass a compact JSON spec and
+it writes the escaped fragment for you, keeping the markup out of your context.
 
 ```bash
 node <super.brainstorming-base-dir>/scripts/render-screen.cjs \
@@ -208,25 +192,17 @@ node <super.brainstorming-base-dir>/scripts/render-screen.cjs \
   }'
 ```
 
-The question above is a **conceptual scope choice**, not a layout one — that is the *only*
-category this generator is for. Do **not** copy this shape for a "which layout / where does
-X go / which visual style" question: the Layout gate above forbids `render-screen.cjs` there
-because it emits text cards, never a drawn layout, so the user would see the options listed
-but no actual layout to compare. For those, write a bespoke visual mockup (below) instead.
+It prints `{"written":true,"path":...}`. `options`/`cards` are clickable (emit selection
+events), `pros-cons` is presentational; `"multiselect": true` allows several picks;
+`choice`/`letter` default to `a`, `b`, `c`… by position; `--input-file <spec.json>` or
+stdin replace `--spec`.
 
-It prints `{"written":true,"path":...}` and the server serves it on the next reload.
-`kind` is `options` or `cards` (clickable, emit selection events) or `pros-cons`
-(presentational). Add `"multiselect": true` to let the user pick several. `choice` and
-`letter` are optional — they default to `a`, `b`, `c`… by position. Pass `--input-file
-<spec.json>` or pipe the spec on stdin instead of `--spec` if you prefer.
-
-**Write HTML directly** for anything visual the generator can't draw — every layout,
-positioning, wireframe, mockup, or side-by-side comparison. Write **fragments**, not full
-documents: if your HTML does not start with `<!DOCTYPE`/`<html>`, the server wraps it in
-the frame template automatically (header, theme CSS, selection indicator, and the client
-helper are all injected). The full building-block catalog — `.cards`, `.mockup`, `.split`,
-`.pros-cons`, mock wireframe elements, typography — is in `references/visual-companion-reference.md`,
-"CSS classes" section. Keep 2–4 options per screen and state the question on every page.
+**Write HTML directly** for anything the generator can't draw — every layout, wireframe,
+mockup or side-by-side. Write **fragments**: HTML not starting with `<!DOCTYPE`/`<html>` is
+wrapped in the frame template (header, theme CSS, selection indicator, client helper). The
+building-block catalog (`.cards`, `.mockup`, `.split`, `.pros-cons`, wireframe elements,
+typography): `references/visual-companion-reference.md`, "CSS classes". Keep 2–4 options
+per screen and state the question on every page.
 
 **Never write your own selection JavaScript.** The injected helper handles the whole
 selection lifecycle for any element carrying a `data-choice` attribute: click to select,

@@ -3,7 +3,7 @@
 /**
  * Detachment regression tests for start-server.sh (background mode).
  *
- * Run with: node --test super.brainstorming/scripts/__tests__/
+ * Run with: node --test super.brainstorming/scripts/__tests__/start-server-detach.test.cjs
  *
  * Root cause these tests lock down:
  *   Agent harnesses (Copilot CLI, Codex, and similar) run each shell tool call

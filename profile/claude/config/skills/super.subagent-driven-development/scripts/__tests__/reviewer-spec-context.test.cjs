@@ -1,15 +1,20 @@
 'use strict';
 
 /**
- * reviewer-spec-context.test.cjs — the spec-compliance reviewer must receive the SAME
- * design-spec context the implementer is bound to, so it can verify architectural
- * conformance ("right feature, wrong way"), not just functional-requirement coverage.
+ * reviewer-spec-context.test.cjs — the task reviewer must receive the SAME design-spec
+ * context the implementer is bound to, so it can verify architectural conformance
+ * ("right feature, wrong way"), not just functional-requirement coverage.
  *
- * Regression guard for the implementer<->spec-reviewer asymmetry: the implementer prompt
- * has always inlined the design spec's architecture & decisions; the spec-reviewer prompt
- * inlined only the requirements, so it could not check whether the code honored the
- * decisions the implementer was bound to. Both must carry the section, INLINE (full text),
- * never via a path (a path makes the subagent read the whole doc; inline the curated slice).
+ * Regression guard for the implementer<->reviewer asymmetry: the implementer prompt has
+ * always carried the design spec's architecture & decisions; the reviewer prompt once
+ * carried only the requirements, so it could not check whether the code honored the
+ * decisions the implementer was bound to. Both must carry the section.
+ *
+ * Since 2026-09-02 the section is handed over BY PATH, not inline: the controller passes the
+ * absolute task/spec/PRD paths and the subagent reads them in full. Measured (A/B, n=3 small
+ * fixture + realistic-size fixture): quality parity 17/17, controller context -16% / -45%,
+ * prompt chars -23% / -64%, cost -3% / -51%. A pasted "curated slice" was the drift the old
+ * rule caused in practice: controllers condensed and translated the documents.
  *
  * Run: node --test super.subagent-driven-development/scripts/__tests__/reviewer-spec-context.test.cjs
  */
@@ -23,22 +28,23 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 
 const IMPLEMENTER = 'super.subagent-driven-development/agents/implementer.md';
-const SPEC_REVIEWER = 'super.subagent-driven-development/agents/spec-reviewer.md';
-const COMBINED_REVIEWER = 'super.subagent-driven-development/agents/combined-reviewer.md';
+const TASK_REVIEWER = 'super.subagent-driven-development/agents/task-reviewer.md';
 
 // Heading shape tolerant to em-dash vs hyphen.
 const DESIGN_SPEC_SECTION = /Design Spec\s*[—-]\s*Architecture & Decisions/;
 
-test('combined-reviewer prompt inlines design spec context (parity with spec-reviewer)', () => {
-  const body = read(COMBINED_REVIEWER);
+test('task-reviewer prompt carries design spec context by path (parity with the implementer)', () => {
+  const body = read(TASK_REVIEWER);
   assert.match(body, DESIGN_SPEC_SECTION,
-    'combined-reviewer must receive the design spec (architecture & decisions) inline');
-  assert.match(body, /FULL TEXT/,
-    'combined-reviewer must inline the FULL TEXT, not hand over a path');
-  assert.match(body, /do not hand\s+the reviewer\s+a path/i,
-    'combined-reviewer must state the inline-not-path rule');
+    'task-reviewer must receive the design spec (architecture & decisions) section');
+  assert.match(body, /\*\*Design spec:\*\* \{SPEC_PATH\}/,
+    'task-reviewer hands the design spec over as a path slot');
+  assert.match(body, /\*\*PRD — Functional Requirements:\*\* \{PRD_PATH\}/,
+    'task-reviewer receives the PRD — the requirement authority the task file argues from');
+  assert.match(body, /Read it in full/i,
+    'task-reviewer must tell the reviewer to read the spec in full');
   assert.match(body, /Architectural conformance/i,
-    'combined-reviewer must keep the architectural-conformance check group');
+    'task-reviewer must keep the architectural-conformance check group');
   assert.match(body, /right feature.{0,5}wrong way/i,
     'the architectural-conformance check must cover the "right feature, wrong way" case');
 });
@@ -48,27 +54,20 @@ test('implementer prompt inlines the design spec architecture & decisions', () =
     'implementer must receive the design spec (architecture & decisions) inline');
 });
 
-test('spec-reviewer prompt inlines the same design spec context (parity with implementer)', () => {
-  assert.match(read(SPEC_REVIEWER), DESIGN_SPEC_SECTION,
-    'spec-reviewer must receive the design spec inline so it can verify architectural conformance');
-});
-
-test('both reviewers/implementer inline FULL TEXT, never hand the subagent a path', () => {
-  for (const rel of [IMPLEMENTER, SPEC_REVIEWER]) {
-    assert.match(read(rel), /FULL TEXT/,
-      `${rel} must inline FULL TEXT of the spec, not depend on the subagent reading a file`);
+test('implementer and reviewer hand the task and spec over BY PATH and order a full read first', () => {
+  for (const rel of [IMPLEMENTER, TASK_REVIEWER]) {
+    const body = read(rel);
+    assert.match(body, /\*\*Task file:\*\*\s*\{TASK_FILES\}/,
+      `${rel} must carry the task file as a path slot`);
+    assert.match(body, /\{SPEC_PATH\}/,
+      `${rel} must carry the design spec as a path slot`);
+    assert.doesNotMatch(body, /FULL TEXT/,
+      `${rel} must not ask the controller to paste document text into the prompt`);
   }
-  // The inline-not-path rule is stated explicitly somewhere in each prompt.
-  assert.match(read(IMPLEMENTER), /don.t make subagent read.{0,8}file/i,
-    'implementer must state the inline-not-path rule');
-  assert.match(read(SPEC_REVIEWER), /do not hand\s+the reviewer\s+a path/i,
-    'spec-reviewer must state the inline-not-path rule');
-});
-
-test('spec-reviewer checks architectural conformance, not only functional requirements', () => {
-  const body = read(SPEC_REVIEWER);
-  assert.match(body, /Architectural conformance/i,
-    'spec-reviewer must have an architectural-conformance check group');
-  assert.match(body, /right feature.{0,5}wrong way/i,
-    'the architectural-conformance check must cover the "right feature, wrong way" case');
+  assert.match(read(IMPLEMENTER), /read these files in full before anything else/i,
+    'implementer must be told to read its brief files in full before starting');
+  assert.match(read(IMPLEMENTER), /PRD — Functional Requirements:\*\*\s*\{PRD_PATH\}/,
+    'implementer must carry the PRD as a path slot (or N/A)');
+  assert.match(read(TASK_REVIEWER), /Read the task file in full/i,
+    'task-reviewer must be told to read the task file in full before reviewing');
 });

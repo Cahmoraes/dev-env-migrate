@@ -1,129 +1,54 @@
 'use strict';
 
 /**
- * Flow-level guards for the opt-in native review skills (/simplify, /code-review,
- * Copilot `review`).
+ * Flow-level guards for the opt-in native review skills (/code-review, Copilot
+ * `review`).
  *
- * Two layers are tested:
- *   1. Data layer  — when the flags are absent or false, the preferences object
- *      reads back with every native pass OFF, so the flow runs the pre-existing
- *      gates only (no regression). Enabling one platform never bleeds into the other.
- *   2. Prose layer — the three execution skills must keep the broad final reviewer
- *      UNCONDITIONAL and every native pass GUARDED by its session flag. If a future
- *      edit makes a native pass run unconditionally (the "runs even when disabled"
- *      regression) or drops the "gates always run" guarantee, these assertions fail.
+ * Prose layer only: the three execution skills must keep the broad final reviewer
+ * UNCONDITIONAL and every native pass GUARDED by its session flag. If a future edit makes
+ * a native pass run unconditionally (the "runs even when disabled" regression) or drops the
+ * "gates always run" guarantee, these assertions fail.
  *
- * Run with: node --test super.using-superpowers/scripts/__tests__/
+ * The data layer (flags absent/false read back OFF, one platform never bleeding into the
+ * other) is derive-session-state.test.cjs + preferences-options-matrix.test.cjs.
+ *
+ * Run with: node --test super.using-superpowers/scripts/__tests__/native-review-flow.test.cjs
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 
-const SCRIPTS = path.resolve(__dirname, '..');
-const READ = path.join(SCRIPTS, 'read-preferences.cjs');
 const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/superpowers/skills
 
-// parallel-subagent-in-tree and parallel-subagent-development delegate their
-// Step 5 finish-tail prose (final reviewer, /code-review, Copilot review,
-// per-task-gates-unaffected) to finish-tail.md instead of duplicating it — so
-// their bodies must include it here too, or every guard below sees it as missing.
-// finish-tail.md hard-wraps its prose at ~100 cols, so a sentence checked by a
+// The execution skill delegates its
+// Step 5 final-stage prose (final reviewer, /code-review, Copilot review,
+// per-task-gates-unaffected) to final-stage.md instead of duplicating it — so
+// its body must include it here too, or every guard below sees it as missing.
+// final-stage.md hard-wraps its prose at ~100 cols, so a sentence checked by a
 // literal-space regex can straddle a line break; collapse whitespace runs to a
 // single space so wrapping never masks content that is actually present.
-const FINISH_TAIL = fs
-  .readFileSync(path.join(SKILLS, 'super.subagent-driven-development', 'references', 'finish-tail.md'), 'utf8')
+const FINAL_STAGE = fs
+  .readFileSync(path.join(SKILLS, 'super.subagent-driven-development', 'references', 'final-stage.md'), 'utf8')
   .replace(/\s+/g, ' ');
-// All three delegate now — the sequential skill's inline copy of the tail lived past the
-// 20.000-char compaction window and was dropped on resume, so it was replaced by a pointer
-// to the same canonical file the parallel skills already used.
-const DELEGATES_FINISH_TAIL = new Set([
+// The sequential skill's inline copy of the tail lived past the 20.000-char compaction
+// window and was dropped on resume, so it was replaced by a pointer to the canonical file.
+const DELEGATES_FINAL_STAGE = new Set([
   'super.subagent-driven-development',
-  'super.parallel-subagent-in-tree',
-  'super.parallel-subagent-development',
 ]);
 
 const EXECUTION_SKILLS = [
   'super.subagent-driven-development',
-  'super.parallel-subagent-in-tree',
-  'super.parallel-subagent-development',
 ].map((name) => ({
   name,
-  body: fs.readFileSync(path.join(SKILLS, name, 'SKILL.md'), 'utf8') + (DELEGATES_FINISH_TAIL.has(name) ? '\n' + FINISH_TAIL : ''),
+  body: fs.readFileSync(path.join(SKILLS, name, 'SKILL.md'), 'utf8') + (DELEGATES_FINAL_STAGE.has(name) ? '\n' + FINAL_STAGE : ''),
 }));
-
-function mkRepo() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'native-flow-'));
-}
-
-function read(root) {
-  const out = execFileSync('node', [READ, '--repo-root', root], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return JSON.parse(out);
-}
-
-function writeYaml(root, yaml) {
-  fs.mkdirSync(path.join(root, '.superpowers'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.superpowers', 'preferences.yml'), yaml, 'utf8');
-}
 
 /** Lines mentioning `needle`, so each can be checked for its guard on the same line. */
 function linesWith(body, needle) {
   return body.split('\n').filter((line) => line.includes(needle));
 }
-
-// ─── Layer 1: data — the disabled path is clean ──────────────────────────────
-
-test('a preferences file with NO platform sections reads back with every native pass off', () => {
-  const root = mkRepo();
-  try {
-    // A minimal real-world file: the user only set the basics, never touched
-    // copilot:/claude_code:. The flow must see all native passes disabled.
-    writeYaml(root, 'workflow:\n  auto_commit: true\ncommunication:\n  language: pt-BR\n');
-    const p = read(root).preferences;
-    assert.equal(p.claude_code.simplify, false);
-    assert.equal(p.claude_code.code_review_final, false);
-    assert.equal(p.claude_code.code_review_effort, 'medium');
-    assert.equal(p.copilot.review_final, false);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('explicit false flags are never coerced to true', () => {
-  const root = mkRepo();
-  try {
-    writeYaml(root,
-      'claude_code:\n  simplify: false\n  code_review_final: false\n' +
-      'copilot:\n  review_final: false\n');
-    const p = read(root).preferences;
-    assert.equal(p.claude_code.simplify, false);
-    assert.equal(p.claude_code.code_review_final, false);
-    assert.equal(p.copilot.review_final, false);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('enabling Claude Code passes does not bleed into Copilot, and vice-versa', () => {
-  const root = mkRepo();
-  try {
-    writeYaml(root, 'claude_code:\n  simplify: true\n  code_review_final: true\n  code_review_effort: high\n');
-    let p = read(root).preferences;
-    assert.equal(p.claude_code.code_review_final, true);
-    assert.equal(p.copilot.review_final, false, 'Copilot stays off when only Claude Code is enabled');
-
-    writeYaml(root, 'copilot:\n  review_final: true\n');
-    p = read(root).preferences;
-    assert.equal(p.copilot.review_final, true);
-    assert.equal(p.claude_code.code_review_final, false, 'Claude Code stays off when only Copilot is enabled');
-    assert.equal(p.claude_code.code_review_effort, 'medium', 'effort stays at its inert default');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
 
 // ─── Layer 2: prose — guards survive future edits ────────────────────────────
 
@@ -160,15 +85,6 @@ for (const { name, body } of EXECUTION_SKILLS) {
     }
   });
 
-  test(`${name}: /simplify is guarded by session_simplify_enabled`, () => {
-    const hits = linesWith(body, '`/simplify`');
-    const invocation = hits.filter((l) => l.includes('If `session_simplify_enabled`'));
-    assert.ok(
-      invocation.length > 0,
-      '/simplify must only run when session_simplify_enabled is set',
-    );
-  });
-
   test(`${name}: states the per-task spec + quality gates are unaffected`, () => {
     assert.match(
       body,
@@ -183,7 +99,6 @@ for (const { name, body } of EXECUTION_SKILLS) {
 test('SKILL.md declares the native session variables with safe defaults', () => {
   const skill = fs.readFileSync(path.join(SKILLS, 'super.using-superpowers', 'SKILL.md'), 'utf8');
   for (const v of [
-    'session_simplify_enabled',
     'session_code_review_final_enabled',
     'session_code_review_effort',
     'session_copilot_review_final_enabled',
@@ -196,14 +111,12 @@ test('SKILL.md declares the native session variables with safe defaults', () => 
 
 // ─── Per-task review gates must not invoke native review skills ───────────────
 // Regression guard for the "task-02 leak": a per-task spec/quality reviewer that
-// invokes /code-review, /simplify, or the Copilot `review` skill duplicates the
+// invokes /code-review or the Copilot `review` skill duplicates the
 // controller-owned final pass and defeats the no-overlap design. Each per-task
 // reviewer prompt must forbid it in prose.
 
 const PER_TASK_REVIEW_PROMPTS = [
-  'super.subagent-driven-development/agents/spec-reviewer.md',
-  'super.subagent-driven-development/agents/code-quality-reviewer.md',
-  'super.subagent-driven-development/agents/combined-reviewer.md',
+  'super.subagent-driven-development/agents/task-reviewer.md',
   'super.requesting-code-review/agents/code-reviewer.md',
 ];
 

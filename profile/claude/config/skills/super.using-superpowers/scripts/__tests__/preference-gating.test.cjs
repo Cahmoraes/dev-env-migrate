@@ -5,19 +5,14 @@
  * with no coupling between independent preferences. Companion to
  * native-review-flow.test.cjs (which covers the opt-in native review skills).
  *
- * Preferences guarded here, plus one retired key that must stay retired:
- *   - optimization.caveman        → the subagent caveman block
+ * Preferences guarded here:
  *   - workflow.auto_commit        → the implementer's commit step
  *   - workflow.visual_companion   → super.brainstorming's companion offer
  *
  * Two layers, same as the native-review guards:
- *   1. Data layer  — render-caveman-block.cjs and read-preferences.cjs return the
- *      right thing across a matrix of preference values (on/off, every level).
+ *   1. Data layer  — read-preferences.cjs returns the right thing across a matrix of
+ *      preference values (on/off).
  *   2. Prose layer — the skills and prompt templates keep each preference GUARDED.
- *      The caveman block in particular must be rendered deterministically, never
- *      hand-assembled: the hand-fill placeholder is the exact bug we are locking out
- *      (it was mis-filled as "active" + a contradicting "respond normally", so
- *      dispatched subagents silently ran without caveman).
  *
  * Run with: node --test super.using-superpowers/scripts/__tests__/preference-gating.test.cjs
  */
@@ -30,15 +25,11 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const SCRIPTS = path.resolve(__dirname, '..');
-const RENDER = path.join(SCRIPTS, 'render-caveman-block.cjs');
 const READ = path.join(SCRIPTS, 'read-preferences.cjs');
 const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/superpowers/skills
 
 function readFile(rel) {
   return fs.readFileSync(path.join(SKILLS, rel), 'utf8');
-}
-function renderJson(args) {
-  return JSON.parse(execFileSync('node', [RENDER, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
 }
 function readPrefs(root) {
   return JSON.parse(execFileSync('node', [READ, '--repo-root', root], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).preferences;
@@ -51,89 +42,12 @@ function mkRepo() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pref-gating-'));
 }
 
-// Every file that carries a caveman block for a dispatched subagent.
-const CAVEMAN_SURFACES = [
-  'super.subagent-driven-development/agents/implementer.md',
-  'super.subagent-driven-development/agents/spec-reviewer.md',
-  'super.subagent-driven-development/agents/code-quality-reviewer.md',
-  'super.subagent-driven-development/agents/combined-reviewer.md',
-  'super.subagent-driven-development/SKILL.md',
-  'super.parallel-subagent-in-tree/SKILL.md',
-  'super.parallel-subagent-development/SKILL.md',
-  'super.user-story-verification/SKILL.md',
-];
-
 const EXECUTION_SKILLS = [
   'super.subagent-driven-development/SKILL.md',
-  'super.parallel-subagent-in-tree/SKILL.md',
-  'super.parallel-subagent-development/SKILL.md',
 ];
 
-// parallel-subagent-in-tree's Step 2 delegates its caveman policy
-// wholesale to parallel-subagent-development's Step 2 ("Apply the policy...
-// verbatim") instead of duplicating it — include the delegated body so the
-// guard sees the real content.
-const PARALLEL_DEV = 'super.parallel-subagent-development/SKILL.md';
 function readSkillBody(rel) {
-  const body = readFile(rel);
-  return rel === 'super.parallel-subagent-in-tree/SKILL.md' ? body + '\n' + readFile(PARALLEL_DEV) : body;
-}
-
-// Signatures of the old hand-fill placeholder. None may survive — re-introducing
-// any of these is the regression that re-opens the caveman bug.
-const HANDFILL_SIGNATURES = [
-  'If caveman is active',
-  'if not active: omit',
-  'if not: omit',
-  'if session_caveman_active = true →',
-];
-
-// ─── Caveman — data layer (honored on, skipped off, across the level matrix) ──
-
-test('caveman OFF → empty block in every format', () => {
-  for (const format of ['section', 'field']) {
-    const r = renderJson(['--active', 'false', '--level', 'full', '--format', format]);
-    assert.equal(r.active, false);
-    assert.equal(r.block, '', `format ${format} must yield no block when caveman is off`);
-  }
-});
-
-test('caveman ON → directive carrying the exact configured level', () => {
-  for (const level of ['lite', 'full', 'ultra', 'wenyan-lite', 'wenyan-full', 'wenyan-ultra']) {
-    const r = renderJson(['--active', 'true', '--level', level]);
-    assert.equal(r.active, true);
-    assert.equal(r.level, level);
-    assert.ok(r.block.includes(`/caveman ${level}`), `block must invoke /caveman at ${level}`);
-  }
-});
-
-test('caveman level passes through verbatim (renderer is not the level authority)', () => {
-  // A level the renderer has never heard of must still pass through unchanged,
-  // so adding a new caveman level never requires touching this script.
-  const r = renderJson(['--active', 'true', '--level', 'future-level-x']);
-  assert.ok(r.block.includes('/caveman future-level-x'));
-});
-
-// ─── Caveman — prose layer (deterministic, never hand-assembled) ──────────────
-
-for (const rel of CAVEMAN_SURFACES) {
-  test(`${rel}: renders the caveman block via the script, not by hand`, () => {
-    const body = readSkillBody(rel);
-    assert.ok(
-      body.includes('render-caveman-block.cjs'),
-      `${rel} must delegate the caveman block to render-caveman-block.cjs`,
-    );
-  });
-
-  test(`${rel}: contains no hand-fill placeholder (caveman bug regression guard)`, () => {
-    const body = readSkillBody(rel);
-    for (const sig of HANDFILL_SIGNATURES) {
-      assert.ok(
-        !body.includes(sig),
-        `${rel} still contains the hand-fill placeholder "${sig}" — the caveman bug can re-occur`,
-      );
-    }
-  });
+  return readFile(rel);
 }
 
 // ─── a retired preference stays retired ──────────────────────────────────────
@@ -146,10 +60,10 @@ for (const rel of CAVEMAN_SURFACES) {
 test('a legacy memory: key is dropped by the loader instead of read back', () => {
   const root = mkRepo();
   try {
-    writeYaml(root, 'communication:\n  language: pt-BR\nmemory:\n  persistent_memory: true\n');
+    writeYaml(root, 'workflow:\n  auto_commit: false\nmemory:\n  persistent_memory: true\n');
     const prefs = readPrefs(root);
     assert.ok(!('memory' in prefs), 'the retired key must not come back through the loader');
-    assert.equal(prefs.communication.language, 'pt-BR', 'the rest of the file still parses');
+    assert.equal(prefs.workflow.auto_commit, false, 'the rest of the file still parses');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -170,7 +84,7 @@ for (const rel of EXECUTION_SKILLS) {
 test('auto_commit data: on by default, honored when set false', () => {
   const root = mkRepo();
   try {
-    writeYaml(root, 'communication:\n  language: pt-BR\n');
+    writeYaml(root, 'context:\n  has_corporate_artifacts: false\n');
     assert.equal(readPrefs(root).workflow.auto_commit, true, 'default must be on');
     writeYaml(root, 'workflow:\n  auto_commit: false\n');
     assert.equal(readPrefs(root).workflow.auto_commit, false, 'false must be honored');
@@ -189,40 +103,99 @@ test('implementer prompt conditions the commit step on workflow.auto_commit', ()
   );
 });
 
+test('sequential controller does not take over commits when auto_commit is false', () => {
+  const body = readFile('super.subagent-driven-development/SKILL.md');
+  const commitReference = readFile('super.subagent-driven-development/references/commit-messages.md');
+  assert.match(
+    body,
+    /neither the implementer nor the controller commits/i,
+    'auto_commit:false must leave the cumulative task diff uncommitted, not transfer commit ownership to the controller',
+  );
+  assert.doesNotMatch(
+    body,
+    /Implementer implements, tests, commits, self-reviews\./,
+    'the per-task steps must not state an unconditional commit after the implementer prompt gated it off',
+  );
+  assert.match(
+    body,
+    /after reviews pass[\s\S]*verification-before-completion` succeeds[\s\S]*ready-to-copy `git add`[\s\S]*`git commit` block/i,
+    'the developer-run commit handoff must happen only after reviews and executable verification succeed',
+  );
+  assert.match(
+    commitReference,
+    /after the task's reviews pass[\s\S]*verification-before-completion` succeeds/i,
+    'the detailed commit contract must preserve both prerequisites in order',
+  );
+  assert.match(commitReference, /git add <arquivo1>/i);
+  assert.match(commitReference, /git commit -m/i);
+  assert.match(
+    commitReference,
+    /developer executes it[\s\S]*controller never executes/i,
+    'the reference must preserve both the copyable commands and their non-transferable ownership',
+  );
+});
+
 // ─── qa_gate — QA gate runs on, silently skipped off (incl. the PRD step) ─────
 
 test('qa_gate data: on by default, honored when set false', () => {
   const root = mkRepo();
   try {
-    writeYaml(root, 'communication:\n  language: pt-BR\n');
+    writeYaml(root, 'context:\n  has_corporate_artifacts: false\n');
     assert.equal(readPrefs(root).workflow.qa_gate, true, 'default must be on');
     writeYaml(root, 'workflow:\n  qa_gate: false\n');
     assert.equal(readPrefs(root).workflow.qa_gate, false, 'false must be honored');
+    writeYaml(root, 'workflow:\n  qa_gate: ask\n');
+    assert.equal(readPrefs(root).workflow.qa_gate, 'ask', 'ask must be honored as a third value');
+    writeYaml(root, 'workflow:\n  qa_gate: "Ask"\n');
+    assert.equal(readPrefs(root).workflow.qa_gate, 'ask', 'a quoted/capitalised ask is still ask');
+    writeYaml(root, 'workflow:\n  qa_gate: yes\n');
+    assert.equal(readPrefs(root).workflow.qa_gate, true, 'anything else clamps to the default');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('finish-tail gates the QA gate on session_qa_gate_enabled and silences QA when off', () => {
-  const body = readFile('super.subagent-driven-development/references/finish-tail.md');
+test('final-stage gates the QA gate on session_qa_gate_enabled and silences QA when off', () => {
+  const body = readFile('super.subagent-driven-development/references/final-stage.md');
   assert.ok(body.includes('session_qa_gate_enabled'),
-    'finish-tail must gate the QA gate on session_qa_gate_enabled');
+    'final-stage must gate the QA gate on session_qa_gate_enabled');
   assert.match(body, /skip this entire gate silently/i,
-    'finish-tail must skip the whole QA gate silently when the preference is off');
+    'final-stage must skip the whole QA gate silently when the preference is off');
   assert.match(body, /do \*\*not\*\* mention QA anywhere/i,
-    'finish-tail must suppress every QA mention (including the PRD step) when off');
+    'final-stage must suppress every QA mention (including the PRD step) when off');
+});
+
+test('final-stage asks once at the QA gate only under session_qa_gate_ask, and only with a PRD', () => {
+  const body = readFile('super.subagent-driven-development/references/final-stage.md');
+  // Located by heading, not by number: gate numbers move when a gate is added or retired.
+  const gate = body.search(/^### \d+\. QA gate/m);
+  const nextGate = body.indexOf('\n### ', gate + 1);
+  assert.ok(gate > 0 && nextGate > gate, 'the QA gate must be a delimited section');
+  const section = body.slice(gate, nextGate);
+  const prdFound = section.indexOf('**PRD found:**');
+  const askFlag = section.indexOf('session_qa_gate_ask');
+  assert.ok(prdFound > 0 && askFlag > prdFound,
+    'the ask branch must sit after the PRD check — no PRD means nothing to ask');
+  assert.match(section, /Ask it\s+\*\*once\*\*/,
+    'the question is asked exactly once');
+  assert.match(section, /\*\*Run it\*\*[\s\S]*\*\*Skip\*\*/,
+    'the options name outcomes (run / skip), not ceremony');
+  assert.match(section, /no answer can arrive[\s\S]*\*\*Skip\*\*/i,
+    'a non-interactive session must skip, never hang or self-authorize');
+  assert.match(section, /the preference is the consent/i,
+    'qa_gate: true must keep running without a question');
 });
 
 test('subagent-driven-development delegates the QA gate and keeps it conditional in its index', () => {
   // The full procedure — silent skip, the no-mention rule, PRD discovery, the verdict
-  // table — is owned by finish-tail.md and asserted on it directly by the test above.
+  // table — is owned by final-stage.md and asserted on it directly by the test above.
   // SKILL.md used to carry a second copy, 7.7 KB of it past the 20.000-char compaction
   // window, so on resume the model had neither copy. What must survive here is narrower
   // and load-bearing: the pointer, and enough of the condition that a controller reading
   // only the index never treats the QA gate as unconditional or announces it when off.
   const body = readFile('super.subagent-driven-development/SKILL.md');
-  assert.match(body, /references\/finish-tail\.md/,
-    'SKILL must point at finish-tail.md, or the QA gate has no owner the controller can reach');
+  assert.match(body, /references\/final-stage\.md/,
+    'SKILL must point at final-stage.md, or the QA gate has no owner the controller can reach');
   assert.ok(body.includes('session_qa_gate_enabled'),
     'the five-gate index must still name session_qa_gate_enabled as the QA gate condition');
   assert.match(body, /silent skip/i,
@@ -239,7 +212,7 @@ test('subagent-driven-development delegates the QA gate and keeps it conditional
 test('visual_companion data: on by default, honored when set false', () => {
   const root = mkRepo();
   try {
-    writeYaml(root, 'communication:\n  language: pt-BR\n');
+    writeYaml(root, 'context:\n  has_corporate_artifacts: false\n');
     assert.equal(readPrefs(root).workflow.visual_companion, true, 'default must be on');
     writeYaml(root, 'workflow:\n  visual_companion: false\n');
     assert.equal(readPrefs(root).workflow.visual_companion, false, 'false must be honored');
@@ -257,7 +230,9 @@ function brainstormingItem2() {
   const body = readFile('super.brainstorming/SKILL.md');
   const start = body.indexOf('2. **Offer visual companion**');
   assert.ok(start >= 0, 'checklist item 2 must exist');
-  return body.slice(start, body.indexOf('\n3. **Ask clarifying questions**', start));
+  const end = body.indexOf('\n3. **Grill in rounds', start);
+  assert.ok(end > start, 'checklist item 3 must follow item 2');
+  return body.slice(start, end);
 }
 
 test('checklist item 2 resolves the preference BEFORE evaluating any visual signal', () => {
@@ -375,18 +350,22 @@ test('reviewing-specs gates Lens 5 on consent + declaration, and reports the mis
     'the reviewer needs the field that carries the config mismatch');
 });
 
+test('the bounded path names the TDD mutation step it runs inline', () => {
+  const bounded = readFile('super.using-superpowers/references/bounded-path.md');
+  assert.match(bounded, /MUTATE/, 'the bounded path closes with the final code reviewer after the MUTATE step');
+});
+
 // ─── No coupling — one preference off does not disable another ────────────────
 
-test('preferences are independent: caveman off + qa_gate on + auto_commit off coexist', () => {
+test('preferences are independent: visual_companion off + qa_gate on + auto_commit off coexist', () => {
   const root = mkRepo();
   try {
     writeYaml(root,
-      'workflow:\n  auto_commit: false\n  qa_gate: true\n' +
-      'optimization:\n  caveman: false\n');
+      'workflow:\n  auto_commit: false\n  qa_gate: true\n  visual_companion: false\n');
     const p = readPrefs(root);
     assert.equal(p.workflow.auto_commit, false);
     assert.equal(p.workflow.qa_gate, true);
-    assert.equal(p.optimization.caveman, false);
+    assert.equal(p.workflow.visual_companion, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

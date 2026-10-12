@@ -311,31 +311,34 @@ function readUrl(stateDir) {
   }
 }
 
+function readScreen(screenDir, name) {
+  try {
+    return fs.readFileSync(path.join(screenDir, name), 'utf8')
+  } catch (e) {
+    return null
+  }
+}
+
 function isPlaceholder(screenDir, name) {
   if (PLACEHOLDER_NAME.test(name)) return true
-  try {
-    return fs.readFileSync(path.join(screenDir, name), 'utf8').includes(PLACEHOLDER_MARKER)
-  } catch (e) {
-    return false
-  }
+  const html = readScreen(screenDir, name)
+  return html !== null && html.includes(PLACEHOLDER_MARKER)
 }
 
 /** 'placeholder' | 'generated' | 'bespoke' — what kind of screen this file is. */
 function classifyScreen(screenDir, name) {
-  if (isPlaceholder(screenDir, name)) return 'placeholder'
-  let html
-  try {
-    html = fs.readFileSync(path.join(screenDir, name), 'utf8')
-  } catch (e) {
-    return 'bespoke'
-  }
+  if (PLACEHOLDER_NAME.test(name)) return 'placeholder'
+  // One read serves both detectors: the placeholder marker and the generator shape.
+  const html = readScreen(screenDir, name)
+  if (html === null) return 'bespoke'
+  if (html.includes(PLACEHOLDER_MARKER)) return 'placeholder'
   if (html.includes(GENERATED_MARKER)) return 'generated'
   if (GENERATED_CONTAINER.test(html) && !/<style[\s>]/i.test(html)) return 'generated'
   return 'bespoke'
 }
 
-/** Every .html in the content dir, newest first, tagged as placeholder or real. */
-function listScreens(screenDir) {
+/** Every .html in the content dir with its mtime, newest first — stat only, no reads. */
+function statScreens(screenDir) {
   let names
   try {
     names = fs.readdirSync(screenDir).filter((n) => n.toLowerCase().endsWith('.html'))
@@ -348,16 +351,29 @@ function listScreens(screenDir) {
       try {
         mtimeMs = fs.statSync(path.join(screenDir, name)).mtimeMs
       } catch (err) { /* vanished between readdir and stat — sorts last */ }
-      const kind = classifyScreen(screenDir, name)
-      return { name, mtimeMs, kind, placeholder: kind === 'placeholder' }
+      return { name, mtimeMs }
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
+}
+
+/** Name of the screen on display (the newest .html), or null. Cheaper than listScreens. */
+function newestScreenName(screenDir) {
+  const newest = statScreens(screenDir)[0]
+  return newest ? newest.name : null
+}
+
+/** Every .html in the content dir, newest first, tagged as placeholder or real. */
+function listScreens(screenDir) {
+  return statScreens(screenDir).map(({ name, mtimeMs }) => {
+    const kind = classifyScreen(screenDir, name)
+    return { name, mtimeMs, kind, placeholder: kind === 'placeholder' }
+  })
 }
 
 const ACTIONS = {
   'no-server': 'No live companion — nothing owed. Launch it only when you are ready to render.',
   'no-screen-rendered':
-    'RENDER DEBT: you told the user to open a URL that shows nothing. Write the screen that justified the companion BEFORE ending this turn — it pre-empts clarifying questions, complexity checkpoints, and consent gates.',
+    'RENDER DEBT: you told the user to open a URL that shows nothing. Write the screen that justified the companion BEFORE ending this turn — it pre-empts clarifying questions, approach proposals, and the deep-research offer.',
   'generated-only':
     'RENDER DEBT: every screen served so far is generator text cards, which a terminal message could have carried. Render the artifact you named when you offered the companion — a bespoke mockup or diagram — or say in-thread that the debt cannot be settled and stop the server.',
   'terminal-parked':
@@ -469,7 +485,9 @@ function main() {
 if (require.main === module) main()
 
 module.exports = {
-  evaluate, listScreens, isPlaceholder, classifyScreen, findLiveSession, isLiveSession, readEvents,
+  // Shared CLI plumbing: wait-for-user.cjs and stop-companion.cjs use the same contract.
+  parseArgs, isAlive, fail,
+  evaluate, listScreens, newestScreenName, isPlaceholder, classifyScreen, findLiveSession, isLiveSession, readEvents,
   readConsumed, consumedSubmitsFor,
   EVENTS_FILE, PREV_EVENTS_FILE, CONSUMED_FILE, PENDING_ANSWER_ACTION,
   // Exported so the prose guard derives the reason list instead of restating it: a new code

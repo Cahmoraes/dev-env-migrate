@@ -1,35 +1,43 @@
-# Trade-off Analysis — proposing and comparing approaches
+# Trade-off Analysis — proposing approaches and deciding
 
-Read this before proposing the 2-3 approaches. An approach presented only with its benefits is an incomplete analysis — the First Law of Software Architecture is *"everything in software architecture is a trade-off"*; if you haven't found the downsides, you haven't finished looking. The frameworks here come from *Fundamentals of Software Architecture* (Richards & Ford, 2nd ed.), chapters 2 and 19.
+Read before step 4 (approaches), and whenever a root decision needs a recommendation. Sources: *Fundamentals of Software Architecture*, 2nd ed., ch. 1-2, 19, 21, 27; *A Philosophy of Software Design*, 2nd ed., ch. 11.
 
-## Triage: how much analysis does each decision deserve?
+## The laws (FoSA 2nd ed.)
 
-Not every decision needs a full trade-off table. Place each decision on the architecture↔design spectrum using three criteria:
+- **First:** everything in software architecture is a trade-off. *Corollary 1:* if you found something that isn't a trade-off, you haven't found the trade-off yet. *Corollary 2:* trade-off analysis is never done once.
+- **Second:** why is more important than how — record the reason and what was given up.
+- **Third:** most decisions aren't binary; they sit on a spectrum between extremes.
 
-| Criterion | Toward architecture (full analysis) | Toward design (brief note) |
-|---|---|---|
-| **Strategic vs. tactical** | Long-term, affects many people/parts | Short-term, local, easily revisited |
-| **Effort to change later** | Expensive to reverse (communication style, service boundaries, data model) | Cheap to reverse (component layout, naming) |
-| **Significance of trade-offs** | Each option sacrifices something important | Options differ only in taste |
+## How much analysis a decision deserves
 
-Decisions landing on the architecture side get the full treatment below. Decisions on the design side get one line in the spec and move on — over-analyzing trivial choices wastes the user's time as much as under-analyzing structural ones.
+A decision is **architectural** when it affects structure, a prioritized characteristic, dependencies, interfaces (contracts, versioning, deprecation) or construction techniques (ch. 21, after Nygard), and it leans that way when it is strategic (many people, long-lived), costly to change, and every option sacrifices something significant (ch. 2). Those get the full treatment below and a block in Decisões Arquiteturais. Anything else is a leaf: one line, a safe default, move on.
 
-## The trade-off process
+## The recurring roots, in order (ch. 19)
 
-1. **Identify the competing options.** There are always at least two. A design with a single option presented is a red flag — find the alternative before presenting.
-2. **Resist the obvious winner.** The option that looks obviously better usually looks that way because only its benefits are visible so far.
-3. **Force out the negatives of the favored option.** What does it cost in security? In operational complexity? In coupling? In team skill required? (Classic example: pub/sub topics beat point-to-point queues on extensibility — until you notice anyone can wiretap a topic, contracts must be homogeneous, and queue-depth monitoring for autoscaling is gone.)
-4. **Mark technology-specific trade-offs.** A downside that only applies to one broker/library/version should be labeled as such, not generalized.
-5. **Summarize as a table** — `Vantagens | Desvantagens` per option (the format the spec's decision section expects).
-6. **End with a prioritization question, not a universal answer.** The honest conclusion of a trade-off analysis is "depende" — followed by *which architecture characteristic the user prioritizes*. "A opção A favorece extensibilidade; a B favorece segurança. Qual pesa mais aqui?" The prioritized characteristics from the clarifying phase (see `architecture-characteristics.md`) are the tiebreaker.
+Each answer constrains the next; inside an existing codebase the first is usually settled by the code — state it as a fact.
 
-## Recurring structural decisions
+1. **One set of characteristics, or several?** One deployable, a component split, or a separate deployable (`architecture-characteristics.md`, "One set, or several?").
+2. **Where does the data live, and who owns it?** The source of truth, and how data reaches whoever else reads it.
+3. **Synchronous or asynchronous?** Synchronous by default; asynchronous when a prioritized characteristic needs it (elasticity, isolating a slow or failing dependency, backpressure). Record what async costs: eventual consistency, ordering, duplicates, harder debugging.
 
-Two decisions appear in almost every non-trivial feature; both have a default:
+## Approaches — design it twice
 
-- **Synchronous or asynchronous communication?** Default to synchronous — it is easier to design, debug, and reason about. Go async only when a prioritized characteristic demands it (elasticity, fault isolation, backpressure), and record what async costs (eventual consistency, harder debugging, ordering issues).
-- **Together or separate?** (one module vs. several, one service vs. several) Driven by the characteristics question: parts needing *different* characteristics separate; parts sharing characteristics stay together. Separation justified only by "feels cleaner" adds coupling and operational cost without buying anything.
+Step 4's 2-3 approaches are **radically different** in shape (Ousterhout ch. 11): where the boundary sits, who owns the rule or the data, what each part hides, sync or async. Three libraries for the same design, or three places for the same column, are one approach — that choice is a leaf inside it. When one design looks obvious, still sketch a second: its flaws sharpen the first, and the two may combine into a better third.
 
-## Presenting the recommendation
+For each approach:
 
-Lead with your recommended option and why — but the "why" must reference the trade-off, not just the benefits: *"Recomendo a opção B: perde-se X, mas o requisito priorizado de [característica] pesa mais que X neste contexto."* The goal is the **least worst** combination of trade-offs for this user's priorities — not the "best" architecture in the abstract.
+- its 2-4 key operations, judged first by how easy they are for the callers;
+- what it gains and **what it costs** — security, operational complexity, coupling, consistency, team skill. Force out the favored option's negatives: the obvious winner usually looks obvious because only its benefits are visible;
+- a downside that belongs to one library or version, labeled as such.
+
+## Weigh in context (ch. 27)
+
+Ask "depende de quê?": list the factors that decide (the top-3 characteristics, volatility, team skill, deadline), mark each option +/− per factor, then weigh them for this context. The typical failure is *out of context*: knowing every trade-off and weighting them generically. Your job is to surface the trade-offs the user missed; the weights are theirs. When options split on a characteristic, the recommendation states the weight it assumed — "Recomendo B: perde-se X, mas [característica priorizada] pesa mais aqui" — so the user can flip it.
+
+## Deferring
+
+A reversible leaf is decided at the *last responsible moment* — when the cost of deferring exceeds the risk. Choose the safe default now and name the trigger that reopens it. Deferring a root out of caution (*Covering Your Assets*) is not closure.
+
+## Presenting
+
+Lead with the recommendation and the cost it accepts. With three or more factors, tabulate `Vantagens | Desvantagens` per option.

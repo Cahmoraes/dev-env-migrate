@@ -3,7 +3,7 @@
 # Usage: ./find-polluter.sh <file_or_dir_to_check> <test_pattern>
 # Example: ./find-polluter.sh '.git' 'src/**/*.test.ts'
 
-set -e
+set -eu
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <file_to_check> <test_pattern>"
@@ -18,15 +18,25 @@ echo "🔍 Searching for test that creates: $POLLUTION_CHECK"
 echo "Test pattern: $TEST_PATTERN"
 echo ""
 
-# Get list of test files
-TEST_FILES=$(find . -path "$TEST_PATTERN" | sort)
-TOTAL=$(echo "$TEST_FILES" | wc -l | tr -d ' ')
+# Get list of test files (find . emits ./-prefixed paths, so accept the
+# pattern written with or without a leading ./)
+TEST_PATTERN="${TEST_PATTERN#./}"
+# find -path can't match '**/' against zero directory levels, so a pattern
+# like src/**/*.test.ts would skip src/top.test.ts; also try the pattern
+# with '**/' collapsed to cover files directly under the base directory.
+# Read into an array line by line: an unquoted `for f in $LIST` would split
+# paths containing spaces and glob-expand ones containing * or ?.
+TEST_FILES=()
+while IFS= read -r f; do
+  TEST_FILES+=("$f")
+done < <(find . \( -path "./$TEST_PATTERN" -o -path "./${TEST_PATTERN//\*\*\//}" \) | sort -u)
+TOTAL=${#TEST_FILES[@]}
 
 echo "Found $TOTAL test files"
 echo ""
 
 COUNT=0
-for TEST_FILE in $TEST_FILES; do
+for TEST_FILE in ${TEST_FILES[@]+"${TEST_FILES[@]}"}; do
   COUNT=$((COUNT + 1))
 
   # Skip if pollution already exists
@@ -52,8 +62,8 @@ for TEST_FILE in $TEST_FILES; do
     ls -la "$POLLUTION_CHECK"
     echo ""
     echo "To investigate:"
-    echo "  npm test $TEST_FILE    # Run just this test"
-    echo "  cat $TEST_FILE         # Review test code"
+    echo "  npm test \"$TEST_FILE\"    # Run just this test"
+    echo "  cat \"$TEST_FILE\"         # Review test code"
     exit 1
   fi
 done

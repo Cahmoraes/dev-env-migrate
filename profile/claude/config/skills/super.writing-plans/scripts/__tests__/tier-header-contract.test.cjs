@@ -48,7 +48,7 @@ function makePlan(t, { tier = true } = {}) {
     '**PRD:** N/A',
     '**Spec:** `../specs/demo-design.md`',
     ...(tier ? ['**Tier:** standard'] : []),
-    '**Depends on:** N/A', '',
+    '',
     '## Arquivos', '- src/a.ts', '',
     '## Steps', '1. do it', '',
   ].join('\n'));

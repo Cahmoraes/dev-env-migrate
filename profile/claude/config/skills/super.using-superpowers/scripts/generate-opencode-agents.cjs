@@ -69,6 +69,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadPreferences } = require('./read-preferences.cjs');
+const { resolveModelTiers } = require('./lib/model-tiers.cjs');
 
 const HELP = `
 generate-opencode-agents.cjs — Emit superpowers tier agents for opencode.
@@ -128,7 +129,7 @@ const ROSTER = [
     tier: 'standard',
     readOnly: true,
     description:
-      'Superpowers review gate at the standard floor. Read-only. Reviews cheap- and standard-tier work (spec compliance, code quality, final review).',
+      'Superpowers review gate at the standard floor. Read-only. Reviews cheap- and standard-tier per-task work (spec compliance, code quality).',
     body:
       'You are a review gate. You read and report; you never edit.\n\n' +
       'Report findings by severity, each one anchored to a concrete file and line. Say plainly when something is fine — inventing a finding to look useful is a failure mode, and so is staying silent about a real one. Do not recommend building anything the design deliberately does without.',
@@ -138,7 +139,7 @@ const ROSTER = [
     tier: 'capable',
     readOnly: true,
     description:
-      'Superpowers review gate at the capable tier. Read-only. Reviews capable-tier work and architectural questions (including spec review).',
+      'Superpowers review gate at the capable tier. Read-only. Reviews capable-tier work, architectural questions (including spec review) and the whole-branch final review.',
     body:
       'You are a review gate for work involving architectural judgment. You read and report; you never edit.\n\n' +
       'Report findings by severity, each one anchored to a concrete file and line. Say plainly when something is fine — inventing a finding to look useful is a failure mode, and so is staying silent about a real one. Do not recommend building anything the design deliberately does without.',
@@ -246,17 +247,22 @@ function main(argv) {
     }
   }
 
-  let prefs;
+  let loaded;
   try {
-    prefs = loadPreferences(repoRoot).result;
+    loaded = loadPreferences(repoRoot);
   } catch (err) {
     process.stderr.write(`Failed to read preferences: ${err.message}\n`);
     process.exit(1);
   }
+  const prefs = loaded.result;
 
-  const root = repoRoot || (prefs.preferencesPath ? path.dirname(path.dirname(prefs.preferencesPath)) : process.cwd());
+  const root = repoRoot || loaded.root || process.cwd();
   const resolvedOutDir = outDir || path.join(root, '.opencode', 'agent');
-  const modelTiers = prefs.preferences.model_tiers || {};
+  // Resolve through the shared rule so a tier this platform cannot serve becomes `auto`
+  // (no `model:` line) instead of an agent pinned to a model opencode will not accept.
+  // opencode brokers many providers, so its catalog is open and this is an identity map
+  // today — routing through it is what keeps the two paths from drifting apart.
+  const { resolved: modelTiers } = resolveModelTiers(prefs.preferences.model_tiers || {}, 'opencode');
 
   const plan = buildPlan(modelTiers, resolvedOutDir, { write, force });
 

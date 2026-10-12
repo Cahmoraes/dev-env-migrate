@@ -1,99 +1,72 @@
 # Execution Handoff Message
 
-After saving the index and task files, offer the message below (fill in feature name, task count, wave summary, and the elected option's skill name — same as any other `<placeholder>` in this template: replace it with the real value, never leave the bracketed token in your output).
+**Who reaches this gate: every plan `super.writing-plans` writes, whatever its size.** A plan on disk is executed by dispatch (`super.subagent-driven-development`), never by the controller writing code in the main thread; the inline path (`super.using-superpowers/references/bounded-path.md`) is for a bounded change, which never plans. The plan's size changed how it was *written* (at most four tasks: the controller wrote them itself); it does not change what happens now.
 
-> **The `(recommended)` tag is dynamic — never hardcode it on option 1.** Run `parse-waves.cjs` (already run in self-review), read `executionRecommendation`, and place `(recommended)` on the option matching the mode you elect per the rubric below. Tagging the same option every time is the bug this prevents.
+After saving the index and task files, the plan is done and the session pauses **once**: the user reads the plan and decides what runs next. This is the one gate between planning and the end of the feature — execution is the stage that spends the most credits, and every gate after it (branch guard exceptions, `qa_gate: ask`, the finish menu) is already defined by its own skill. In the message, fill in feature name, task count and the elected option's skill name — like any other `<placeholder>` in this template, replace it with the real value, never leave the bracketed token in your output.
 
-## Step 1 — Read the deterministic recommendation
+## Step 1 — Read the parser
 
-`parse-waves.cjs` emits `executionRecommendation`:
+`parse-plan.cjs` (already run in self-review) emits, besides the per-task tiers, whether option 3 may be offered:
 
 ```jsonc
 {
-  "mode": "parallel-subagent",       // the mode to tag (recommended), derived from wave structure
-  "optionNumber": 3,                  // 1..3 — 1 for sequential plans, 3 for parallel
-  "confidence": "high|medium",
-  "decisionRequired": true|false,    // true → you MAY refine the in-tree/worktrees pick
-  "signals": [ "..." ],              // structural facts about THIS plan
-  "couplingCheck": { "tightlyCoupled": true|false, "tasks": [ 1 ], "applied": true },
-  "alternatives": [ { "mode": "...", "optionNumber": 2, "when": "..." } ]
+  "singleImplementer": {
+    "eligible": true|false,   // ≤ 6 tasks, no capable-tier task
+    "reasons": [ "..." ]      // why not, when false
+  }
 }
 ```
 
-## Step 2 — Elect the mode (the rubric)
+## Step 2 — The recommendation
 
-> **The coupling call is already made — never re-derive it.** `couplingCheck` in the JSON is the verdict (`tightlyCoupled`, and the `tasks` behind it), computed over the tasks that actually sit **inside a parallel wave**, and it is already reflected in `optionNumber`. `signals` is plan-wide prose *about* that verdict, not a second opinion to weigh against it: a high-fan-in task in a **sequential** wave is not a reason to downgrade the parallel one. Override `optionNumber` only for coupling the dependency graph cannot see — a design trap named in research/brainstorming, or one task's shape dictating the others — and then say, in the recommendation paragraph, that you overrode it and why.
+Option 1 is always the one tagged `(recommended)`: one subagent execution mode, one recommendation. **Option 3 is never tagged.** `singleImplementer.eligible: true` only adds it to the list below; the user opts into it knowing there is no reviewer between tasks.
 
-- **`decisionRequired: false`** → the call is settled by the artifacts alone: either no parallelizable wave, or `couplingCheck.tightlyCoupled: true` already moved it to option 1. Tag the named option (`optionNumber`) `(recommended)` and give the one-line reason from `signals`. Still run the safety pre-flight below if the plan has any parallel wave.
+When `validate-tasks.cjs` reported `specTrace.unverified`, add one line listing them (`INV-02 — <reason> — conferência: <query>`): what no test will prove, said before the user pays for execution.
 
-- **`decisionRequired: true`** (≥1 parallel wave, not tightly coupled) → `parse-waves` recommends **option 3 (worktrees)**: worktrees hold regardless of write-set **overlap** (each task writes in its own tree). They do **not** neutralize a stale **read** — see the pre-flight. Before tagging, in order:
+Write one short paragraph on what the plan asks of the executor (task count, the tasks that need the `capable` tier, an environment chokepoint such as a database that must be up or a `generate:types` step) — it is the reasoning the user reads before paying for execution.
 
-  1. **Safety pre-flight — run it for every parallel wave, whatever mode you are leaning toward.** `check-wave-disjoint.cjs --tasks-index <tasks-index> --tasks <the wave's task numbers>` (`--tasks-index` is always required; `--wave N` is the alternative but needs an explicit `## Execution Waves` section in the index, so `--tasks` is the safe form). It lives in the sibling skill `super.parallel-subagent-in-tree`, not alongside `parse-waves.cjs`: resolve its path by replacing the final `super.writing-plans` segment of this skill's base directory with `super.parallel-subagent-in-tree`. **This is the only gate in the pipeline that sees a `readWriteHazard`** — one task reading a file a sibling task writes in the same wave — and a hazard is a property of the *plan*, not of the mode, so "I already know I am not picking option 2" is never a reason to skip it. Non-empty `readWriteHazards` → say so in the recommendation paragraph, name the tasks and the file, and offer to add the missing `**Depends on:**` in the plan before executing; both parallel modes will otherwise run a stale read. `writeOverlap` and `unverifiable` matter only for step 2.
-  2. **Disjoint writes + expensive isolation?** If step 1 came back `safeForInTreeParallel: true` **and** worktree isolation is expensive — a pnpm/npm/yarn monorepo where each worktree needs its own heavy `node_modules`, or a sandbox that forbids extra checkouts — move `(recommended)` to **option 2 (in-tree)**.
-  3. **Otherwise** keep `(recommended)` on the recommended **option 3 (worktrees)**.
-- Whichever you elect, **move `(recommended)` there** and give your reasoning in one short paragraph (raw material: `signals`, `alternatives[].when`). Then flag environment chokepoints (e.g. a wave needing Postgres up or `generate:types`) that serialize regardless of mode.
+## Step 3 — Open the gate (always)
 
-## Step 3 — Offer the message
+Always — for every plan, whatever its task count, including a two-task chain whose answer is obvious: the user reads the plan before it is executed, and the recommendation is the answer we propose, not the answer we take. Render this in the session language, then ask through the platform's structured-question tool (`AskUserQuestion` / `ask_user` / `question`; options 0/1, plus 3 when offered, fit its cap) as the **last call of the turn** — the answer arrives in the next turn, and nothing of the execution runs in the turn that asked. The message is the plan's summary, the recommendation and the options; the tool call is the question. Do not invoke an execution skill before the answer arrives.
 
 ---
 
 **"Tasks created and saved to `docs/superpowers/<feature-name>/plans/`.**
 **Task index: `tasks-<feature-name>.md` with N tasks.**
 
-**Execution Waves: W wave(s) — P parallelizable (largest parallel wave: K tasks).**
-
 **Recommended for this plan: option X** — <one short paragraph of reasoning from Step 2>
 
-**0. Review the spec (optional)** — before picking how to execute, send the spec — and these just-created tasks — through a final critical review via `super.reviewing-specs`, without leaving this session
-- Not required; skip straight to an execution option if the plan is already trusted
-- See Step 4 below for what happens when the user picks this
+**0. Deep review by a subagent first** — `super.reviewing-specs` reads the spec and these tasks against the real code (open forks, contradictions between tasks, FR coverage). It costs credits and takes minutes; pick it when the plan is not yet trusted. You come back to this question afterwards.
 
-**Three execution options:**
+**1. Subagent-Driven** — `super.subagent-driven-development`: a fresh subagent per task, one task at a time in this workspace, one task review (spec + quality) between tasks; small same-shape tasks may share one dispatch.
 
-**1. Subagent-Driven** — I dispatch a fresh subagent per task, sequentially, review between tasks, fast iteration
-- **REQUIRED SUB-SKILL:** Use `super.subagent-driven-development`
-- Fresh subagent per task + two-stage review, one task at a time in this workspace
-- Pass the tasks index path to the execution skill
+**3. Single implementer** — *render this line only when `singleImplementer.eligible` is `true`; otherwise omit it entirely.* `super.subagent-driven-development --single`: one implementer subagent runs every task in order in this workspace, with **no reviewer between tasks**; the whole-branch final review and QA run unchanged afterwards. Cheapest (1 implementer, 0 per-task reviewers); a task-level mistake is caught only at the end. Never recommended by default — pick it to spend less on a small, low-risk chain.
 
-**2. Parallel Subagent (in-tree, no worktrees)** — Same per-task quality gates as option 1, but independent tasks in a wave run concurrently **in this same working tree** (no git worktrees), then converge through one serialized integration step
-- **REQUIRED SUB-SKILL:** Use `super.parallel-subagent-in-tree`
-- Safe only when a wave's tasks write disjoint files (verified deterministically); implementers are write-only/no-commit and the orchestrator runs lint/typecheck/test/build + commit once per wave
-- **Best when worktree isolation is expensive** — pnpm/npm/yarn workspace monorepos where each worktree needs its own heavy `node_modules` install, or sandboxes that forbid extra checkouts — and the wave's files are disjoint
-- Pass the tasks index path to the execution skill
-
-**3. Parallel Subagent (worktrees)** — Same per-task quality gates as option 1, but independent tasks in a wave run concurrently, each in its own isolated git worktree, then get integrated; dependent tasks still run in order
-- **REQUIRED SUB-SKILL:** Use `super.parallel-subagent-development`
-- Reads the `## Execution Waves` section to know what is safe to parallelize
-- Best when the plan has at least one parallel wave and full isolation is wanted (e.g. wave tasks that must mutate shared files); offers no speedup for a fully sequential chain
-- Pass the tasks index path to the execution skill
-
-**To resume in a later session** — the plan is on disk; invoke the elected option's skill with the tasks index, prefixed with `/`. `<elected-skill>` below is a placeholder like `<feature-name>` — copy the exact `REQUIRED SUB-SKILL` value you already wrote next to `(recommended)` a few lines above into its place; the fence you render must contain a real skill name, never the literal characters `<elected-skill>`:
+**To resume in a later session** — the plan is on disk; invoke the elected option's skill with the tasks index, prefixed with `/`. `<elected-skill>` below is a placeholder like `<feature-name>` — copy the skill name you tagged `(recommended)` above into its place; the fence you render must contain a real skill name (`super.subagent-driven-development`), never the literal characters `<elected-skill>`:
 ```
 /<elected-skill> docs/superpowers/<feature-name>/plans/tasks-<feature-name>.md
 ```
-- Never hardcode this to `/super.subagent-driven-development` — render whichever of `/super.subagent-driven-development`, `/super.parallel-subagent-in-tree`, `/super.parallel-subagent-development` matches the option tagged `(recommended)`; the fence and the `(recommended)` tag must name the same option
-- Or just start and ask to execute: triage finds the pending index and re-offers these options
 
-> **If `workflow.auto_commit` is `false`:** only **option 1** honors it (its implementers leave each task uncommitted). Options 2 and 3 commit as part of how they integrate — the in-tree barrier commits once per wave, and each worktree task commits on its branch so it can be merged — so a parallel mode **will commit even when `auto_commit` is false**. If the user set `auto_commit: false` and leans toward a parallel mode, tell them their work will still be committed (per wave / per task) before they choose.
+**Which option? (my recommendation is option X — see above)"**
 
-**Which approach? (my recommendation is option X — see above; or 0 to review the spec first)"**
+---
 
-> **The resume block is information, not a fourth option.** Render it with the real tasks-index path, in the
-> session language, and still close with the question above — the user is expected to answer here and now.
-> A hint that reads like an offer to stop turns one decision into two round trips.
+> The resume block is information, not another option: render it with the real path and still close with the question. When option 3 was chosen, the resume line is `super.subagent-driven-development` with ` --single` appended after the index path. The `(recommended)` tag and the fence must name the same skill.
 
-> Fill the wave summary line from `parse-waves.cjs` (W = `waveCount`, P = count of `waveKinds` equal to `parallel`, K = `maxParallelWave`). The recommendation line and the `(recommended)` tag both come from Step 2 — they must agree and reflect THIS plan, not a fixed default.
+**Once answered, the feature runs to its end.** Option 1 → invoke the skill with the tasks index path in the next turn; option 3 → invoke `super.subagent-driven-development` with the index path and `--single`; it never re-raises this election, and the pipeline continues through verification, QA and finishing without a "continue?" (their own gates are the only pauses left). The user naming an execution skill directly (`/super.subagent-driven-development <index>`) is the same answer given upfront — no message here.
 
-## Step 4 — If the user picks option 0 (spec review)
+**The answer cannot arrive only when that tool is absent from the toolset** (`codex exec`, `opencode run`, a headless run): then take option 1 and proceed. A user who said "retomar", "continue" or "faça" named no mode and did not answer this question — that plan is still owed the gate.
 
-Invoke `super.reviewing-specs`, passing the spec path this plan was built from — do not ask the user for it, and do not let `super.reviewing-specs` ask either. Tasks already exist for this feature, so its Lens 3 (spec↔tasks) runs automatically once it resolves the feature's companions — you don't need to point at the tasks index separately.
+## Step 4 — Option 0 (deep review)
+
+Invoke `super.reviewing-specs`, passing the spec path this plan was built from — do not ask the user for it, and do not let `super.reviewing-specs` ask either. Tasks exist for this feature, so its Lens 3 (spec↔tasks) runs automatically once it resolves the feature's companions.
 
 - **Reached from `super.writing-plans`' own Execution Handoff** (right after tasks were created): you already have the spec path from `find-feature-files.cjs` at the start of this skill.
-- **Reached from `super.using-superpowers`' Execution Mode Election (option 5)**, which renders this same Step 3 message for pre-existing tasks: resolve the spec path deterministically from the `featureName` you already located (`superpowers-status.cjs --pending`) via `node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>` — `spec.path` in its output.
+- **Reached from `super.using-superpowers`' Execution Mode Election (option 5)**, which renders this same Step 3 message for pre-existing tasks: resolve the spec path from the `featureName` you already located (`node <super.using-superpowers-base-dir>/scripts/superpowers-status.cjs --pending`) via `node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>` — `spec.path` in its output.
 
-When `super.reviewing-specs` returns control to you, one of two things happened:
+When `super.reviewing-specs` returns control, one of two things happened:
 
-- **It handed off to `super.writing-plans`** (its own Step 5 — only when the user both applied a finding *and* agreed to update the tasks). That inner `super.writing-plans` run ends by re-running this same Execution Handoff with a freshly computed recommendation (tasks may have changed, so wave structure may too). **Do not present this Step 3 message a second time** — the loop is already closed.
-- **It did not** (the spec was already sound, the user declined the findings, applied a spec-only fix without touching tasks, or chose "save to adjust later"). In this branch nothing reached the tasks, so the wave structure is unchanged — **return here and re-offer the Step 3 message** using the recommendation you already computed; no need to re-run `parse-waves.cjs`.
+- **It handed off to `super.writing-plans`** (its own Step 5 — only when the user both applied a finding *and* agreed to update the tasks). That inner run ends by re-running this same Execution Handoff with a freshly computed recommendation. **Do not present the Step 3 message a second time** — the loop is already closed.
+- **It did not** (the spec was sound, the user declined the findings, applied a spec-only fix, or chose "save to adjust later"). Nothing reached the tasks — **re-open Step 3** with the recommendation you already computed; no need to re-run `parse-plan.cjs`.
 
-Either way, the user always lands back at an execution-mode choice — reviewing the spec never strands them mid-flow or forces a session restart through the opening triage.
+Either way the user lands back at this gate — reviewing never strands them mid-flow or forces a restart through the opening triage.

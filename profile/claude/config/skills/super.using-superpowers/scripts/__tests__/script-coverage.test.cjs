@@ -30,11 +30,7 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 const CODE_EXTENSIONS = new Set(['.cjs', '.mjs', '.js', '.sh', '.py']);
 const IGNORED_DIRS = new Set(['__tests__', '__pycache__', 'node_modules']);
 
-// Um script de skill mora em `scripts/` ou em `evals/`, e cada árvore tem o seu `__tests__`.
-// Varrer só a primeira repetiria, um nível acima, a falha que este arquivo documenta: o
-// script não fica isento, fica invisível. Quem cobre o comando documentado é
-// `test-command-coverage.test.cjs`.
-const SCRIPT_TREES = ['scripts', 'evals'];
+const SCRIPT_TREES = ['scripts'];
 
 // Untested on purpose. Each entry costs one line and one sentence, which is the price of
 // making the decision visible instead of implicit.
@@ -54,7 +50,9 @@ function collectScripts() {
       if (IGNORED_DIRS.has(entry.name)) continue;
       const abs = path.join(dir, entry.name);
       const relPath = `${rel}/${entry.name}`;
-      if (entry.isDirectory()) { walk(abs, relPath); continue; }
+      if (entry.isDirectory()) {
+        walk(abs, relPath); continue;
+      }
       const ext = path.extname(entry.name);
       // Extensionless files count only when executable, so a shell CLI with no suffix is
       // swept while README fragments beside it are not.
@@ -74,9 +72,12 @@ function collectScripts() {
 
 function collectTestText() {
   let blob = '';
+  const testDirs = [];
   for (const skill of fs.readdirSync(SKILLS).filter((d) => d.startsWith('super.'))) {
-    for (const tree of SCRIPT_TREES) {
-      const testDir = path.join(SKILLS, skill, tree, '__tests__');
+    for (const tree of SCRIPT_TREES) testDirs.push(path.join(SKILLS, skill, tree, '__tests__'));
+  }
+  for (const testDir of testDirs) {
+    {
       if (!fs.existsSync(testDir)) continue;
       const walk = (dir) => {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

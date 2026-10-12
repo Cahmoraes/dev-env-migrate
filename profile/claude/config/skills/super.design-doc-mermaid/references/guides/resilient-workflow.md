@@ -15,7 +15,7 @@ This guide documents the resilient workflow for generating Mermaid diagrams. It 
 3. [File Naming Convention](#file-naming-convention)
 4. [Using the Script](#using-the-script)
 5. [Error Recovery Patterns](#error-recovery-patterns)
-6. [Search Tool Priority](#search-tool-priority)
+6. [Web Search Fallback](#web-search-fallback)
 7. [Manual Fallback Workflow](#manual-fallback-workflow)
 8. [Integration Examples](#integration-examples)
 
@@ -145,7 +145,7 @@ When validation fails:
 4. **Retry validation**
 
 If troubleshooting guide doesn't have a match:
-1. Use **search tools** (see [Search Tool Priority](#search-tool-priority))
+1. Search the web (see [Web Search Fallback](#web-search-fallback))
 2. Apply the found solution
 3. Retry validation
 
@@ -374,45 +374,9 @@ When using `--json`, the script returns structured data:
 
 ---
 
-## Search Tool Priority
+## Web Search Fallback
 
-When troubleshooting.md doesn't have a matching fix, use external search tools **in this order**:
-
-### 1. Perplexity MCP (Primary)
-
-Best for: Specific syntax questions, code examples
-
-```
-perplexity_ask: "mermaid sequenceDiagram syntax error participant not defined"
-```
-
-### 2. Brave Search MCP (Secondary)
-
-Best for: Recent issues, GitHub discussions, community solutions
-
-```
-brave_web_search: "mermaid gantt chart reserved word error site:github.com"
-```
-
-### 3. Gemini Skill (Tertiary)
-
-Best for: Complex multi-line errors, alternative perspectives, debugging assistance
-
-```
-Use gemini skill with prompt:
-"I have a Mermaid diagram error. The code is:
-[paste diagram code]
-The error is: [paste error message]
-What is the fix?"
-```
-
-### 4. WebSearch Tool (Fallback)
-
-Best for: General web results when other tools unavailable
-
-```
-WebSearch: "mermaid diagram syntax error [specific error text]"
-```
+When troubleshooting.md has no matching fix, search the web with the search tool the session provides, using a query built as below.
 
 ### Search Query Format
 
@@ -502,7 +466,7 @@ Check exit code:
 5. **Retry Step 5**
 
 If no match found:
-1. Use search tools in priority order
+1. Search the web for the error text
 2. Apply found solution
 3. Retry Step 5
 
@@ -578,13 +542,13 @@ flowchart TD
 **Recovery:**
 
 1. **Search troubleshooting.md** → No match
-2. **Use perplexity_ask:**
+2. **Search the web:**
    ```
    "mermaid flowchart custom directive unknown parsing error"
    ```
 3. **Get solution** from search result
 4. **Apply fix and retry**
-5. **If still failing:** Escalate to brave_web_search, then gemini skill
+5. **If still failing:** Refine the query with the exact error text and search again
 
 ---
 
@@ -597,7 +561,7 @@ flowchart TD
 2. GENERATE → Write Mermaid code using guide patterns
 3. SAVE     → Create ./diagrams/<name>.mmd
 4. VALIDATE → Run mmdc, check exit code
-5. RECOVER  → If failed: troubleshooting.md → search tools
+5. RECOVER  → If failed: troubleshooting.md → web search
 6. ADD      → Only after validation: ![](./diagrams/name.png)
 ```
 
@@ -606,15 +570,6 @@ flowchart TD
 ```
 ./diagrams/<markdown>_<num>_<type>_<title>.mmd
 ./diagrams/<markdown>_<num>_<type>_<title>.png
-```
-
-### Search Priority
-
-```
-1. perplexity_ask MCP
-2. brave_web_search MCP
-3. gemini skill
-4. WebSearch tool
 ```
 
 ### Validation Command

@@ -1,6 +1,6 @@
 ---
 name: super.design-doc-mermaid
-description: Create Mermaid diagrams (activity, deployment, sequence, architecture) from text descriptions or source code. Use when asked to "create a diagram", "generate mermaid", "document architecture", "code to diagram", "create design doc", or "convert code to diagram". Supports hierarchical on-demand guide loading, Unicode semantic symbols, and Python utilities for diagram extraction and image conversion.
+description: Create Mermaid diagrams (activity, deployment, sequence, architecture) from a description or code. Use on "create a diagram", "generate mermaid".
 ---
 
 # Mermaid Architect - Hierarchical Diagram and Documentation Skill
@@ -19,19 +19,9 @@ Mermaid diagram and documentation system with specialized guides and code-to-dia
 - [Decision Tree Examples](#decision-tree-examples)
 - [High-Contrast Styling](#high-contrast-styling)
 - [File Organization](#file-organization)
-- [Workflow Summary](#workflow-summary)
 - [When to Use What](#when-to-use-what)
-- [Best Practices](#best-practices)
-- [Learning Path](#learning-path)
 
 ## Decision Tree
-
-**How this skill works:**
-
-1. **User makes a request** → Skill analyzes intent
-2. **Skill determines diagram/document type** → Loads appropriate guide(s)
-3. **AI reads specialized guide** → Generates diagram/document using templates
-4. **Result delivered** → With validation and export options
 
 **User Intent Analysis:**
 
@@ -97,6 +87,8 @@ flowchart TD
 
 ### Design Document Templates
 
+Save generated design documents under `docs/design/`, with a timestamp in the file name.
+
 | Template | Full Path | Use For | Load When |
 |----------|-----------|---------|-----------|
 | Architecture Design | `assets/architecture-design-template.md` | System-wide architecture | "Create architecture doc", "Document system design" |
@@ -141,7 +133,7 @@ Common request patterns and guide selection. See [When to Use What](#when-to-use
 
 ## Resilient Workflow
 
-**CRITICAL:** This is the recommended approach for ALL diagram generation. It ensures validation, error recovery, and consistent file organization.
+Use this workflow for diagram generation: it validates, recovers from errors, and keeps file organization consistent.
 
 **Full Guide:** `references/guides/resilient-workflow.md`
 
@@ -170,6 +162,8 @@ flowchart LR
 
 ### Using the Script (Recommended)
 
+> **Base dirs:** this skill's own is `${CLAUDE_SKILL_DIR}`; a sibling's is its parent + `/super.X` (never search for one); a gate script that will not run is a **STOP**, never a skipped gate.
+
 ```bash
 # Generate with full error recovery
 python <super.design-doc-mermaid-base-dir>/scripts/resilient_diagram.py \
@@ -185,9 +179,9 @@ python <super.design-doc-mermaid-base-dir>/scripts/resilient_diagram.py \
 
 ### File Naming, Error Recovery & Manual Fallback
 
-File-naming convention (`./diagrams/<markdown_file>_<num>_<type>_<title>.{mmd,png}`), the error-recovery ladder (troubleshooting guide → `perplexity_ask` → `brave_web_search` → `gemini` → `WebSearch`), and the manual fallback steps when the script is unavailable are all in **`references/guides/resilient-workflow.md`** — load it on a generation failure or when you need the exact naming/recovery detail. On the happy path, run the `resilient_diagram.py` invocation above and it handles naming, validation, and recovery for you.
+File-naming convention (`./diagrams/<markdown_file>_<num>_<type>_<title>.{mmd,png}`), the error-recovery ladder (troubleshooting guide, then a web search), and the manual fallback steps when the script is unavailable are all in **`references/guides/resilient-workflow.md`** — load it on a generation failure or when you need the exact naming/recovery detail.
 
-### Pattern 6: Resilient Diagram Generation
+### Example: Resilient Diagram Generation
 
 **User:** "Create a sequence diagram and add it to the design doc"
 
@@ -264,7 +258,7 @@ The persisted `.mmd` under `specs/diagrams/` remains the traceable source if the
 
 ## Unicode Semantic Symbols
 
-Always use Unicode symbols to enhance diagram clarity. Common patterns:
+Use Unicode symbols when they make node roles faster to scan.
 
 Common symbols: 👤 user, 🌐 gateway/load-balancer, ⚙️ service/worker, 💾 database, ⚡ cache, 🔐 auth, 📋 order/list, 📬 queue, 📦 storage, 🚀 start, ✓/✅ valid/complete, ❌ error. Rendered examples (infrastructure, activity flow, microservices) and the full symbol table live in the guide below.
 
@@ -312,7 +306,7 @@ Three worked walkthroughs — a workflow request → activity diagram, Spring Bo
 
 ## High-Contrast Styling
 
-**ALL diagrams MUST use high-contrast colors:**
+Use high-contrast colors so diagrams stay legible in light and dark viewers:
 
 ```mermaid
 graph TB
@@ -320,29 +314,17 @@ graph TB
     classDef secondary fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
     classDef database fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
     classDef error fill:#FFB6C1,stroke:#DC143C,stroke-width:2px,color:black
-
-    %% Every classDef MUST have color: property
 ```
 
 **Rules:**
-- Light background → Dark text color
-- Dark background → Light text color
-- Always specify `color:` in every `classDef`
+- Light background → dark text color; dark background → light text color
+- Every `classDef` specifies `color:`
 
 ## File Organization
 
 Top level: `SKILL.md` (orchestrator) + `references/` (guides, loaded on-demand) + `assets/` (design doc templates) + `scripts/` (Python utilities: `extract_mermaid.py`, `mermaid_to_image.py`, `resilient_diagram.py`) + `examples/` (per-framework patterns: spring-boot, fastapi, react, python-etl, node-webapp, java-webapp).
 
 **Full directory tree:** `references/guides/file-organization.md`
-
-## Workflow Summary
-
-1. **Analyze user intent** → Determine diagram type, document type, or action needed
-2. **Load appropriate guide(s)** → Read only what's needed (token efficient)
-3. **Apply templates and patterns** → Use examples from guides
-4. **Generate output** → Create diagram or document
-5. **Validate** (optional) → Use scripts to verify
-6. **Convert** (optional) → Export to images if needed
 
 ## When to Use What
 
@@ -364,39 +346,3 @@ Top level: `SKILL.md` (orchestrator) + `references/` (guides, loaded on-demand) 
 | "design document", "full docs" | `assets/*-design-template.md` + diagram guides |
 | "diagram for a spec", "embed in brainstorming/design doc" | `scripts/resilient_diagram.py --no-image` + [Spec-Embedded Diagrams](#spec-embedded-diagrams) |
 
-## Best Practices
-
-1. **Single Responsibility**: One diagram = One concept
-2. **Unicode Enhancement**: Always use semantic symbols for clarity
-3. **High Contrast**: Never skip the `color:` property in styles
-4. **Validate Early**: Use scripts to catch syntax errors
-5. **Template Reuse**: Leverage existing templates and examples
-6. **Load On-Demand**: Only read guides needed for the specific request
-7. **Token Efficiency**: Use hierarchical loading instead of reading everything
-
-## Learning Path
-
-**New to Mermaid?** Start here:
-1. Read `references/guides/unicode-symbols/guide.md` for symbol meanings
-2. Read `references/guides/diagrams/activity-diagrams.md` for basic patterns
-3. Try examples in `examples/spring-boot/` or `examples/fastapi/`
-4. Use `scripts/extract_mermaid.py --validate` to check your work
-
-**Need to document code?** Follow this:
-1. Identify your framework → Load relevant `examples/{framework}/`
-2. Match code pattern to diagram type
-3. Use templates from guide
-4. Validate with scripts
-
-**Creating design docs?** Follow this:
-1. Choose document type → Load template from `assets/`
-2. Fill in text sections
-3. Load diagram guides as needed for each section
-4. Use Unicode symbols throughout
-5. Save to `docs/design/` with timestamp
-
----
-
-**Version:** 2.0 (Hierarchical Architecture)
-**Last Updated:** 2025-01-13
-**Maintained by:** Claude Code Skills

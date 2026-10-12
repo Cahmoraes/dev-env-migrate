@@ -62,9 +62,9 @@ function markdownFiles() {
  * Both halves are load-bearing. Without the `:` on the header, TypeScript in a fenced block
  * (`async function waitFor<T>(` — its interface has an indented `description:`) and a sample
  * call (`task(` in copilot-tools.md) both read as dispatches. Without the field check, every
- * `preferences.yml` example qualifies. `model:` has to be one of the accepted fields rather
- * than requiring `prompt: |`: `code-quality-reviewer.md` delegates its prompt to another
- * template, so `model:` is the only dispatch field it carries.
+ * `preferences.yml` example qualifies. `model:` is accepted on its own rather than requiring
+ * `prompt: |`, so a template that delegates its prompt to another file and carries only a
+ * `model:` slot still reads as a dispatch.
  */
 const DISPATCH_FIELD = /^ {2}(model:|prompt: \||description: )/;
 

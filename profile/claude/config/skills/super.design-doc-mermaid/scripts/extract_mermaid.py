@@ -25,15 +25,17 @@ Requirements:
     - For validation: mermaid-cli (npm install -g @mermaid-js/mermaid-cli)
 """
 
+from __future__ import annotations
+
+# `subprocess`/`tempfile`/`concurrent.futures` are imported where used: only --validate
+# needs them, and each costs ~5ms of startup on every list/extract call otherwise.
 import argparse
+import hashlib
 import os
 import re
+import shutil
 import sys
-import subprocess
-import tempfile
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
-import hashlib
 
 
 class MermaidDiagram:
@@ -74,13 +76,14 @@ class MermaidExtractor:
 
     def _extract_diagrams(self):
         """Extract all Mermaid diagrams from the Markdown content."""
-        line_number = 1
+        # Count newlines incrementally (from the previous match only), so a document with
+        # N diagrams is scanned once instead of N times from the top.
+        lines_before = 0
+        last_pos = 0
         for index, match in enumerate(self.MERMAID_PATTERN.finditer(self.content), start=1):
-            diagram_content = match.group(1)
-            # Count newlines before this match to get line number
-            lines_before = self.content[:match.start()].count('\n')
-            diagram = MermaidDiagram(diagram_content, lines_before + 1, index)
-            self.diagrams.append(diagram)
+            lines_before += self.content.count('\n', last_pos, match.start())
+            last_pos = match.start()
+            self.diagrams.append(MermaidDiagram(match.group(1), lines_before + 1, index))
 
     def save_diagrams(self, output_dir: Path, prefix: str = "diagram") -> List[Path]:
         """
@@ -134,9 +137,16 @@ class MermaidExtractor:
         results = {}
         print(f"\nValidating {len(self.diagrams)} diagram(s)...\n")
 
-        for diagram in self.diagrams:
+        # Each mmdc call boots a headless browser (~0.7s); the diagrams are independent,
+        # so render them concurrently and report in document order. Capped at 4 because
+        # every worker is a Chromium process, not a thread.
+        from concurrent.futures import ThreadPoolExecutor
+        workers = max(1, min(4, os.cpu_count() or 1, len(self.diagrams)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            errors = list(pool.map(self._validate_single_diagram, self.diagrams))
+
+        for diagram, error in zip(self.diagrams, errors):
             print(f"  Validating diagram #{diagram.index}...", end=" ")
-            error = self._validate_single_diagram(diagram)
             results[diagram.index] = error
 
             if error:
@@ -153,6 +163,9 @@ class MermaidExtractor:
 
     def _validate_single_diagram(self, diagram: MermaidDiagram) -> Optional[str]:
         """Validate a single diagram. Returns error message if invalid, None if valid."""
+        import subprocess
+        import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             input_file = tmpdir_path / f"diagram-{diagram.index}.mmd"
@@ -193,30 +206,24 @@ class MermaidExtractor:
         Returns:
             Modified Markdown content
         """
+        # First diagram wins for duplicated content, as a linear scan would pick it.
+        by_content: Dict[str, MermaidDiagram] = {}
+        for diagram in self.diagrams:
+            by_content.setdefault(diagram.content, diagram)
+
         def replace_block(match):
-            diagram_content = match.group(1)
-            # Find which diagram this is
-            for diagram in self.diagrams:
-                if diagram.content == diagram_content.strip():
-                    filename = diagram.get_filename(extension=image_format)
-                    image_path = f"{image_dir}/{filename}"
-                    return f"![Diagram {diagram.index}]({image_path})"
-            return match.group(0)  # If not found, leave unchanged
+            diagram = by_content.get(match.group(1).strip())
+            if diagram is None:
+                return match.group(0)  # If not found, leave unchanged
+            filename = diagram.get_filename(extension=image_format)
+            return f"![Diagram {diagram.index}]({image_dir}/{filename})"
 
         return self.MERMAID_PATTERN.sub(replace_block, self.content)
 
     @staticmethod
     def _check_mmdc_installed() -> bool:
-        """Check if mermaid-cli (mmdc) is installed."""
-        try:
-            result = subprocess.run(
-                ['mmdc', '--version'],
-                capture_output=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        """Check if mermaid-cli (mmdc) is installed (PATH lookup — no ~150ms `mmdc --version` spawn)."""
+        return shutil.which('mmdc') is not None
 
 
 def main():

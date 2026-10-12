@@ -64,7 +64,11 @@ check('validacao completa do plano gerado pelo template: valid=true', () => {
   const r = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', idx]);
   assert(r.json, `sem JSON: ${r.stderr}\n${r.stdout.slice(0, 300)}`);
   assert(r.json.valid === true, `invalido: ${JSON.stringify(r.json.errors || r.json)}`);
-  return 'template -> validador: sem drift';
+  const rf = r.json.reviewFocus;
+  assert(rf && rf.present === true && rf.pinsChecked === true, `Foco de Revisão não lido: ${JSON.stringify(rf)}`);
+  assert(rf.lines.length === 2 && rf.unpinned.length === 0 && rf.unknownTasks.length === 0, `Foco de Revisão com forma errada: ${JSON.stringify(rf)}`);
+  assert(!r.json.warnings.some((w) => /Foco de Revisão/u.test(w.message)), `aviso inesperado: ${JSON.stringify(r.json.warnings)}`);
+  return 'template -> validador: sem drift; Foco de Revisão lido e pinado nas tasks donas';
 });
 
 check('exit code e 0 mesmo quando o plano e invalido (veredito mora no JSON)', () => {
@@ -102,33 +106,45 @@ check('--index-only nao exige corpo das tasks', () => {
   return 'modo leve ok';
 });
 
-setPhase('P2 planejamento: disjuncao de waves');
+setPhase('P2 planejamento: grafo de dependencias');
 
-check('wave paralela com write-sets disjuntos e valida', () => {
-  const r = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', idx]);
-  const wd = r.json.waveDisjointness;
-  assert(wd, 'waveDisjointness ausente no JSON');
-  assert(wd.valid !== false, `wave 1 (tasks 1,2) deveria ser disjunta: ${JSON.stringify(wd)}`);
-  return 'Wave 1 disjunta';
+check('parse-plan aceita o grafo do plano do template sem erro', () => {
+  const r = run(`${WP}/parse-plan.cjs`, ['--tasks-index', idx]);
+  assert(r.json, `sem JSON: ${r.stderr}`);
+  eq(r.json.errors, [], 'grafo do template e valido');
+  assert(!('waves' in r.json) && !('executionRecommendation' in r.json), 'nenhuma maquinaria de ondas na saida');
+  return `${r.json.tasks.length} tasks, grafo valido`;
 });
 
-check('wave paralela com write-set sobreposto e ERRO, nao warning', () => {
-  // Reproduz o fan-in real: duas tasks paralelas escrevendo o mesmo arquivo.
+check('Consome de uma task POSTERIOR e ERRO, nao warning', () => {
+  // A ordem do indice e a ordem de execucao: task-02 nao pode consumir a task-03.
   const dir = `${A.DIR}/plans-conflito`;
-  write(`${dir}/tasks-conflito.md`, A.tasksIndex
-    .replace('- **Wave 1** (parallel): 1, 2', '- **Wave 1** (parallel): 1, 2, 3')
-    .replace('- **Wave 2** (sequential): 3\n', ''));
+  write(`${dir}/tasks-conflito.md`, A.tasksIndex);
   for (const t of A.TASKS) write(`${dir}/task-0${t.n}.md`, A.taskFile(t));
-  // task-03 cria lru-cache.ts; forca task-02 a escrever o mesmo arquivo
-  write(`${dir}/task-02.md`, A.taskFile({ ...A.TASKS[1], creates: ['src/cache/clock.ts', 'src/cache/lru-cache.ts'] }));
-  const r = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', path.join(ROOT, `${dir}/tasks-conflito.md`)]);
-  const blob = JSON.stringify(r.json);
-  assert(r.json.valid === false, `overlap deveria invalidar. waveDisjointness=${JSON.stringify(r.json.waveDisjointness)}`);
-  assert(blob.includes('lru-cache.ts'), 'o erro deve nomear o arquivo em conflito');
-  return 'write-conflict detectado';
+  write(`${dir}/task-02.md`, A.taskFile({ ...A.TASKS[1], consumes: '`LruCache` (task-03)' }));
+  const r = run(`${WP}/parse-plan.cjs`, ['--tasks-index', path.join(ROOT, `${dir}/tasks-conflito.md`)]);
+  assert(r.json.errors.some(e => /Task 2 \*\*Consome:\*\* cites task 3, which comes later/.test(e.message)),
+    `esperava erro de dependencia adiante: ${JSON.stringify(r.json.errors)}`);
+  return 'forward dependency detectada';
 });
 
 setPhase('P2 planejamento: briefing transiente');
+
+check('pre-despacho: indice + briefing do controller liberam o writer; briefing sem runner por arquivo o segura', () => {
+  const briefing = path.join(ROOT, `${A.DIR}/plans/task-writer-briefing.md`);
+  fs.writeFileSync(briefing, A.taskWriterBriefing);
+  const ok = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', idx, '--index-only']);
+  assert(ok.json.valid === true, `briefing do fixture deveria liberar: ${JSON.stringify(ok.json.errors)}`);
+  eq(ok.json.briefingRunner.commands, ['npx vitest run <arquivo>'], 'runner lido da secao');
+  fs.writeFileSync(briefing, A.taskWriterBriefing.replace('`npx vitest run <arquivo>`', '`npx vitest run`'));
+  const suite = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', idx, '--index-only']);
+  assert(suite.json.valid === false && suite.json.errors.some(e => /no per-file target/.test(e.message)), 'comando de suite inteira deveria segurar o writer');
+  fs.writeFileSync(briefing, A.taskWriterBriefing.replace('## Runner de testes', '## Comandos'));
+  const sem = run(`${WP}/validate-tasks.cjs`, ['--tasks-index', idx, '--index-only']);
+  assert(sem.json.valid === false && sem.json.errors.some(e => /has no `## Runner de testes` section/.test(e.message)), 'briefing sem a secao deveria segurar o writer');
+  fs.unlinkSync(briefing);
+  return 'runner por arquivo exigido antes do despacho';
+});
 
 check('validacao full e limpa remove o task-writer-briefing.md', () => {
   const briefing = path.join(ROOT, `${A.DIR}/plans/task-writer-briefing.md`);

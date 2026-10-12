@@ -1,205 +1,60 @@
 ---
 name: super.user-story-verification
-description: "Activate on 'rodar QA', 'verificar user stories', 'validar implementação contra PRD', 'run acceptance tests', 'generate QA report'. QA Gate that verifies each PRD user story against the live implementation. Invoked by super.subagent-driven-development, super.parallel-subagent-in-tree, and super.parallel-subagent-development before super.finishing-a-development-branch, or directly to confirm all PRD user stories are implemented before merge/PR."
+description: "QA gate: verify each PRD user story against the running implementation before merge or PR ('rodar QA', 'verificar user stories'). Needs a PRD."
 user-invocable: false
 ---
 
 # User Story Verification
 
-QA Gate that verifies each PRD user story against the implementation before a branch can be merged or submitted for PR, collecting test evidence and UI screenshots into a consolidated report.
-
-**Announce at start:** "I'm using the super.user-story-verification skill to verify user stories against the implementation."
-
-Throughout, **"the orchestrator"** means whichever skill invoked this gate: `super.subagent-driven-development`, `super.parallel-subagent-in-tree`, or `super.parallel-subagent-development`.
-
-> **Recovery pointer:** `./references/gate-context.md` — why this gate exists, its tier mechanism (opt-in at every tier; inline in Small/Medium), its pipeline placement, and the rationale behind Step 3's once-per-wave stack boot. Entry material: read once when deciding to run the gate, never needed mid-run.
-
-## Inputs
-
-| Input | Source | Required |
-|-------|--------|----------|
-| PRD path | Passed in context by the orchestrator, or discovered automatically | Required |
-| Feature name | Derived from PRD path | Required |
-| Test runner command | Detected from project files | Required |
-| Browser automation tool | Detected via `playwright-cli` availability or project dependencies | Optional |
-
----
+QA gate: one fresh subagent per PRD user story verifies it against the implementation, collecting test evidence and UI screenshots into a consolidated report, before the branch is merged or submitted for PR. **"The orchestrator"** is whichever skill invoked this gate (`super.subagent-driven-development`). Why the gate exists, its tier mechanism and its pipeline placement: `./references/gate-context.md` — entry material, never needed mid-run.
 
 ## Process
 
 ### Step 1: Discover PRD and Extract User Stories
 
-Locate the PRD by priority:
-1. **Explicit path** — passed in context by the orchestrator
-2. **Deterministic derivation** — `docs/superpowers/<feature-name>/prd/prd-<feature-name>.md`
-3. **Directory scan** — `prd-`-prefixed files in `docs/superpowers/<feature-name>/prd/`
-4. **Embedded in spec** — a physical PRD file is not the only valid form. Small/Medium (`medium-inline-path.md`, "PRD folded or skipped") permits folding requirements straight into the spec. Run `node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>` and check `prd.embeddedIn`: if set (reported with `code: 'prd-embedded-in-spec'`), treat that spec path as the PRD source for every step below — `generate-slugs.cjs` only needs a markdown path containing `Como/eu quero/para que` story lines, regardless of filename.
+> **Base dirs:** this skill's own is `${CLAUDE_SKILL_DIR}`; a sibling's is its parent + `/super.X` (never search for one); a gate script that will not run is a **STOP**, never a skipped gate.
 
-**If no PRD is found — neither a physical file nor one embedded in the spec:** report `"No PRD found for this feature — skipping QA gate."` and return control to the caller without blocking. This is the genuine "nothing to verify" case; priority 4 above already covers a folded PRD.
+Locate the PRD by priority: (1) the path the orchestrator passed; (2) `docs/superpowers/<feature-name>/prd/prd-<feature-name>.md`; (3) a `prd-` file in that directory; (4) embedded in the spec — `node <super.writing-plans-base-dir>/scripts/find-feature-files.cjs --feature-name <feature-name>` returns `prd.embeddedIn` (`code: 'prd-embedded-in-spec'`), and that spec path is the PRD source for every step below. None of the four → report `"No PRD found for this feature — skipping QA gate."` and return control without blocking.
 
-Extract user stories deterministically with `scripts/generate-slugs.cjs` — see `references/slug-extraction.md` for the command, JSON shape, ID-marker tolerance, and manual fallback.
-
-From the PRD also extract:
-- All **Histórias de Usuário** (`Como [persona], eu quero [ação] para que [benefício]`)
-- Each story's **Requisitos Funcionais**: `generate-slugs.cjs` returns them per story in `requirements`, read from the PRD's `**FR-001** (US-01, US-02)` annotation. `requirementsMapped: false` → derive the mapping and **say in the report that you derived it**
-- The **Fora de Escopo** section — never verify excluded features
+Extract the stories with `scripts/generate-slugs.cjs` (command, JSON shape, ID-marker tolerance and manual fallback: `./references/slug-extraction.md`). Each story comes with its `requirements` (FR ids read from the PRD's `**FR-001** (US-01, US-02)` annotation; `requirementsMapped: false` → derive the mapping and say so in the report) and `uiFacing`. Stories under **Fora de Escopo** are never verified.
 
 ### Step 2: Set Up QA Directory
 
-Create the evidence tree before dispatching any subagents:
+Create the evidence tree before dispatching: `docs/superpowers/<feature-name>/qa/evidence/<slug>/`, one directory per story, named by the JSON `slug` (already prefixed `us-NN-…`).
 
-```
-docs/superpowers/<feature-name>/
-  qa/
-    evidence/
-      us-01-cancelar-pedido/        # one dir per story, named by the JSON `slug` (already prefixed)
-      us-02-bloquear-cancelamento/
-      ...
-```
+### Step 3: Settle the Dispatch Inputs
 
-### Step 3: Detect Project Capabilities
-
-Gather this **before** dispatching so every subagent receives accurate context.
-
-**Test runner** — check in order: `package.json` `scripts.test` (vitest/jest/playwright) → `pyproject.toml` / `pytest.ini` (pytest) → `Cargo.toml` (cargo test) → `go.mod` (go test ./...).
-
-**Browser automation** — check in order:
-- `playwright-cli` available (`playwright-cli --version` or `npx playwright-cli --version`) → playwright-cli ✅ *(preferred — installs no new dependency)*.
-- `@playwright/test` in `devDependencies` → Playwright ✅
-- `puppeteer` in deps/devDeps → Puppeteer ✅
-- None found → screenshots unavailable ⚠️ (note in report, do not fail)
-
-**Never install** a browser automation library to enable screenshots; if none is found, mark screenshots unavailable and continue.
-
-**Is the story UI-facing? (not a judgment call).** Take `uiFacing` from `generate-slugs.cjs` — `true`/`false` when the PRD carried a `**UI:** sim|não` marker. `null` → decide **once for the whole feature**: UI-facing only if this feature's tasks wrote frontend files (`.tsx`/`.vue`/`.svelte`, `src/components`). PRD prose naming screens a *consumer* would build does not make a backend feature UI-facing. Say which input decided it.
-
-**Stack readiness for screenshots (decide once, before dispatch):** if browser automation is available and any story is UI-facing, the orchestrator — never a subagent — boots or confirms the stack (`docker compose up`, `pnpm dev`) and passes the resulting base URL to every subagent via **App base URL**, once for the whole wave. No UI-facing story, or no browser automation → skip this step, field is "not applicable." Boot fails or stack stays unreachable → same: field "not applicable," note it in the report, continue; never block the gate on it (the story degrades to `PARTIAL`). Rationale: `./references/gate-context.md`.
-
-**Acceptance test location (one rule, applies everywhere):** new acceptance tests go **only** in `docs/superpowers/<feature-name>/qa/evidence/<us-slug>/`, **never** in the project source tree (`apps/`, `src/`, `lib/`, or any project test directory). Exact filename, run command and the non-JS/TS case: Task 2 below, which is what the subagent receives.
-
-**TypeScript path-alias resolution (JS/TS projects only):** before dispatching, run `node <super.user-story-verification-base-dir>/scripts/setup-qa-tsconfig.cjs --ensure-templates --repo-root "$(git rev-parse --show-toplevel)"` once, so acceptance tests in the evidence tree resolve `@/...` imports instead of showing false "Cannot find module". Design + the `ambiguous` disambiguation flags: `references/qa-typescript-resolution.md`.
+The dispatch needs four inputs — the single-file **test runner**, the **browser** automation available, whether each story is **UI-facing**, and the **app base URL** when a UI-facing story can be screenshotted. `projectProfile` answers the first on most repos; the detection order for the rest, the once-per-feature UI-facing rule, the stack boot (orchestrator-owned, never blocking) and the evidence-tree-only rule for acceptance tests are in `./references/project-capabilities.md` — read it now, before building the dispatches. On a JS/TS repo it also carries the one-time path-alias scaffold command.
 
 ### Step 4: Dispatch QA Subagents in Parallel
 
-Launch one background subagent per user story, in parallel waves of up to **3 subagents** at a time. Do not wait for one wave to finish before launching the next while stories remain.
+One background subagent per story, in waves of up to **3** at a time; launch the next wave as soon as a slot frees. Each dispatch carries an explicit `model:` — floor it at `standard`; a validation gate never inherits the controller's model by omission (`super.subagent-driven-development`, "Model Selection"). The script resolves that model and renders every story's prompt from `./agents/qa-story-verifier.md`:
 
-Set an explicit `model:` on each dispatch — QA is a validation gate over many user stories and leans on executable acceptance tests, so floor it at `standard`; never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
-
-Give each subagent exactly this context:
-
----
-```
-You are a QA verification subagent. Your sole job: verify one user story is implemented correctly and collect evidence.
-
-**User Story**: [full user story text]
-**Associated Requirements**: [FR-001: ..., FR-002: ...]
-**Feature PRD**: [path]
-**Feature Spec**: [path]
-**Test runner command**: [command, e.g. "npx vitest run"]
-**Browser automation**: [playwright-cli | Playwright | Puppeteer | not available]
-**App base URL**: [confirmed URL the orchestrator booted the stack against, e.g. http://localhost:3000 — or "not applicable"]
-**Evidence directory**: docs/superpowers/<feature-name>/qa/evidence/<us-slug>/
-**Acceptance tests location**: if you need to create new tests, save them ONLY inside this evidence directory — never in the project source tree.
-
-**Caveman Mode**: [paste the `block` field from `node <super.using-superpowers-base-dir>/scripts/render-caveman-block.cjs --active <session_caveman_active> --level <session_caveman_level> --format field` — the bare directive when on, empty when off (then omit). Do NOT hand-write it.]
-**Report language**: [`session_language` — write every human-readable string you author (`result.json`'s `notes`, `failure_details`, `test_output_summary`) in this language. Keep the JSON keys, the `status` enum tokens (`PASSED`/`FAILED`/`PARTIAL`/`UNVERIFIABLE`), and every identifier (`us-001`, `FR-001`) verbatim — they are a machine contract.]
-
----
-
-### Task 1 — Consume IV Coverage, Then Locate the Story's Tests
-
-**First, read the Independent Verification report** at `docs/superpowers/<feature-name>/qa/validation-<feature-name>.md` — the IV gate always runs, unconditionally, before this QA gate, and has already re-derived (blind, evidence-or-zero) every FR/AC → `file:line` + assertion expression + spec-defined value, plus mutation testing proving the tests kill regressions. Take its per-FR verdict (covered / correct-value / surviving-mutant) as given: do **not** re-map tests→FRs from scratch, and do **not** re-judge whether the implementation's *mechanism* matches an FR's literal text (a protocol, a header, a specific endpoint, an algorithm) — the IV already did that at the assertion level. QA's job here is narrower and insubstitutable: confirm the user story is **observable to the user** when the app actually runs (Tasks 2-3). Only the fallback below reopens mechanism fidelity.
-
-**Fallback (no IV report).** If `validation-<feature-name>.md` does not exist (e.g. this QA gate was run in isolation, without the IV having run), search the codebase for tests covering this story's behaviors — files testing the related components/functions/routes/endpoints and asserting its FR-XXX outcomes — and, if an associated FR names a concrete mechanism the implementation satisfies through a *different* mechanism, quote the FR's literal text against what the tests exercise, record the divergence in `notes`, and mark the story `PARTIAL` even when every test is green.
-
-Then, in both cases, locate the test files exercising this story's behaviors (the IV report's `file:line` references point straight at them when present).
-
-Run **only** those files or a narrow pattern matching them:
 ```bash
-[test runner command] [relevant files or pattern]
-```
-**Never run the full, unfiltered test suite** — QA fans out, so one full run becomes one per story, and concurrent siblings then collide on shared resources. Scope to this story's files every time, even if the list is short.
-
-Summarize the results (pass/fail counts, relevant test names) into `result.json`'s `test_output_summary` field. Do not save raw test output as a file.
-
----
-
-### Task 2 — Create Missing Acceptance Tests (if needed)
-
-If no existing test covers this story (or coverage is clearly partial), write a minimal acceptance test verifying its primary behavior end-to-end.
-
-- **JS/TS only** — before saving, run `node <super.user-story-verification-base-dir>/scripts/setup-qa-tsconfig.cjs --scaffold-evidence --repo-root "$(git rev-parse --show-toplevel)" --evidence-dir docs/superpowers/<feature-name>/qa/evidence/<us-slug> --kind <frontend|backend>` (pick the kind matching whichever app the test imports from) — this scaffolds a per-story `tsconfig.json` and `node_modules` symlink so the editor resolves the app's path aliases; see `references/qa-typescript-resolution.md`. Then save the file in the evidence directory as `<us-slug>-<short-description>.acceptance.test.<ext>` (e.g. `us-003-theme-persistence.acceptance.test.tsx`); run it immediately via its full path; record the path(s) in `evidence/<us-slug>/acceptance-tests-created.txt`.
-- **Non-JS/TS** — skip; capture evidence via existing tests (Task 1) and playwright-cli screenshots (Task 3).
-- **Never** add test files to the project source tree (`apps/`, `src/`, `lib/`, or any project test directory).
-
-If comprehensive tests already exist, skip this task.
-
----
-
-### Task 3 — Capture UI Screenshot (if browser automation is available)
-
-Use the **App base URL** given above — the orchestrator booted or confirmed the stack for the whole wave. Do not start it yourself, and do not re-decide whether it's worth trying; that was settled once, upstream. If the field says "not applicable", skip this task.
-
-**Cap: 3 capture attempts** (one attempt = navigate → capture). On the third failure (auth you cannot satisfy, a state you cannot reach), stop: say why in `notes`, leave `screenshot_path` null, mark the story `PARTIAL` per the Status guide — an unverified aspect, not a failure — and move on. Normal outcome, not a wall to push through: a 4th try cannot move it off `PARTIAL`, only spend wall clock. No throwaway debug scripts.
-
-**If `playwright-cli` is available** (preferred):
-```bash
-playwright-cli open <App base URL>
-playwright-cli goto /feature-path
-playwright-cli screenshot --filename=evidence/<us-slug>/screenshot.png
-playwright-cli close
-```
-Behind auth, or needing interaction before the shot means anything (fill a form, open a detail view, await a modal)? This minimal flow is not enough — invoke the `/playwright-cli` skill for the full command set (`snapshot`/`click`/`fill`/`state-save`/`state-load`) instead of improvising around `open`/`goto`/`screenshot`/`close`: the retry worth spending reaches for the right tool, not another guess at the same one.
-
-**If `@playwright/test`/`Puppeteer` is available** (library-based): write one minimal script navigating to `<App base URL>` plus the story's primary UI state and capturing the shot. Save it as `evidence/<us-slug>/screenshot.png`, the script as `evidence/<us-slug>/screenshot-script.ts` (or `.js`).
-
-The shot must show the story's feature in its natural state. If browser automation is **not** available, skip this task — it does not affect gate status.
-
----
-
-### Task 4 — Write Result
-
-Create `evidence/<us-slug>/result.json`:
-
-```json
-{
-  "us_id": "us-001",
-  "user_story": "[full story text]",
-  "requirements": ["FR-001", "FR-002"],
-  "status": "PASSED|FAILED|PARTIAL|UNVERIFIABLE",
-  "existing_tests_found": true,
-  "acceptance_tests_created": ["docs/superpowers/<feature-name>/qa/evidence/<us-slug>/<us-slug>-<desc>.acceptance.test.tsx"],
-  "test_output_summary": "15 tests passed, 0 failed",
-  "screenshot_path": "evidence/<us-slug>/screenshot.png",
-  "failure_details": null,
-  "notes": ""
-}
+node <super.user-story-verification-base-dir>/scripts/generate-slugs.cjs --prd <prd-path> \
+  | node <super.user-story-verification-base-dir>/scripts/build-qa-dispatch.cjs --slugs - \
+      --feature-name <feature-name> --prd <prd-path> --spec <spec-path> --test-runner "<runner>" \
+      --browser "<browser>" --app-base-url "<base-url>" --language <language> \
+      --repo-root "$(git rev-parse --show-toplevel)" --platform <harness>
 ```
 
-**Status guide:**
-- `PASSED` — behavior verified (tests pass; screenshot captured if browser available)
-- `FAILED` — tests fail, a created acceptance test fails, or critical behavior is missing
-- `PARTIAL` — tests pass but some aspect could not be verified (e.g. no browser for screenshot; coverage exists but incomplete); or — **only in the no-IV-report fallback** — the implementation satisfies the story's outcome through a mechanism different from the one its FR names literally (record which, and why, in `notes`)
-- `UNVERIFIABLE` — cannot locate or write tests for this story; document the reason in `notes`
-```
----
+`<browser>` is `playwright-cli`, `Playwright`, `Puppeteer` or `not available`; `<base-url>` is the URL Step 3 confirmed, or `not applicable`; `<harness>` is the platform you run on (`claude-code`, `copilot`, …).
+
+**Send each `dispatches[]` entry as one dispatch call, in waves of up to 3:** its `description`, `model` and `prompt` exactly as emitted — never retyped, never with `model:` dropped, never written into your reply as text. The prompt points the subagent at its rendered instructions: they are the subagent's to follow, never yours. `dispatches: []` means the PRD yielded zero stories (Step 5).
 
 ### Step 5: Collect Results and Generate QA Report
 
-Wait for all subagents to complete — **never poll for them.** They run in the background and the harness re-invokes you as each returns; simply wait for their results. Do **not** `sleep` or schedule a wakeup/timer to "check on" subagents you just launched — busy-polling harness-tracked background work is wasted (you are re-invoked automatically) and a malformed wakeup call errors out mid-flow. Once they have returned, read every `evidence/<us-slug>/result.json`.
+Wait for the subagents — **never poll for them.** They run in the background and the harness re-invokes you as each returns; do not `sleep` or schedule a wakeup/timer to "check on" them — busy-polling harness-tracked background work is wasted and a malformed wakeup errors out mid-flow. Once all have returned, read every `evidence/<us-slug>/result.json`.
 
-**Reconcile coverage first (deterministic backstop).** Assert `count(readable result.json) === count(PRD user stories)`. Any story whose `result.json` is missing, empty, or unparseable (e.g. its subagent crashed before writing) is `FAILED` with `notes` "no result captured — subagent did not complete" and counts in the tally — a missing result is a verification failure, never a silently dropped story. If the PRD yielded **zero** stories, report `UNVERIFIABLE` (nothing to verify), not a vacuous `PASSED`.
+**Reconcile coverage first.** `count(readable result.json)` must equal the story count: a missing, empty or unparseable file is `FAILED` with `notes` "no result captured — subagent did not complete". Zero stories → `UNVERIFIABLE`, not a vacuous `PASSED`.
 
-**Compute overall status** (first match wins, so every combination maps to exactly one overall status):
-- `FAILED` — one or more stories are `FAILED`.
-- `PASSED` — every story is `PASSED`.
-- `PARTIAL` — no story is `FAILED`, but at least one is `PARTIAL` or `UNVERIFIABLE`. Continue, recording the reason in the report notes.
+**Overall status**, first match wins: `FAILED` (any story `FAILED`) → `PASSED` (every story `PASSED`) → `PARTIAL` (otherwise; record why in the notes).
 
-Save the report using the template and date rules in `references/qa-report-structure.md`. Author the report's prose in `session_language` (`communication.language`, default `pt-BR`); the template's section headings and column labels stay verbatim.
+Save the report per `./references/qa-report-structure.md` (template and date rules); prose in the user's language, headings and column labels verbatim.
 
 ### Step 6: Gate Decision
 
-**If status is `PASSED` or `PARTIAL`:**
+**`PASSED` or `PARTIAL`:**
 
 ```
 ✅ QA Gate passed — N/M user stories verified.
@@ -207,52 +62,32 @@ QA report saved to: docs/superpowers/<feature-name>/qa/qa-report-<feature-name>.
 Returning control to orchestrator.
 ```
 
-Return control to the orchestrator to proceed to `super.finishing-a-development-branch`.
+Return control; the orchestrator proceeds to `super.finishing-a-development-branch`.
 
-**If status is `FAILED`:**
+**If status is `FAILED` — run one fix round before reporting.** The controller orchestrates and never patches source inline. Per failed story, in order:
+
+1. **Reopen its task:** the story's `requirements` name its FR ids; its task is the one whose task-file title carries that `[FR-XXX]` tag (`parse-tasks.cjs` → `requirements`); no tagged task → the last task whose `## Arquivos` names the file in `failure_details`. `node <super.subagent-driven-development-base-dir>/scripts/mark-task-status.cjs --tasks-index <tasks-<feature>.md> --task-number N --status IN_PROGRESS` (or `--task-file <path>`) — the done-state gate stays red until the task closes.
+2. **Implementer:** write the story's `failure_details` to a findings file and render the dispatch — `node <super.subagent-driven-development-base-dir>/scripts/build-task-dispatch.cjs --role implementer --tasks-index <tasks-<feature>.md> --task-number N --platform <platform> --findings-file <f>` renders `agents/implementer.md` with them in `## Review Findings to Address` and the model from the task's `Tier`. Send its `prompt`, `model` and `description` unchanged.
+3. **Review:** the same script with `--role reviewer --base <fix base> --findings-file <f>` renders `agents/task-reviewer.md` over the fix (floor `standard`); Critical/Important findings go back to step 2.
+4. **Re-verify:** re-dispatch the story's QA subagent — its Step 4 dispatch, rebuilt with `--only <story-id>` — for a fresh `result.json`. `PASSED` → `mark-task-status.cjs … --status DONE`; otherwise the task stays `IN_PROGRESS`.
+
+Recompute the status and regenerate the report (Step 5) from the new `result.json` set — never by hand. Now `PASSED`/`PARTIAL` → the block above. Still `FAILED`:
 
 ```
-❌ QA Gate failed — N user story(ies) did not pass verification.
+❌ QA Gate failed — N user story(ies) still fail after one fix round.
 
 Failed stories:
-- US-002: [failure description]
-- US-003: [failure description]
+- US-003 (task 6 stays IN_PROGRESS): [failure description]
 
 QA report: docs/superpowers/<feature-name>/qa/qa-report-<feature-name>.md
 
 Cannot proceed with merge or PR until the failures above are addressed.
-Fix the implementation, then re-run the orchestrator.
 ```
 
-When fixing: the orchestrator skips tasks already `[x]`/`DONE`, so a bare re-run is a no-op. To re-execute a completed task a failed story depends on — trace it via the story's `FR-XXX` mappings to the task's PRD/Spec — first flip it back with `mark-task-status.cjs --tasks-index <tasks-<feature>.md> --task-number N --status IN_PROGRESS` (the status flag alone is rejected — it also needs a locator: either `--task-file <path>`, or `--tasks-index` together with `--task-number`). A failure in the *interaction between* tasks (not any single one) is fixed directly in code, not by re-running a task.
-
-**STOP.** Do not return control to the orchestrator for branch finishing until this gate is resolved — the orchestrator must not invoke `super.finishing-a-development-branch`.
-
----
+**STOP.** Do not return control for branch finishing until this gate is resolved — the orchestrator must not invoke `super.finishing-a-development-branch`. Let the user choose `super.systematic-debugging` or stopping here.
 
 ## Red Flags
 
-**Never:**
-- Skip a user story — verify all PRD stories
-- Run the full, unfiltered test suite in Task 1 — scope every run to the story's own files (concurrent subagents in the same wave share resources)
-- Mark a story `PASSED` without running a test or verifying a behavior
-- Re-derive FR/AC coverage or re-judge FR mechanism fidelity from scratch when `validation-<feature-name>.md` exists — consume the IV's verdict instead
-- In the no-IV-report fallback only, mark a story `PASSED` when its FR names a mechanism the implementation does not actually use — even if the behavioral outcome is satisfied; use `PARTIAL` and record the divergence in `notes`
-- Proceed to merge/PR when gate status is `FAILED`
-- Create evidence for "Fora de Escopo" features
-- Block the pipeline because screenshots are unavailable (browser automation is optional)
-- Add test files to the project source tree — acceptance tests live only in the evidence directory
-- Copy an acceptance test into the project source tree to work around a TypeScript "Cannot find module" editor warning — run `scripts/setup-qa-tsconfig.cjs --scaffold-evidence` instead (`references/qa-typescript-resolution.md`). Copying into a tree shared with other parallel QA subagents can race another subagent's test run.
-- Install a browser automation library — use `playwright-cli` or mark screenshots unavailable
-- Save raw test output to a file — summaries go in `result.json`'s `test_output_summary`
-
-**Always:**
-- Save `result.json` for every story, even `UNVERIFIABLE` ones
-- Pass the complete PRD and spec to each subagent
-- Create evidence directories before dispatching subagents
-- Include failure details and evidence paths in the report on `FAILED`
-- Keep new acceptance tests in the evidence directory, never the project source tree
-
----
-
-**Rationale, tier mechanism and pipeline placement:** `./references/gate-context.md`.
+- Proceed to merge/PR, edit project source, or rewrite the report or a `result.json` by hand after a `FAILED` — the fix runs through the implementer + review loop above.
+- A story marked `PASSED` without a test run or a verified behavior; a story whose FR names a mechanism the implementation does not use is `PARTIAL` with the divergence in `notes`.
+- A `result.json` missing for any story — `UNVERIFIABLE` ones included.

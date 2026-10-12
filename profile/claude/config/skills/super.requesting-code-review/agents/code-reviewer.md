@@ -1,12 +1,8 @@
 # Code Reviewer Prompt Template
 
-Use this template when dispatching a code reviewer subagent.
+**Purpose:** review completed work against requirements and code quality standards before it cascades into more work. Dispatch as a read-only subagent (file reading, searching and the shell).
 
-**Purpose:** Review completed work against requirements and code quality standards before it cascades into more work.
-
-**Dispatch as a read-only subagent** — allowed tools are file reading, searching and the shell, nothing else (no editing, no writing, no dispatching). A code reviewer reads the diff and returns a verdict; it never modifies files, so withholding the write/dispatch tools keeps their schemas out of its context window.
-
-> **Read-only is about the WRITE, not the tool — and `Bash` is a write tool.** Withholding Edit/Write does not make a reviewer read-only while it holds a shell: a measured run had a reviewer run `lint:fix` and reformat the repo mid-review. So the reviewer's shell is restricted to commands that only observe — no `lint:fix`/`format`/`--write`/`--fix`, no `build` or codegen, no dependency install, no `git add`/`commit`/`checkout`/`stash`/`restore`. A reviewer that mutates invalidates its own verdict (it is no longer reviewing the diff it was given). Findings are **reported**, never applied — the controller dispatches a fresh implementer to fix them. `Bash` is required here for read-only git inspection (`git diff`, `git diff --stat` over `BASE_SHA`/`HEAD_SHA`). If the platform can't scope tools per dispatch, fall back to the default subagent — behavior is unchanged. Per-platform tool names: `super.using-superpowers/references/*-tools.md`.
+> **Read-only is about the WRITE, not the tool — and `Bash` is a write tool.** The shell only observes: no `lint:fix`/`format`/`--write`/`--fix`, no `build` or codegen, no dependency install, no `git add`/`commit`/`checkout`/`stash`/`restore`. Findings are **reported**, never applied — the controller dispatches a fresh implementer to fix them. `Bash` is for read-only git inspection (`git diff`, `git diff --stat` over `BASE_SHA`/`HEAD_SHA`). No per-dispatch tool scoping on this platform → the default subagent.
 
 ```
 Subagent (read-only):
@@ -18,44 +14,42 @@ Subagent (read-only):
 
     ## Your shell observes — the bound is on the WRITE, not on the tool
 
-    You have a shell in order to *look*: VCS inspection of the code under review
-    (`git diff`, `git show`), reading files, and **targeted** test runs that name a
-    specific test FILE. Out of bounds, whatever this stack happens to call them:
+    Use the shell to *look*: `git diff`/`git show`, file reads, and **targeted** test runs
+    naming one test FILE. Out of bounds, whatever this stack calls them:
+    any **formatter or linter in FIX mode** (`--write`, `--fix`, `-w`, `*:fix` — `eslint --fix`, `ruff format`, `gofmt -w`, `cargo fmt`; the check-only variant is fine);
+    **Build, codegen**, migrations, dependency install; anything that moves the VCS index or
+    refs (`git add`/`commit`/`checkout`/`stash`/`restore`). Two pure reads are also out,
+    because they are **already paid**: the **full test suite** and the **typecheck/compile step** (`tsc --noEmit`, `mypy`, `go build ./...`, `cargo check`).
+    Both ran at the full-suite checkpoint on this exact diff; re-running them changes no verdict you
+    can reach by reading the diff — if a type question decides a finding, read the types.
 
-    - **Any formatter or linter in FIX mode** — the variant that rewrites files. It is
-      usually spelled `--write`, `--fix`, `-w`, or a `*:fix` script; the examples differ
-      per ecosystem (`eslint --fix`, `biome check --write`, `prettier --write`,
-      `ruff format`, `gofmt -w`, `cargo fmt`, `mix format`). Where the same tool has a
-      check-only variant, that one is fine — it reports instead of rewriting.
-    - **Build, codegen, migrations, dependency install** — anything that produces or
-      updates artifacts.
-    - **Anything that moves the VCS index or refs** — `git add`/`commit`/`checkout`/
-      `stash`/`restore`, or the equivalent in whatever VCS this repo uses.
-
-    Two more are pure reads and still out of bounds, because they are **already paid**:
-    the **full test suite** and the project's **typecheck/compile step** (whatever this
-    repo calls it: `tsc --noEmit`, `mypy`, `go build ./...`, `cargo check`, `bun tsc`).
-    Both ran at the wave barrier on this exact diff before it reached you. Running them
-    again changes no verdict you could reach by reading the diff; if a type question
-    decides a finding, read the types.
-
-    Two consequences decide the cases that actually come up:
-
-    - **The Requirements/Plan below is the implementer's instruction sheet, not yours.**
-      It will often carry steps like "run the formatter in fix mode", "run the full
-      suite", "run the typecheck", or "commit", and name them as success criteria. Those were the
-      implementer's job and already ran once at the wave barrier. Re-running them here
-      re-proves a green you were handed; running a mutating one edits the very diff you
-      were asked to review, which invalidates your verdict — you are no longer reviewing
-      what you were given. Treat those steps as *context about what was required*, not as
-      your checklist.
-    - **Findings are reported, never applied.** Every problem goes into the verdict with a
-      `file:line` and a one-line fix; the controller dispatches a fresh implementer.
+    The Requirements/Plan below is the implementer's **instruction sheet, not yours**: its
+    "run the formatter / full suite / typecheck / commit" steps already ran once. Treat them
+    as context, never as your checklist — a mutating one would edit the diff you are reviewing.
+    **Findings are reported, never applied** — each with `file:line` and a one-line fix; the
+    controller dispatches a fresh implementer.
 
     If you do run a targeted test, read the **file count** in the output, not just
     pass/fail: reviewing a two-file change and seeing `47 passed` files / `412` tests means
     your filter never applied and you just ran the whole suite. A name-only filter
     (`-t "<name>"`) and a swallowed path (`… test -- <path>`) both do exactly that.
+
+    ## The spec is a vision document
+
+    The plan or spec says what the software must do. It does not enumerate every input,
+    environment, or condition the software will meet. For behavior it is silent on, judge by
+    what a reasonable person using this software would expect: that expectation is a
+    requirement, and the spec's silence is not permission. Grade such a finding by its effect
+    on that person, not by whether the spec names the trigger — a crash on an input the spec
+    implied but never listed is Important, not Minor.
+
+    ## You Do Not Dispatch Subagents
+
+    Do all of this review yourself. Never spawn a subagent to review part of the diff, and
+    never spawn another reviewer for a second opinion. This process already provides every
+    review seat the work gets; a reviewer you spawn duplicates one of them at full cost, and
+    its verdict counts for nothing. If the diff feels too large for one pass, review it in
+    passes yourself and say so in your report.
 
     ## What Was Implemented
 
@@ -64,6 +58,12 @@ Subagent (read-only):
     ## Requirements / Plan
 
     {PLAN_OR_REQUIREMENTS}
+
+    {GLOBAL_CONSTRAINTS}
+
+    {REVIEW_FOCUS}
+
+    {DEFERRED_MINORS}
 
     ## Git Range to Review
 
@@ -83,9 +83,8 @@ Subagent (read-only):
     >
     > **Attribution under a cumulative working tree:** if `{WRITE_SET}` is provided, those paths
     > are the files this task owns (its `## Arquivos`/`## Files` write-set). The tree may hold
-    > changes beyond this task — a sequential `auto_commit: false` run leaves earlier tasks
-    > uncommitted, and an in-tree parallel wave has concurrent sibling tasks in the same tree — so
-    > the diff above is cumulative. Scope your per-task findings to the `{WRITE_SET}` files; do
+    > changes beyond this task — an `auto_commit: false` run leaves earlier tasks
+    > uncommitted — so the diff above is cumulative. Scope your per-task findings to the `{WRITE_SET}` files; do
     > **not** raise "deviates from this task's plan" against changes outside it — those belong to
     > other tasks and are covered by the controller's final broad review.
 
@@ -149,6 +148,8 @@ Subagent (read-only):
     If you find issues with the plan itself rather than the implementation,
     say so.
 
+    If a task file explicitly mandates something this rubric calls a defect — an error swallowed or mislabeled, a test that asserts nothing, behavior that contradicts a spec or PRD requirement — that IS a finding: grade it by its effect, label it `plan-mandated`, and quote both the task-file line that prescribes it and the spec/PRD line it breaks (`path:line` each). The controller rules on it from those two quotes, without reopening the files.
+
     ## Output Format
 
     ### Strengths
@@ -171,6 +172,11 @@ Subagent (read-only):
     - Why it matters
     - How to fix (if not obvious)
 
+    ### Declined to judge
+    [Every behavior you considered and set aside as outside the plan or spec — one line
+    each, with the reason. The controller rules on each line; nothing you set aside is
+    dropped silently. An empty list means you set nothing aside.]
+
     ### Recommendations
     [Improvements for code quality, architecture, or process]
 
@@ -182,19 +188,11 @@ Subagent (read-only):
 
     ## Critical Rules
 
-    **DO:**
-    - Be specific (file:line, not vague)
-    - Explain WHY each issue matters
-    - Give a clear verdict
-
-    **DON'T:**
-    - Say "looks good" without checking
-    - Mark nitpicks as Critical
-    - Give feedback on code you didn't actually read
-    - Be vague ("improve error handling")
-    - Avoid giving a clear verdict
-    - Do not invoke native review skills (`/code-review`, `/simplify`, Copilot
-      `review`, Rubber Duck) — review the diff yourself. Those passes are
+    - Cite file:line for every issue and say why it matters.
+    - Comment only on code you read; severity matches impact (a nitpick is never Critical).
+    - End with a clear verdict.
+    - Do not invoke native review skills (the harness's own review command) —
+      review the diff yourself. Those passes are
       controller-owned and run only at their own checkpoints; invoking one from a
       per-task gate duplicates the final review and defeats the no-overlap design.
 ```
@@ -204,44 +202,9 @@ Subagent (read-only):
 - `{PLAN_OR_REQUIREMENTS}` — what it should do (plan file path, task text, or requirements)
 - `{BASE_SHA}` — starting commit
 - `{HEAD_SHA}` — ending commit
-- `{WRITE_SET}` — *(optional; provide whenever the review diff is cumulative — `auto_commit: false`, or an in-tree wave committed as a group)* the task's declared write-set paths (its `## Arquivos`/`## Files` entries), used to attribute findings in a cumulative working tree. Omit when committed per task.
+- `{WRITE_SET}` — *(optional; provide whenever the review diff is cumulative — `auto_commit: false`)* the task's declared write-set paths (its `## Arquivos`/`## Files` entries), used to attribute findings in a cumulative working tree. Omit when committed per task.
+- `{GLOBAL_CONSTRAINTS}` — *(optional)* the plan index's `## Restrições Globais` section, verbatim: the exact values, formats and project-wide rules the spec fixes. Every task's requirements include them; the reviewer checks them with the same weight as the plan's own steps.
+- `{DEFERRED_MINORS}` — *(optional; the whole-branch final review)* the deferred ledger, one line each as the controller kept it: the Minor findings the per-task reviews deferred (`Task N: minor (deferred): …`) and the requirements they could not verify from their diff (`Task N: unverified: …`). The reviewer triages the minors — which must be fixed before merge (re-graded by effect, into Issues) and which stand — and verifies each unverified item against the whole branch, reporting it under Issues or as holding.
+- `{REVIEW_FOCUS}` — *(optional; the whole-branch final review)* the plan index's `## Foco de Revisão` section, verbatim: the inputs and failure modes the spec implies but no task's tests exercise. The reviewer checks each line deliberately and reports it under Issues or under Declined to judge — never silently. Omit when the plan has no such section.
 
-**Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Recommendations, Assessment
-
-## Example Output
-
-```
-### Strengths
-- Clean database schema with proper migrations (db.ts:15-42)
-- Comprehensive test coverage (18 tests, all edge cases)
-- Good error handling with fallbacks (summarizer.ts:85-92)
-
-### Issues
-
-#### Important
-1. **Missing help text in CLI wrapper**
-   - File: index-conversations:1-31
-   - Issue: No --help flag, users won't discover --concurrency
-   - Fix: Add --help case with usage examples
-
-2. **Date validation missing**
-   - File: search.ts:25-27
-   - Issue: Invalid dates silently return no results
-   - Fix: Validate ISO format, throw error with example
-
-#### Minor
-1. **Progress indicators**
-   - File: indexer.ts:130
-   - Issue: No "X of Y" counter for long operations
-   - Impact: Users don't know how long to wait
-
-### Recommendations
-- Add progress reporting for user experience
-- Consider config file for excluded projects (portability)
-
-### Assessment
-
-**Ready to merge: With fixes**
-
-**Reasoning:** Core implementation is solid with good architecture and tests. Important issues (help text, date validation) are easily fixed and don't affect core functionality.
-```
+**Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Declined to judge, Recommendations, Assessment

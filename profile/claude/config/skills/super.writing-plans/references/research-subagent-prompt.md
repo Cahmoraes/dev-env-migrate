@@ -6,13 +6,9 @@ cluster; demand a report complete enough that you never reopen a file it covered
 
 **Dispatch as a read-only subagent** — give it file-reading, searching and shell, and withhold
 edit/write/dispatch. It only reads the codebase (files, symbols, test config) and returns a report.
-**The shell is the default search mechanism** (`rg`/`grep`/`find`/`git log`): it locates a definition,
-reads whole-file context, scans many files for a pattern, and checks literal strings and non-code
-files, and it needs no tool discovery. Name a dedicated search tool only if the platform is known to
-expose one under that name — a miss costs a discovery call that returns nothing. If the platform's symbol-lookup tool (`LSP`, or Serena's `find_symbol` /
-`get_symbols_overview`) is already loaded, one opportunistic attempt for a named symbol is fine —
-but don't chase it with retries or extra tool-loading calls; fall back to `grep` immediately if it
-doesn't resolve. Withholding write/dispatch tools keeps those schemas out of its context window.
+**Search with what the session already has**: a code-search or symbol-lookup tool already in its
+toolset, or the shell otherwise. Never spend a discovery call hunting for a named search tool, and
+drop a lookup that does not resolve on the first try instead of retrying it. Withholding write/dispatch tools keeps those schemas out of its context window.
 Set an explicit `model:` too — research is read-and-report, so floor it at `cheap`/`standard`;
 never inherit the controller's model by omission (see super.subagent-driven-development,
 "Model Selection" section). If the platform can't scope tools per dispatch, fall back to the default
@@ -28,13 +24,22 @@ Return a structured markdown report covering:
    without reopening the file
 3. Test setup and config, not just test style: the test command, the config file
    path, the DOM/test environment (e.g. jsdom / happy-dom), global setupFiles,
-   render/mount helpers, and mock conventions — with the real values, not a summary
+   render/mount helpers, and mock conventions — with the real values, not a summary.
+   Include the runner's narrowest per-file form for EVERY test kind this cluster's
+   tasks will use (unit, integration, e2e — each config or package its own): run each
+   form once against one existing test file and report the number of files it collected;
+   a form you did not run is reported as unverified (a form that collects the
+   whole suite while naming one file is not the narrow form — try the direct runner
+   instead of the package script)
 4. Current test patterns in this cluster (one real example test from the codebase)
 5. Import path conventions and aliases (e.g. `@/components/...`) and naming patterns
 6. Existing types, interfaces, or schemas relevant to this feature
 7. Integration points with other clusters (what they expose, what they expect)
 8. Existence confirmation: explicitly confirm each file/symbol the plan will
    reference actually exists, or flag it as missing
+9. Property-based testing: whether the manifest already has a property-based
+   testing library, and the signature the repo (or its docs) uses for one
+   property with a fixed seed and a run cap; "none" when absent
 
 Read-only. Do not create or edit any files.
 
@@ -50,7 +55,6 @@ Verbatim where it says verbatim — a summary of a signature forces the re-read 
 subagent exists to prevent. Everywhere else, compress.
 
 Check the length before you return, and cut if you are over. Take it out of items 5,
-6 and 7 (one line each) and item 4's excerpt — never out of 1, 2 or 8. Measured in a
-real run: all five research reports came back 4-24% over, because a budget with no
-closing check reads as a suggestion. It is not one.
+6 and 7 (one line each) and item 4's excerpt — never out of 1, 2 or 8. The budget is a
+limit, not a suggestion.
 ```

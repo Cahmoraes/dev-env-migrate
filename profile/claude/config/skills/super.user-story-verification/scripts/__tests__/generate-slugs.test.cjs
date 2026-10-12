@@ -9,7 +9,7 @@
  * and the QA gate fell back to manual extraction. Stories must parse with the
  * marker, and the PRD's explicit ID must be preserved for traceability.
  *
- * Run with: node --test super.user-story-verification/scripts/__tests__/
+ * Run with: node --test super.user-story-verification/scripts/__tests__/generate-slugs.test.cjs
  */
 
 const test = require('node:test');
@@ -228,6 +228,36 @@ test('regression: "quero" without a preceding "eu" parses (Como X, quero Y, para
   assert.match(r.userStories[0].want, /^clicar em um usuário/u);
 });
 
+test('benefit connector is not tied to one phrasing or one language', () => {
+  const cases = [
+    ['- Como usuário, eu quero navegar entre anos para consultar feriados passados\n',
+      'navegar entre anos', 'consultar feriados passados'],
+    ['- Como usuário, eu quero tentar novamente para não confundir falha com ausência\n',
+      'tentar novamente', 'não confundir falha com ausência'],
+    // "para" as an indirect object inside the want stays in the want; the LAST bare
+    // "para <verbo>" is the benefit.
+    ['- Como gestor, eu quero enviar o relatório para o cliente para agilizar o fechamento\n',
+      'enviar o relatório para o cliente', 'agilizar o fechamento'],
+    // An explicit connector wins over any bare "para <verbo>" before it.
+    ['- Como gestor, eu quero exportar para analisar offline para que a diretoria acompanhe\n',
+      'exportar para analisar offline', 'a diretoria acompanhe'],
+    ['- Como admin, eu quero auditar acessos a fim de detectar abusos\n',
+      'auditar acessos', 'detectar abusos'],
+    ['- As an operator, I want to export the list so that I can share it\n',
+      'export the list', 'I can share it'],
+    ['- **US-02** — As a manager, I want a weekly digest in order to skip the dashboard\n',
+      'a weekly digest', 'skip the dashboard'],
+    // No connector at all: still a story, benefit null.
+    ['- Como usuário, eu quero ver os feriados do ano\n', 'ver os feriados do ano', null],
+  ];
+  for (const [line, want, benefit] of cases) {
+    const r = runJson(line);
+    assert.equal(r.count, 1, line);
+    assert.equal(r.userStories[0].want, want, line);
+    assert.equal(r.userStories[0].benefit, benefit, line);
+  }
+});
+
 test('regression: ID+title header on its own line, story on the next line as a blockquote', () => {
   // Reproduces a real PRD shape: "**US-001 — Título**"
   // with nothing else on that line, followed immediately by "> Como ...".
@@ -301,6 +331,7 @@ test('missing PRD file → found:false, empty list', () => {
     const r = JSON.parse(out);
     assert.equal(r.found, false);
     assert.equal(r.count, 0);
+    assert.deepEqual(r.warnings, []);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

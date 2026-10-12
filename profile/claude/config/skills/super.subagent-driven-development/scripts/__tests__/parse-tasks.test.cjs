@@ -156,3 +156,95 @@ test("--assert-all-done reports every open task in stderr", () => {
 	assert.match(r.stderr, /#2/);
 	assert.match(r.stderr, /#3/);
 });
+
+// ─── Dispatch pointers (task/spec/PRD by path) ────────────────────────────────
+
+test("each task carries absolute dispatch pointers resolved from its header (spec/PRD relative to plans/)", () => {
+	const dir = mkFeatureDir();
+	const plans = path.join(dir, "plans");
+	fs.mkdirSync(path.join(dir, "specs"), { recursive: true });
+	fs.mkdirSync(path.join(dir, "prd"), { recursive: true });
+	fs.mkdirSync(plans, { recursive: true });
+	fs.writeFileSync(path.join(dir, "specs", "f-design.md"), "# spec\n");
+	fs.writeFileSync(
+		path.join(plans, "task-01.md"),
+		"# Task 1\n\n**Status:** PENDING\n**PRD:** `../prd/prd-f.md`\n**Spec:** `../specs/f-design.md`\n**Tier:** Cheap\n\n## Passos\n",
+	);
+	fs.writeFileSync(
+		path.join(plans, "task-02.md"),
+		"# Task 2\n\n**Status:** PENDING\n**PRD:** N/A\n**Spec:** ../specs/missing.md\n\n## Passos\n",
+	);
+	const indexPath = writeIndex(plans, [
+		{ number: 1, done: false, file: "task-01.md" },
+		{ number: 2, done: false, file: "task-02.md" },
+	]);
+	const { json } = run(["--tasks-index", indexPath]);
+	const [t1, t2] = json.pending;
+	assert.strictEqual(t1.taskPath, path.join(plans, "task-01.md"));
+	assert.strictEqual(t1.tier, "cheap");
+	assert.strictEqual(t1.specPath, path.join(dir, "specs", "f-design.md"));
+	assert.strictEqual(t1.specResolves, true);
+	assert.strictEqual(t1.prdPath, path.join(dir, "prd", "prd-f.md"));
+	assert.strictEqual(t1.prdResolves, false, "PRD path is resolved even when the file is missing");
+	assert.strictEqual(t1.prdNA, false);
+	assert.strictEqual(t2.prdNA, true, "N/A PRD is flagged, not resolved");
+	assert.strictEqual(t2.prdPath, null);
+	assert.strictEqual(t2.specResolves, false, "a spec path that does not exist reports specResolves:false");
+	assert.strictEqual(t2.tier, null);
+});
+
+// ─── Deliverables of DONE tasks must exist ─────────────────────────────────────
+// Two headless runs (S8.0) started from an index with every task [x]/DONE and no code
+// in the tree; the controller stopped by judgment. This makes it a datum and a gate.
+
+function writeTaskWithFiles(dir, name, status, files) {
+	const lines = files.map((f) => `- ${f.kind}: \`${f.path}\``).join("\n");
+	fs.writeFileSync(
+		path.join(dir, name),
+		`# Task\n\n**Status:** ${status}\n\n## Arquivos\n\n${lines}\n\n## Passos\n`,
+	);
+}
+
+test("a DONE task whose declared files are missing is reported and fails --assert-all-done", () => {
+	const root = mkFeatureDir();
+	const plans = path.join(root, "docs", "plans");
+	fs.mkdirSync(plans, { recursive: true });
+	fs.mkdirSync(path.join(root, "src"), { recursive: true });
+	fs.writeFileSync(path.join(root, "src", "count.js"), "");
+	writeTaskWithFiles(plans, "task-01.md", "DONE", [{ kind: "Create", path: "src/tokenize.js" }, { kind: "Test", path: "test/tokenize.test.js" }]);
+	writeTaskWithFiles(plans, "task-02.md", "DONE", [{ kind: "Create", path: "src/count.js" }]);
+	const index = writeIndex(plans, [
+		{ number: 1, done: true, file: "task-01.md" },
+		{ number: 2, done: true, file: "task-02.md" },
+	]);
+	const r = run(["--tasks-index", index, "--repo-root", root]);
+	assert.strictEqual(r.status, 0);
+	assert.strictEqual(r.json.allDone, true, "the tracker itself still reads as done");
+	assert.deepStrictEqual(r.json.missingDeliverables.map((m) => `${m.number}:${m.path}`), ["1:src/tokenize.js", "1:test/tokenize.test.js"]);
+	const g = run(["--tasks-index", index, "--repo-root", root, "--assert-all-done"]);
+	assert.strictEqual(g.status, 2);
+	assert.match(g.stderr, /a DONE task declares are not on disk/);
+	assert.match(g.stderr, /#1 src\/tokenize\.js/);
+});
+
+test("--assert-all-done passes when every DONE task's declared files exist; a PENDING task's absent files are not counted", () => {
+	const root = mkFeatureDir();
+	const plans = path.join(root, "docs", "plans");
+	fs.mkdirSync(plans, { recursive: true });
+	fs.mkdirSync(path.join(root, "src"), { recursive: true });
+	fs.writeFileSync(path.join(root, "src", "a.js"), "");
+	writeTaskWithFiles(plans, "task-01.md", "DONE", [{ kind: "Modify", path: "src/a.js" }]);
+	writeTaskWithFiles(plans, "task-02.md", "PENDING", [{ kind: "Create", path: "src/not-yet.js" }]);
+	const index = writeIndex(plans, [
+		{ number: 1, done: true, file: "task-01.md" },
+		{ number: 2, done: false, file: "task-02.md" },
+	]);
+	const r = run(["--tasks-index", index, "--repo-root", root]);
+	assert.deepStrictEqual(r.json.missingDeliverables, []);
+	fs.writeFileSync(path.join(plans, "task-02.md"), `# Task\n\n**Status:** DONE\n\n## Arquivos\n\n- Create: \`src/a.js\`\n`);
+	const done = writeIndex(plans, [
+		{ number: 1, done: true, file: "task-01.md" },
+		{ number: 2, done: true, file: "task-02.md" },
+	]);
+	assert.strictEqual(run(["--tasks-index", done, "--repo-root", root, "--assert-all-done"]).status, 0);
+});

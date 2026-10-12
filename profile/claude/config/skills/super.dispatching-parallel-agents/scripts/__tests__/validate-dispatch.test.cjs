@@ -366,7 +366,7 @@ test('empty model with a tier → only empty_model, no tier_model_mismatch (no d
   assert.equal(r.errors.filter((e) => e.type === 'tier_model_mismatch').length, 0);
 });
 
-// ─── Read∩write hazard + unverifiable write-set (parity with check-wave-disjoint) ──
+// ─── Read∩write hazard + unverifiable write-set ──
 
 test('one agent reads a file another writes → read_write_hazard error', () => {
   const dir = tmpDir();
@@ -606,9 +606,9 @@ test('exit code is 0 even when valid: false', () => {
 // ─── readOnly agents: making the mixed reviewer+implementer dispatch declarable ──
 // A reviewer writes nothing, so `enforceWriteSets` flagged it `unverifiable_writeset`
 // and blocked the dispatch — even though a non-writer is trivially disjoint from every
-// writer. The only way to declare a wave that reviews task N while implementing task M
-// was to fail the gate, so the gate got skipped entirely for those waves instead
-// (observed: 3 of 6 parallel waves dispatched with no disjointness proof at all).
+// writer. The only way to declare a dispatch that reviews task N while implementing task M
+// was to fail the gate, so the gate got skipped entirely for those dispatches instead
+// (observed: 3 of 6 parallel dispatches ran with no disjointness proof at all).
 // `readOnly: true` states the intent, exempts the agent from the write-set proof it
 // cannot supply, and keeps it in the read∩write hazard check where it belongs.
 
@@ -626,7 +626,7 @@ test('readOnly agent is exempt from unverifiable_writeset under enforceWriteSets
     r.errors.filter((e) => e.type === 'unverifiable_writeset').length, 0,
     'a declared read-only agent has no write-set to prove — it must not be flagged',
   );
-  assert.equal(r.valid, true, 'the mixed reviewer+implementer wave must be declarable');
+  assert.equal(r.valid, true, 'the mixed reviewer+implementer dispatch must be declarable');
 });
 
 test('a non-readOnly agent with no writeFiles is still flagged (the exemption is opt-in)', () => {
@@ -728,7 +728,7 @@ test('the --help manifest skeleton is valid JSON and passes the gate as written'
   assert.equal(r.errors.length, 0);
 });
 
-test('the --help skeleton still passes when grown into a real 2-agent wave', () => {
+test('the --help skeleton still passes when grown into a real 2-agent dispatch', () => {
   const skeleton = helpSkeleton();
   const second = JSON.parse(JSON.stringify(skeleton.agents[0]));
   second.label = 'task-02-implementer';

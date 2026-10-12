@@ -23,7 +23,7 @@
  *    worktree's identity (branch name, falling back to its path). An index-based scheme
  *    ("the 3rd worktree gets +30") renumbers every later worktree when an earlier one is
  *    removed, silently moving a running service's port. A hash is stable across the
- *    add/remove churn that parallel waves produce.
+ *    add/remove churn that concurrent dispatches produce.
  * 2. LINEAR PROBING on collision. Hashing collides; probing walks to the next block.
  * 3. TWO independent liveness checks before a block is accepted:
  *      (a) no LIVE lease from another worktree overlaps it — cheap, catches siblings
@@ -36,7 +36,7 @@
  *    ledger lives under the git COMMON dir, which every worktree of the repo shares by
  *    construction and which is never committed — no .gitignore dependency, no chance of
  *    leaking a machine-local file into a PR.
- * 5. THE LEDGER IS WRITTEN UNDER AN EXCLUSIVE LOCK. A parallel wave allocates for N
+ * 5. THE LEDGER IS WRITTEN UNDER AN EXCLUSIVE LOCK. A concurrent dispatch allocates for N
  *    worktrees at the same instant; without a lock, two allocators both read a ledger
  *    that does not yet contain the other's block, both pass the bind probe (nothing is
  *    listening YET), and both write the same block — a race whose symptom appears
@@ -199,31 +199,42 @@ function git(cwd, gitArgs) {
  */
 function resolveGitEnv(startDir, repoRootOverride) {
   const probe = fs.existsSync(startDir) ? startDir : process.cwd();
-  const inRepo = git(probe, ["rev-parse", "--is-inside-work-tree"]);
-  if (!inRepo.ok) return { ok: false };
 
-  const gitDir = git(probe, ["rev-parse", "--absolute-git-dir"]);
-  const commonRaw = git(probe, ["rev-parse", "--git-common-dir"]);
-  const topLevel = git(probe, ["rev-parse", "--show-toplevel"]);
-  if (!gitDir.ok || !commonRaw.ok || !topLevel.ok) return { ok: false };
+  // ONE spawn instead of six. `rev-parse` answers its flags in argument order, one line
+  // each, and stops at the first one that fails — so the line count says how far it got.
+  // Outside a repo nothing prints; in a bare repo (or inside .git/) `--show-toplevel`
+  // fails, leaving three lines. Only the last flag is allowed to fail on its own: an
+  // unborn HEAD makes `--abbrev-ref HEAD` exit non-zero after printing "HEAD", which is
+  // the same "no branch" answer a detached HEAD gives with exit 0.
+  const all = git(probe, [
+    "rev-parse",
+    "--is-inside-work-tree",
+    "--absolute-git-dir",
+    "--git-common-dir",
+    "--show-toplevel",
+    "--is-bare-repository",
+    "--abbrev-ref", "HEAD",
+  ]);
+  const lines = all.out ? all.out.split("\n").map((l) => l.trim()) : [];
+  if (lines.length < 5) return { ok: false };
+  const [, gitDirOut, commonRaw, topLevelOut, isBareOut, branchOut] = lines;
 
   // --git-common-dir may come back relative (".git") on older git; resolve against the
   // worktree top level, never against cwd, which may be a subdirectory.
-  const commonDir = path.resolve(topLevel.out, commonRaw.out);
-  const isLinkedWorktree = path.resolve(gitDir.out) !== commonDir;
+  const commonDir = path.resolve(topLevelOut, commonRaw);
+  const isLinkedWorktree = path.resolve(gitDirOut) !== commonDir;
 
   // A bare repo's common dir has no working-tree parent; guard so mainRoot stays sane.
-  const isBare = git(probe, ["rev-parse", "--is-bare-repository"]).out === "true";
+  const isBare = isBareOut === "true";
   const mainRoot = repoRootOverride || (isBare ? commonDir : path.dirname(commonDir));
 
-  const branchRaw = git(probe, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const branch = branchRaw.ok && branchRaw.out && branchRaw.out !== "HEAD" ? branchRaw.out : null;
+  const branch = all.ok && branchOut && branchOut !== "HEAD" ? branchOut : null;
 
   return {
     ok: true,
     commonDir,
     mainRoot,
-    worktreeRoot: path.resolve(topLevel.out),
+    worktreeRoot: path.resolve(topLevelOut),
     isLinkedWorktree,
     branch,
   };
@@ -294,14 +305,12 @@ function parsePortsYaml(content) {
 
 function readConfig(mainRoot) {
   const configPath = path.join(mainRoot, CONFIG_RELPATH);
-  if (!fs.existsSync(configPath)) {
-    return { found: false, configPath, services: [], warnings: [] };
-  }
   let raw;
   try {
     raw = fs.readFileSync(configPath, "utf8");
   } catch (err) {
-    return { found: false, configPath, services: [], warnings: [`Cannot read ${configPath}: ${err.message}`] };
+    const warnings = err.code === "ENOENT" ? [] : [`Cannot read ${configPath}: ${err.message}`];
+    return { found: false, configPath, services: [], warnings };
   }
   const { config, malformed } = parsePortsYaml(raw);
   const warnings = [];
@@ -383,7 +392,6 @@ function ledgerPath(commonDir) {
 
 function readLedger(commonDir) {
   const file = ledgerPath(commonDir);
-  if (!fs.existsSync(file)) return { version: 1, leases: {} };
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!parsed || typeof parsed !== "object" || typeof parsed.leases !== "object" || parsed.leases === null) {
@@ -391,7 +399,7 @@ function readLedger(commonDir) {
     }
     return { version: 1, leases: parsed.leases };
   } catch {
-    // A corrupt ledger must not wedge every future allocation. Rebuilding costs at most
+    // Absent ledger → empty. A corrupt ledger must not wedge every future allocation. Rebuilding costs at most
     // one reallocation per worktree, and the bind probe still keeps that safe.
     return { version: 1, leases: {} };
   }
@@ -511,11 +519,15 @@ function isPortFree(port) {
   });
 }
 
+/**
+ * Probe the whole block concurrently: the ports are independent, so N sequential
+ * bind/close round-trips collapse into one. Every probe socket is closed before the
+ * promise settles, so nothing is left listening either way.
+ */
 async function blockIsBindable(start, size) {
-  for (let p = start; p < start + size; p += 1) {
-    if (!(await isPortFree(p))) return false;
-  }
-  return true;
+  const probes = [];
+  for (let p = start; p < start + size; p += 1) probes.push(isPortFree(p));
+  return (await Promise.all(probes)).every(Boolean);
 }
 
 // ─── Allocation ──────────────────────────────────────────────────────────────
@@ -638,12 +650,15 @@ function renderEnvFile(env, meta) {
  */
 function ensureIgnored(commonDir, worktreeRoot, warnings) {
   const entry = ".superpowers/ports.env";
-  if (git(worktreeRoot, ["check-ignore", "-q", entry]).ok) return;
   const excludeFile = path.join(commonDir, "info", "exclude");
+  let current = "";
+  try { current = fs.readFileSync(excludeFile, "utf8"); } catch { /* absent — created below */ }
+  // Our own exclude entry is the common case on every re-allocation: answer it from the
+  // file we already read, and only spawn `git check-ignore` for the first run.
+  if (current.split("\n").some((l) => l.trim() === entry)) return;
+  if (git(worktreeRoot, ["check-ignore", "-q", entry]).ok) return;
   try {
     fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
-    const current = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, "utf8") : "";
-    if (current.split("\n").some((l) => l.trim() === entry)) return;
     const prefix = current === "" || current.endsWith("\n") ? "" : "\n";
     fs.appendFileSync(excludeFile, `${prefix}${entry}\n`, "utf8");
     warnings.push(`Added "${entry}" to ${path.join("$GIT_COMMON_DIR", "info", "exclude")} so the generated env file never reaches a commit.`);
@@ -747,10 +762,10 @@ async function modeRelease(opts, gitEnv, config) {
   const released = await withLock(gitEnv.commonDir, async () => {
     const ledger = readLedger(gitEnv.commonDir);
     const key = path.resolve(worktreePath);
-    const had = Boolean(ledger.leases[key]);
+    if (!ledger.leases[key]) return false;
     delete ledger.leases[key];
     writeLedger(gitEnv.commonDir, ledger);
-    return had;
+    return true;
   });
   return {
     mode: "release",
@@ -791,7 +806,7 @@ async function modeList(opts, gitEnv, config) {
 
 /**
  * Verification lens, distinct from allocation: allocation ASSIGNS, this one AUDITS what
- * is on record. It answers the two questions a wave controller must not infer — do any
+ * is on record. It answers the two questions a controller must not infer — do any
  * two live leases overlap, and has anything outside our bookkeeping taken a leased port.
  */
 async function modeCheck(opts, gitEnv, config) {
@@ -816,9 +831,10 @@ async function modeCheck(opts, gitEnv, config) {
 
   // The main working tree is not leased, so its canonical ports are only checked here.
   const canonicalPorts = new Set(config.services.map((s) => s.canonicalPort).filter(Boolean));
+  const sortedCanonical = [...canonicalPorts].sort((a, b) => a - b);
   for (const [wtPath, lease] of entries) {
-    for (let p = lease.blockStart; p < lease.blockStart + lease.blockSize; p += 1) {
-      if (canonicalPorts.has(p)) {
+    for (const p of sortedCanonical) {
+      if (p >= lease.blockStart && p < lease.blockStart + lease.blockSize) {
         conflicts.push({
           kind: "canonical_overlap",
           worktrees: [wtPath],
@@ -857,10 +873,8 @@ function modeDetect(opts, gitEnv) {
   const warnings = [];
 
   for (const name of COMPOSE_FILES) {
-    const file = path.join(root, name);
-    if (!fs.existsSync(file)) continue;
     let text;
-    try { text = fs.readFileSync(file, "utf8"); } catch { continue; }
+    try { text = fs.readFileSync(path.join(root, name), "utf8"); } catch { continue; }
     findings.push(...scanCompose(text, name, warnings));
   }
 
@@ -869,22 +883,17 @@ function modeDetect(opts, gitEnv) {
   // generic "app" fallback a root .env would produce for the same port.
   for (const groupDir of ["apps", "packages"]) {
     const group = path.join(root, groupDir);
-    if (!fs.existsSync(group)) continue;
-    let children = [];
+    let children;
     try { children = fs.readdirSync(group, { withFileTypes: true }); } catch { continue; }
     for (const child of children) {
       if (!child.isDirectory()) continue;
       for (const envName of [".env", ".env.local", ".env.example", ".env.local.example", ".env.test.example"]) {
-        const file = path.join(group, child.name, envName);
-        if (fs.existsSync(file)) {
-          findings.push(...scanEnvFile(file, `${groupDir}/${child.name}/${envName}`, child.name));
-        }
+        findings.push(...scanEnvFile(path.join(group, child.name, envName), `${groupDir}/${child.name}/${envName}`, child.name));
       }
     }
   }
   for (const envName of [".env", ".env.example", ".env.test", ".env.test.example", ".env.local"]) {
-    const file = path.join(root, envName);
-    if (fs.existsSync(file)) findings.push(...scanEnvFile(file, envName, null));
+    findings.push(...scanEnvFile(path.join(root, envName), envName, null));
   }
 
   // Merge by port: the same service is usually declared in both compose and an env file.

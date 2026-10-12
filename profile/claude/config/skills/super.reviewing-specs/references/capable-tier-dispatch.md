@@ -2,7 +2,7 @@
 
 ## Why spec review is always `capable`
 
-Execution skills tier each *task* by shape: a mechanical, fully-specified 1-2 file change runs `cheap`; integration/multi-file judgment runs `standard`; architecture and ambiguous design run `capable`. That tier is written into the task file's `**Tier:**` header at planning time and read back at dispatch.
+The execution skill tiers each *task* by shape: a mechanical, fully-specified 1-2 file change runs `cheap`; integration/multi-file judgment runs `standard`; architecture and ambiguous design run `capable`. That tier is written into the task file's `**Tier:**` header at planning time and read back at dispatch.
 
 Spec review does not fit that model, for two reasons:
 
@@ -13,22 +13,20 @@ So the reviewers are fixed at `capable`, unconditionally — independent of how 
 
 ## Resolving `capable` to a concrete model
 
-Follow the same resolution the execution skills use — never hard-code a model name:
+Follow the same resolution the execution skill uses — never hard-code a model name:
 
 1. **If `.superpowers/preferences.yml` sets `model_tiers.capable`** (surfaced as `session_model_tier_capable`, or as `capableModel` from `scripts/lite-reentry.cjs` when the skill runs standalone — see SKILL.md Step 2), use that exact name — the user's explicit override.
-2. **Otherwise it is `"auto"` (the default):** the controller picks the most-capable model the current harness exposes. `"auto"` does **not** mean "inherit the controller's model" — it means "resolve to the most capable available and pass it explicitly." `lite-reentry.cjs` already normalizes an unset tier to `"auto"`.
+`--platform` is what lets step 1 be trusted: `preferences.yml` is per-repo but model names are per-harness, so a `capable` configured on another CLI can name a model this one does not serve. Passed the running platform, the script drops that name instead of handing a nonexistent model to the dispatch; omit the flag and nothing is dropped.
 
-Pass the result to `build-review-dispatch.cjs --capable-model <resolved-or-auto>`.
+2. **Otherwise it is this platform's own `capable` rung alias** — `lite-reentry.cjs` supplies it, so `capableModel` is a concrete model name, not a placeholder. Only a platform that publishes no aliases still returns `"auto"`, and there `"auto"` does **not** mean "inherit the controller's model": it means resolve the rung by role and pass that name explicitly.
 
-## Why caveman is NOT propagated to the reviewers
-
-Caveman is active on execution/review subagents in general, so wiring it into these reviewers looks like an obvious win. It is not — measured, not assumed. Caveman is an **output-style** mode; a spec reviewer's cost is dominated by **input** (reading the spec, tasks, and real code) and **reasoning**, which caveman does not touch. In an A/B on this skill's own eval fixture it shaved ~11-13% off the reviewer's *emitted bytes* but left total `subagent_tokens` flat-to-higher (+2.7% overall across two lenses). Worse, a same-quality final report (which must be enriched pt-BR prose, not caveman) forces the controller to **re-expand** the compressed findings — extra generation plus reconstruction-drift risk the non-caveman path never pays. So reviewers emit normal final-quality prose directly; do not add a caveman block to `agents/spec-reviewer.md`.
+Pass the result to `build-review-lead-dispatch.cjs --capable-model <resolved>`; the lead hands the same value to `build-review-dispatch.cjs` for every lens.
 
 ## How the dispatch is gated
 
 The bug this guards against, the one `model-selection.md` exists to stop: omitting `model:` on a `Task`/`Agent` dispatch silently inherits the controller's model. On a long session whose controller runs the most-capable model that is invisible; on a cheaper-controller session it silently *under*-provisions the review. Either way the tier drifted by omission.
 
-`build-review-dispatch.cjs` prevents it by construction: it stamps every reviewer agent with `tier: "capable"`, an explicit `model:` equal to the resolved capable model, its lens as the `goal`, and the companion files as `readFiles`. It emits a manifest in exactly the shape `validate-dispatch.cjs` expects, with `modelTiers.capable` set to the same resolution — so the equality gate can fire.
+Two dispatches carry the tier, and both are stamped by a script. `build-review-lead-dispatch.cjs` gives the controller's single dispatch, the lead, the resolved model. Inside the lead, `build-review-dispatch.cjs` prevents the drift by construction: it stamps every reviewer agent with `tier: "capable"`, an explicit `model:` equal to the resolved capable model, its lens as the `goal`, and the companion files as `readFiles`. It emits a manifest in exactly the shape `validate-dispatch.cjs` expects, with `modelTiers.capable` set to the same resolution — so the equality gate can fire.
 
 Then `validate-dispatch.cjs` (in `super.dispatching-parallel-agents/scripts/`) is the mechanical backstop:
 
@@ -36,4 +34,4 @@ Then `validate-dispatch.cjs` (in `super.dispatching-parallel-agents/scripts/`) i
 - **`tier_model_mismatch`** — a reviewer whose `model:` differs from the `capable` resolution, with no recorded escalation, fails the dispatch. This is the drift-catcher.
 - Reviewers are read-only, so they declare no `writeFiles`; the write-set conflict gates simply do not fire (nothing is written). `enforceWriteSets` stays off.
 
-Proceed to dispatch only when `validate-dispatch` returns `valid: true`. When the resolution is `"auto"` (empty/harness-picks), the equality gate is intentionally skipped for that tier — `"auto"` is a legitimate "harness chooses" and there is no fixed name to compare against; the protection you still get is that every agent carries an explicit non-empty `model:` value (the harness's chosen capable model), never an inherited omission.
+Proceed to dispatch only when `validate-dispatch` returns `valid: true`. On a platform with no rung aliases the resolution is still `"auto"`, and there the equality gate is intentionally skipped for that tier — `"auto"` is a legitimate "harness chooses" and there is no fixed name to compare against; the protection you still get is that every agent carries an explicit non-empty `model:` value (the harness's chosen capable model), never an inherited omission.

@@ -19,8 +19,8 @@
  *
  * Copilot's `glob` does not descend into hidden directories, and `.claude/` is hidden. All
  * three probes answered "not there" about files that were there. The controller then
- * proceeded without a word: session state never derived, memory gate never run, caveman
- * (configured `ultra`) never rendered, parse-waves/parse-tasks never run. Nothing in the
+ * proceeded without a word: session state never derived, memory gate never run,
+ * parse-plan/parse-tasks never run. Nothing in the
  * transcript recorded a skipped gate. Later in the same session it stated a script was
  * "not available in this environment" while that script's absolute path sat in its own
  * skill-context header — a failed `glob` outweighed the evidence on screen.
@@ -57,21 +57,30 @@ const CAP = 20000;
  * fires on a problem the model had no way to avoid.
  */
 const CANON =
-  "> **Resolving `<super.X-base-dir>`:** the skills are siblings — parent of your header's "
-  + 'base directory + `/super.X`. Never `glob` for one (`glob` misses dotdirs); a gate script '
-  + 'that will not run is a **STOP**, never a skipped gate.';
+  "> **Base dirs:** this skill's own is `${CLAUDE_SKILL_DIR}`; a sibling's is its parent + "
+  + '`/super.X` (never search for one); a gate script that will not run is a **STOP**, never a skipped gate.';
 
 /** Cost of the sentence as written into a file: the line plus its trailing blank line. */
 const CANON_COST = CANON.length + 2;
 
 /** Skills that invoke another skill's script and must carry CANON. */
 const COVERED = [
-  'super.subagent-driven-development',
-  'super.parallel-subagent-development',
-  'super.parallel-subagent-in-tree',
+  // super.using-git-worktrees is NOT here on purpose: it carries CANON (for the STOP rule) but
+  // makes no cross-skill script call. It was listed for one afternoon on 2026-09-02, when Step 3
+  // fell back to `<super.using-superpowers-base-dir>/scripts/detect-project.cjs`; the project
+  // profile shrank to stack + manifest the same day and the call went with it.
+  // super.subagent-driven-development is NOT here: it makes no sibling call; it still carries
+  // CANON for the STOP rule on its own scripts.
   'super.finishing-a-development-branch',
-  'super.reviewing-specs',
-  'super.writing-plans',
+  // super.reviewing-specs is NOT here either: it carries CANON (for the STOP rule on its own
+  // scripts) but stopped making a cross-skill call on 2026-09-21, when the created_at/updated_at
+  // frontmatter mechanism (frontmatter-utils.cjs + get-current-datetime.cjs in super.brainstorming)
+  // was retired and the `updated_at` bump went with it.
+  // super.writing-plans is NOT here, for the same reason as super.using-git-worktrees: it
+  // carries CANON (for the STOP rule on its own scripts) but its SKILL.md makes no
+  // cross-skill script call. It was listed while parse-plan.cjs (then parse-waves.cjs)
+  // belonged to a sibling execution skill; the script moved here, to the skill that
+  // authors the plan it reads, and the placeholder went with it.
   // Was BLOCKED on budget until 2026-08-11. Two things closed it: the feature index moved
   // out of SKILL.md into the recall subagent, and the compaction-layout rationale — which
   // governs how WE arrange the file and does nothing at runtime — moved to the dev-only
@@ -79,11 +88,16 @@ const COVERED = [
   // still-true assertion below exists to force.
   //
   // Worth keeping from that entry: this sweep reads SKILL.md ONLY, and the cross-skill call
-  // that actually misfired lived in a reference (research-fan-out.md, the lessons.py load).
+  // that actually misfired lived in a reference (research-fan-out.md, a sibling-script load since retired).
   // Two measured sessions collapsed it into the brainstorming base-dir and spent 2-3 calls
   // hunting the file. That class is pinned by base-dir-collapse.test.cjs, which does sweep
   // references — this sentence is the upstream rule, not a replacement for it.
   'super.brainstorming',
+  // Was BLOCKED for lack of room (~41 chars of headroom at the time). CANON now resolves
+  // through `${CLAUDE_SKILL_DIR}` instead of the nonexistent tool-result header, which is a
+  // real correctness fix (see skillmd-compaction-cap.test.cjs), so the file is over its old
+  // per-skill cap regardless — paid for and tracked there, not exempted here.
+  'super.user-story-verification',
 ];
 
 /**
@@ -91,14 +105,7 @@ const COVERED = [
  *
  * `reason` — why the exemption is the better trade today, not an approval of the gap.
  */
-const BLOCKED = {
-  'super.user-story-verification': {
-    reason:
-      'Tightest file in the set (~41 chars of headroom). Its cross-skill call is PRD '
-      + 'discovery, which already has an explicit no-PRD path that reports and returns '
-      + 'control — the silent-skip failure this sentence prevents cannot happen there.',
-  },
-};
+const BLOCKED = {};
 
 const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 
@@ -125,9 +132,15 @@ test('the sweep still finds cross-skill script invocations to govern', () => {
   const withCross = allSkills().filter((s) => crossRefs(s).length > 0);
   // Anti-staleness floor: if the placeholder syntax ever changes, this sweep would find
   // nothing, report zero violations over zero entries, and pass forever.
+  // Floor lowered 8 → 6 when the worktree execution skill was removed and the plan parser
+  // moved into super.writing-plans: two SKILL.md stopped making a cross-skill call, and
+  // neither loss is the placeholder syntax breaking. Lowered 6 → 5 on 2026-09-21 when the
+  // frontmatter date scripts were retired and super.reviewing-specs lost its only sibling call.
+  // Lowered 5 → 4 the same day when super.parallel-subagent-in-tree was removed.
+  // Lowered 4 → 3 when the SDD lost its sibling call.
   assert.ok(
-    withCross.length >= 8,
-    `expected at least 8 SKILL.md invoking another skill's script, found ${withCross.length}: `
+    withCross.length >= 3,
+    `expected at least 3 SKILL.md invoking another skill's script, found ${withCross.length}: `
       + withCross.join(', '),
   );
 });
@@ -241,5 +254,38 @@ test('no SKILL.md hands over a runnable command with a bare relative scripts/ pa
     + 'is — the cwd is the repo being worked on. Qualify it with the skill\'s own '
     + '`<super.X-base-dir>` placeholder, the same form used for a sibling. This fails as '
     + 'ENOENT, which the model reads as a missing script rather than a bad path.',
+  );
+});
+
+/*
+ * `<super.X-base-dir>` (own-skill or a sibling's) only resolves if the SKILL.md tells the
+ * model where the literal comes from. Probed directly (claude -p, haiku, harness 2.1.258):
+ * the tool-result header for an invoked Skill carries NO base-directory line at all — the
+ * only place the absolute path survives a compaction is the SKILL.md body itself, via the
+ * `${CLAUDE_SKILL_DIR}` substitution the harness performs when it loads the file (documented
+ * in super.using-superpowers/references/claude-code-tools.md). A SKILL.md that uses the
+ * placeholder without ever mentioning `${CLAUDE_SKILL_DIR}` gives the model nothing to anchor
+ * on post-compaction — the `find /`-hunting failure mode `cross-skill-base-dir.test.cjs`
+ * exists to close, just triggered from the own-skill side instead of the sibling side.
+ */
+test('every SKILL.md using a <super.X-base-dir> placeholder explains ${CLAUDE_SKILL_DIR}', () => {
+  const withPlaceholder = allSkills().filter((s) => /<super\.[a-z-]+-base-dir>/.test(read(`${s}/SKILL.md`)));
+  // Anti-staleness floor: if the placeholder syntax or the skill roster ever shrank enough
+  // that this stopped finding anything, it would report zero violations over zero entries
+  // and pass forever. Floor lowered 14 → 13 on 2026-09-21: super.generating-prd's only
+  // placeholder pointed at the retired frontmatter date scripts in super.brainstorming.
+  // Lowered 13 → 12 the same day when super.parallel-subagent-in-tree was removed.
+  assert.ok(
+    withPlaceholder.length >= 12,
+    `expected at least 12 SKILL.md using a <super.X-base-dir> placeholder, found `
+      + `${withPlaceholder.length}: ${withPlaceholder.join(', ')}`,
+  );
+  const missing = withPlaceholder.filter((s) => !read(`${s}/SKILL.md`).includes('${CLAUDE_SKILL_DIR}'));
+  assert.deepEqual(
+    missing, [],
+    'These SKILL.md use <super.X-base-dir> but never explain that the harness substitutes '
+      + '${CLAUDE_SKILL_DIR} for it on load. Without that anchor, a session resumed after a '
+      + 'context compaction has no way to resolve the placeholder and goes hunting with '
+      + `find/glob instead:\n    ${missing.join('\n    ')}`,
   );
 });

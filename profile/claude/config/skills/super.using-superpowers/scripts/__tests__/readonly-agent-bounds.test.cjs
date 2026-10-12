@@ -12,7 +12,7 @@
  *    All of them then grant `Bash`, which writes. A code-quality reviewer duly
  *    ran `pnpm --filter frontend lint:fix` mid-review and reformatted the repo:
  *    it mutated the diff it was reviewing, invalidating its own verdict, and
- *    silently edited code the barrier had already validated.
+ *    silently edited code the full-suite checkpoint had already validated.
  *
  * 2. OPTIONAL WORK WITHOUT AN ATTEMPT CAP. user-story-verification already says
  *    screenshots are optional and never block the gate. With no countable cap, a
@@ -34,15 +34,13 @@ const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 
 /** Every template that dispatches a subagent described as read-only. */
 const READONLY_AGENTS = [
-  'super.subagent-driven-development/agents/spec-reviewer.md',
-  'super.subagent-driven-development/agents/code-quality-reviewer.md',
-  'super.subagent-driven-development/agents/combined-reviewer.md',
+  'super.subagent-driven-development/agents/task-reviewer.md',
   'super.requesting-code-review/agents/code-reviewer.md',
 ];
 
 test('the read-only agent roster is not silently shrinking', () => {
   // Anti-staleness floor: a renamed template would empty the sweep and pass forever.
-  assert.ok(READONLY_AGENTS.length >= 4, 'roster shrank — re-derive it before trusting this file');
+  assert.ok(READONLY_AGENTS.length >= 2, 'roster shrank — re-derive it before trusting this file');
   for (const rel of READONLY_AGENTS) {
     assert.ok(fs.existsSync(path.join(SKILLS, rel)), `${rel} no longer exists — update the roster`);
   }
@@ -89,15 +87,10 @@ test('every read-only template says findings are reported, never applied', () =>
   }
 });
 
-/**
- * Templates that carry their OWN dispatch block. `code-quality-reviewer.md` is absent on
- * purpose: its block only says "Use template at super.requesting-code-review/agents/
- * code-reviewer.md", so the bound reaches its subagent through that file, which is here.
- */
+/** Templates that carry their OWN dispatch block. */
 const SELF_CONTAINED_DISPATCH = [
   ['super.requesting-code-review/agents/code-reviewer.md', '{PLAN_OR_REQUIREMENTS}'],
-  ['super.subagent-driven-development/agents/spec-reviewer.md', '[FULL TEXT of task requirements]'],
-  ['super.subagent-driven-development/agents/combined-reviewer.md', '[FULL TEXT of task requirements]'],
+  ['super.subagent-driven-development/agents/task-reviewer.md', '- **Task file:** {TASK_FILES}'],
 ];
 
 test('the read-only bound sits INSIDE the dispatched prompt, ahead of the pasted plan', () => {
@@ -107,7 +100,7 @@ test('the read-only bound sits INSIDE the dispatched prompt, ahead of the pasted
   // while reviewing a two-file diff. Moving the same words below `prompt: |` and ahead of
   // the pasted plan took both to zero package-script invocations, with longer reviews.
   // Position is the mechanism; presence in the file is not.
-  assert.ok(SELF_CONTAINED_DISPATCH.length >= 3, 'roster shrank — re-derive it before trusting this file');
+  assert.ok(SELF_CONTAINED_DISPATCH.length >= 2, 'roster shrank — re-derive it before trusting this file');
   for (const [rel, planMarker] of SELF_CONTAINED_DISPATCH) {
     const content = read(rel);
     const promptStart = content.indexOf('prompt: |');
@@ -149,10 +142,10 @@ test('the dispatched bound names roles, not one stack\'s tools', () => {
     // list go all-JS while the other keeps the total up — a mutant that swapped the
     // formatter examples for `xo --fix`/`standard --fix` survived exactly that way.
     const NON_JS = ['ruff', 'gofmt', 'cargo', 'mypy', 'mix ', 'go build', 'rubocop', 'black'];
-    const listOf = (from, to) => block.slice(block.indexOf(from), block.indexOf(to));
+    const listOf = (from, to) => block.slice(block.indexOf(from), typeof to === 'string' ? block.indexOf(to) : block.search(to));
     for (const [label, from, to] of [
       ['formatter', 'formatter or linter in FIX mode', 'Build, codegen'],
-      ['typecheck', 'typecheck/compile step', 'Both ran at the wave barrier'],
+      ['typecheck', 'typecheck/compile step', /Both r[au]n at the full-suite checkpoint/],
     ]) {
       const list = listOf(from, to);
       const found = NON_JS.filter((t) => list.includes(t));
@@ -177,7 +170,7 @@ test('the dispatched prompt tells the reviewer the plan is not its checklist', (
 });
 
 test('the QA screenshot task carries a countable attempt cap', () => {
-  const usv = read('super.user-story-verification/SKILL.md');
+  const usv = read('super.user-story-verification/agents/qa-story-verifier.md');
   const task3 = usv.slice(usv.indexOf('### Task 3 — Capture UI Screenshot'), usv.indexOf('### Task 4'));
   assert.ok(task3.length > 0, 'Task 3 (screenshot capture) is missing');
   assert.match(
@@ -195,7 +188,7 @@ test('the QA screenshot task carries a countable attempt cap', () => {
 });
 
 test('the QA cap names the landing, so stopping is not read as giving up', () => {
-  const usv = read('super.user-story-verification/SKILL.md');
+  const usv = read('super.user-story-verification/agents/qa-story-verifier.md');
   const task3 = usv.slice(usv.indexOf('### Task 3 — Capture UI Screenshot'), usv.indexOf('### Task 4'));
   assert.match(task3, /leave `screenshot_path` null/, 'the cap must say what to WRITE on giving up, or the subagent keeps trying');
   assert.match(

@@ -105,7 +105,7 @@ Bug: Empty `projectDir` caused `git init` in source code
 - Layer 3: `WorktreeManager` refuses git init outside tmpdir in tests
 - Layer 4: Stack trace logging before git init
 
-**Result:** All 1847 tests passed, bug impossible to reproduce
+**Result:** the suite passed and the bug became structurally impossible to reproduce
 
 ## Key Insight
 

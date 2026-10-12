@@ -244,6 +244,33 @@ test('R3 warns that a multi-config repo has no single "full suite" command', () 
   assert.ok(inventory, 'expected the suite-inventory warning');
   assert.match(inventory.message, /test:run/u);
   assert.match(inventory.message, /test:integration/u);
+  // Measured 2026-09-21: "state the command set in the plan" made a planner paste the
+  // inventory into the index header, where nothing reads it. The executor resolves it.
+  assert.match(inventory.message, /do not copy it into the plan/u);
+  assert.doesNotMatch(inventory.message, /State the complete verification command set/u);
+});
+
+test('R1 never invites the planner to record an "additive" confirmation in the plan', () => {
+  const root = mkRepo(IMPORTER_REPO);
+  const { warnings } = run(root, { 1: ['src/domain/model.ts'] });
+  const r1 = warnings.filter((x) => /importers are in no task's write-set/u.test(x.message));
+  assert.equal(r1.length, 1);
+  assert.match(r1[0].message, /never a line in the plan/u);
+  assert.doesNotMatch(r1[0].message, /confirm the change is additive/u);
+});
+
+test('a config under docs/ is not a suite even when it sits at its own package root', () => {
+  const root = mkRepo({
+    'apps/api/package.json': JSON.stringify({
+      name: 'api',
+      scripts: { 'test:run': 'vitest --config ./test/vite.config.unit.ts' },
+    }),
+    'apps/api/test/vite.config.unit.ts': 'export default { test: { include: ["**/*.test.ts"] } }',
+    'docs/superpowers/x/qa/evidence/us-01/package.json': JSON.stringify({ name: 'evidence-us-01' }),
+    'docs/superpowers/x/qa/evidence/us-01/vitest.config.ts': 'export default { test: { include: ["*.acceptance.test.tsx"] } }',
+  });
+  const suites = discoverTestSuites(root, buildRepoIndex(root));
+  assert.deepEqual(suites.map((s) => s.config), ['apps/api/test/vite.config.unit.ts']);
 });
 
 /**

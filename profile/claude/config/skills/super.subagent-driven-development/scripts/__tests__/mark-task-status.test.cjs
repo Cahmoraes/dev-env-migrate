@@ -3,7 +3,7 @@
 /**
  * Tests for mark-task-status.cjs — deterministic, idempotent status edits.
  *
- * Run with: node --test super.subagent-driven-development/scripts/__tests__/
+ * Run with: node --test super.subagent-driven-development/scripts/__tests__/mark-task-status.test.cjs
  */
 
 const test = require('node:test');
@@ -33,7 +33,6 @@ const TASK_BODY = [
   '**Status:** PENDING',
   '**PRD:** ../prd/prd-x.md',
   '**Spec:** ../specs/x-design.md',
-  '**Depends on:** 1, 2',
   '',
   '## Steps',
   '- [ ] write the test',
@@ -77,8 +76,35 @@ test('does not touch any line other than the status field', () => {
     assert.match(after, /^\*\*Status:\*\* DONE$/m);
     // Surrounding fields are untouched.
     assert.match(after, /^\*\*PRD:\*\* \.\.\/prd\/prd-x\.md$/m);
-    assert.match(after, /^\*\*Depends on:\*\* 1, 2$/m);
+    assert.match(after, /^\*\*Spec:\*\* \.\.\/specs\/x-design\.md$/m);
     assert.match(after, /^- \[ \] write the test$/m);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('reopens a DONE task: DONE → IN_PROGRESS flips the index checkbox back to [ ]', () => {
+  // The QA gate's fix round reopens the task behind a failed story this way; the
+  // unchecked box is what keeps parse-tasks.cjs --assert-all-done red until it closes.
+  const dir = mkdir();
+  try {
+    const file = path.join(dir, 'task-03.md');
+    const index = path.join(dir, 'tasks-x.md');
+    fs.writeFileSync(file, TASK_BODY.replace('PENDING', 'DONE'), 'utf8');
+    fs.writeFileSync(
+      index,
+      ['## Tarefas', '- [x] 2. Other → `task-02.md`', '- [x] 3. Token refresh → `task-03.md`', ''].join('\n'),
+      'utf8',
+    );
+    const out = runJson(['--tasks-index', index, '--task-number', '3', '--status', 'IN_PROGRESS']);
+    assert.equal(out.statusBefore, 'DONE');
+    assert.equal(out.status, 'IN_PROGRESS');
+    assert.equal(out.indexCheckboxBefore, 'x');
+    assert.equal(out.indexCheckboxAfter, ' ');
+    assert.match(fs.readFileSync(file, 'utf8'), /^\*\*Status:\*\* IN_PROGRESS$/m);
+    const idx = fs.readFileSync(index, 'utf8');
+    assert.match(idx, /^- \[ \] 3\. Token refresh → `task-03\.md`$/m);
+    assert.match(idx, /^- \[x\] 2\. Other → `task-02\.md`$/m);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -140,7 +166,7 @@ test('exits 1 on an invalid status value', () => {
 });
 
 test('locates the task file from --tasks-index + --task-number when --task-file is omitted', () => {
-  // Regression: super.parallel-subagent-in-tree documented this short form
+  // Regression: the batched-dispatch prose documented this short form
   // (no --task-file). It must work, not abort with a usage error.
   const dir = mkdir();
   try {

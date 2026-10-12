@@ -47,15 +47,15 @@ test('parseYaml: parses every scalar shape, sections, top-level kv, comments', (
     '  orphan: before-any-section', // nested line with currentSection still null
     'workflow:',
     '  auto_commit: true',
-    '  confirm_destructive_actions: false',
+    '  qa_gate: false',
     '  empty_value:', // empty → null
     '  explicit_null: null',
     '  tilde_null: ~',
     '  quoted: "double"',
     '  single_quoted: \'single\'',
     '  with_comment: keepme  # trailing stripped',
-    'communication:',
-    '  language: pt-BR', // value containing a non-leading-space # is not present here
+    'model_tiers:',
+    '  capable: opus-x', // value containing a non-leading-space # is not present here
     'topbool: true', // top-level kv → true
     'topfalse: false', // top-level kv → false
     'topstr: plainvalue', // top-level kv → string
@@ -64,14 +64,14 @@ test('parseYaml: parses every scalar shape, sections, top-level kv, comments', (
   const { parsed, malformed } = mod.parseYaml(yaml);
   assert.equal(malformed, false);
   assert.equal(parsed.workflow.auto_commit, true);
-  assert.equal(parsed.workflow.confirm_destructive_actions, false);
+  assert.equal(parsed.workflow.qa_gate, false);
   assert.equal(parsed.workflow.empty_value, null);
   assert.equal(parsed.workflow.explicit_null, null);
   assert.equal(parsed.workflow.tilde_null, null);
   assert.equal(parsed.workflow.quoted, 'double');
   assert.equal(parsed.workflow.single_quoted, 'single');
   assert.equal(parsed.workflow.with_comment, 'keepme');
-  assert.equal(parsed.communication.language, 'pt-BR');
+  assert.equal(parsed.model_tiers.capable, 'opus-x');
   assert.equal(parsed.topbool, true);
   assert.equal(parsed.topfalse, false);
   assert.equal(parsed.topstr, 'plainvalue');
@@ -101,7 +101,7 @@ test('deepMerge: non-object override returns defaults untouched', () => {
 test('deepMerge: nested merge, missing keys, scalars and arrays', () => {
   const merged = mod.deepMerge(mod.DEFAULTS, { workflow: { auto_commit: false } });
   assert.equal(merged.workflow.auto_commit, false);
-  assert.equal(merged.communication.language, 'pt-BR'); // key absent in overrides → default kept
+  assert.equal(merged.workflow.qa_gate, true); // key absent in overrides → default kept
   // Array-valued default takes the override wholesale (Array.isArray short-circuit).
   const arr = mod.deepMerge({ a: [1, 2] }, { a: [9] });
   assert.deepEqual(arr.a, [9]);
@@ -113,25 +113,11 @@ test('deepMerge: nested merge, missing keys, scalars and arrays', () => {
 
 test('normalizeCodeReviewEffort: null prefs, valid level, and clamp', () => {
   assert.deepEqual(mod.normalizeCodeReviewEffort(null), []);
-  assert.deepEqual(mod.normalizeCodeReviewEffort({ claude_code: { code_review_effort: 'high' } }), []);
-  const prefs = { claude_code: { code_review_effort: 'ultra' } };
+  assert.deepEqual(mod.normalizeCodeReviewEffort({ claude_code: { review_effort: 'high' } }), []);
+  const prefs = { claude_code: { review_effort: 'ultra' } };
   const notes = mod.normalizeCodeReviewEffort(prefs);
   assert.equal(notes.length, 1);
-  assert.equal(prefs.claude_code.code_review_effort, 'medium');
-});
-
-test('normalizeCavemanLevel: null prefs, already-lowercase no-op, and case-normalization', () => {
-  assert.deepEqual(mod.normalizeCavemanLevel(null), []);
-  // already lower-case (incl. hyphenated wenyan variants) → no change, no note
-  assert.deepEqual(mod.normalizeCavemanLevel({ optimization: { caveman_level: 'ultra' } }), []);
-  assert.deepEqual(mod.normalizeCavemanLevel({ optimization: { caveman_level: 'wenyan-full' } }), []);
-  // hand-edited upper-case → lower-cased in place, with a note (NOT clamped to a list)
-  const prefs = { optimization: { caveman_level: 'ULTRA' } };
-  const notes = mod.normalizeCavemanLevel(prefs);
-  assert.equal(notes.length, 1);
-  assert.equal(prefs.optimization.caveman_level, 'ultra');
-  // non-string value is ignored (no throw, no note)
-  assert.deepEqual(mod.normalizeCavemanLevel({ optimization: { caveman_level: null } }), []);
+  assert.equal(prefs.claude_code.review_effort, 'medium');
 });
 
 test('detectGitRoot: returns the repo top-level when run inside a git repo', () => {
@@ -176,14 +162,14 @@ test('git root detected via cwd (no --repo-root), file absent → found:false', 
 test('valid preferences.yml is read, parsed, and merged over defaults', () => {
   const root = mkRepo();
   try {
-    writePrefs(root, 'workflow:\n  auto_commit: false\ncommunication:\n  language: en\n');
+    writePrefs(root, 'workflow:\n  auto_commit: false\nclaude_code:\n  review_effort: high\n');
     const r = run(['--repo-root', root]);
     assert.equal(r.status, 0);
     const json = JSON.parse(r.stdout);
     assert.equal(json.found, true);
     assert.equal(json.malformed, false);
     assert.equal(json.preferences.workflow.auto_commit, false);
-    assert.equal(json.preferences.communication.language, 'en');
+    assert.equal(json.preferences.claude_code.review_effort, 'high');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -216,15 +202,15 @@ test('malformed preferences.yml warns on stderr but still returns merged default
   }
 });
 
-test('invalid code_review_effort in the file is clamped to medium with a warning', () => {
+test('invalid review_effort in the file is clamped to medium with a warning', () => {
   const root = mkRepo();
   try {
-    writePrefs(root, 'claude_code:\n  code_review_effort: ultra\n');
+    writePrefs(root, 'claude_code:\n  review_effort: ultra\n');
     const r = run(['--repo-root', root]);
     assert.equal(r.status, 0);
     const json = JSON.parse(r.stdout);
-    assert.equal(json.preferences.claude_code.code_review_effort, 'medium');
-    assert.match(r.stderr, /code_review_effort/);
+    assert.equal(json.preferences.claude_code.review_effort, 'medium');
+    assert.match(r.stderr, /review_effort/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

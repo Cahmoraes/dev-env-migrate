@@ -12,7 +12,6 @@ Skills use Claude Code tool names. When you encounter these in a skill, use your
 | file-content search | `grep_search` (legacy alias: `search_file_content`) |
 | file-name search | `glob` ⚠️ see limitation below |
 | List a directory | `list_directory` |
-| `LSP` / Serena `find_symbol` (structural symbol lookup) | `grep_search` is the default for named code symbols too (anchor the query to a class/file name) — measured cheaper and more reliable than chasing symbol lookup in this pipeline. If a language-server/symbol tool (e.g. Serena MCP `find_symbol`) is already loaded, one opportunistic attempt is fine; abandon it after that and use `grep_search` if it doesn't resolve immediately. |
 | session task list (task tracking, optional) | `write_todos` |
 | `Skill` tool (invoke a skill) | `activate_skill` |
 | `AskUserQuestion` (structured user question) | `ask_user` |
@@ -61,14 +60,13 @@ Gemini CLI supports subagents natively. **Each subagent is exposed to the main a
 | Skill instruction | Gemini CLI equivalent |
 |-------------------|----------------------|
 | `Subagent (general-purpose):` + `agents/implementer.md` | `generalist` with the filled `agents/implementer.md` template |
-| `Subagent (read-only):` + `agents/spec-reviewer.md` | `generalist` with the filled `agents/spec-reviewer.md` template |
+| `Subagent (read-only):` + `agents/task-reviewer.md` | `generalist` with the filled `agents/task-reviewer.md` template |
 | `Subagent (read-only):` + `agents/code-reviewer.md` | `generalist` with the filled review prompt |
-| `Subagent (read-only):` + `agents/code-quality-reviewer.md` | `generalist` with the filled `agents/code-quality-reviewer.md` template |
 | `Subagent (general-purpose):` with an inline prompt | `generalist` with your inline prompt |
 
 ### Prompt filling
 
-Skills provide prompt templates with placeholders like `{WHAT_WAS_IMPLEMENTED}` or `[FULL TEXT of task]`. Fill all placeholders and pass the complete prompt as the message. The prompt template itself contains the agent's role, review criteria, and expected output format — the subagent will follow it.
+Skills provide prompt templates with placeholders like `{WHAT_WAS_IMPLEMENTED}` or `[absolute path to task-NN.md]`. Fill all placeholders and pass the complete prompt as the message. The prompt template itself contains the agent's role, review criteria, and expected output format — the subagent will follow it.
 
 ### Custom agents, model tiers, and read-only toolsets
 
@@ -79,7 +77,7 @@ Custom agents are markdown files with YAML frontmatter in `.gemini/agents/<name>
 name: sp-implementer-cheap
 description: Superpowers implementer, cheap tier. Dispatch target for tasks whose plan header says Tier cheap.
 kind: local
-model: gemini-3-flash-preview
+model: <cheap-model>
 temperature: 0.2
 tools:
   - read_file
@@ -96,23 +94,23 @@ You are the implementer for a superpowers task. Follow the task file exactly.
 
 Three fields carry superpowers invariants:
 
-- **`model` defaults to `inherit`, meaning the subagent runs on the main session's model.** That is precisely the over-provisioning the execution skills forbid — a subagent must never inherit the controller's model. To honor the written `**Tier:**`, define one agent per tier (`sp-implementer-cheap` / `-standard` / `-capable`) with `model:` set explicitly from `model_tiers.<tier>` in `.superpowers/preferences.yml`, and dispatch to the agent matching the task's tier. Only when `model_tiers` is empty/`auto` is inheriting acceptable. Record the resolved model in the `validate-dispatch.cjs` manifest so the deterministic gate stays meaningful.
+- **`model` defaults to `inherit`, meaning the subagent runs on the main session's model.** That is precisely the over-provisioning the execution skill forbids — a subagent must never inherit the controller's model. To honor the written `**Tier:**`, define one agent per tier (`sp-implementer-cheap` / `-standard` / `-capable`) with `model:` set explicitly from `model_tiers.<tier>` in `.superpowers/preferences.yml`, and dispatch to the agent matching the task's tier. Only when `model_tiers` is empty/`auto` is inheriting acceptable. Record the resolved model in the `validate-dispatch.cjs` manifest so the deterministic gate stays meaningful.
 - **`tools` implements the read-only rule.** Omitting it inherits *all* parent tools. Reviewers, research and sync-workers must list only read tools (`read_file`, `read_many_files`, `grep_search`, `glob`, `list_directory`, `run_shell_command`) — no `write_file`, no `replace`. Wildcards `*`, `mcp_*` and `mcp_<server>_*` are supported.
 - **`max_turns` (default 30) and `timeout_mins` (default 10) bound the dispatch.** A long implementer task can hit either and return truncated. If a subagent comes back incomplete, treat it as a budget stop — raise the limits on the agent definition rather than accepting a partial result as done.
 
 ### Parallel dispatch
 
-Because subagents are ordinary tools, a fan-out is several subagent tool calls requested together in the same turn — a wave in `super.parallel-subagent-development` / `super.parallel-subagent-in-tree`, or the research investigators. Keep dependent tasks sequential, but do not serialize independent subagent tasks just to preserve a simpler history.
+Because subagents are ordinary tools, a fan-out is several subagent tool calls requested together in the same turn — the research investigators, the QA story verifiers. Keep dependent tasks sequential, but do not serialize independent subagent tasks just to preserve a simpler history.
 
 ### `ask_user` is a consent tool, never a wait primitive
 
-Do not call `ask_user` to "wait for" a dispatched subagent, or to ask "continue?" between phases. The only legitimate calls are the flow's explicit, named gates: the Branch Guard, the QA gate, the auto-commit suggestion, and the execution-mode election. A `{ continue: boolean }` prompt at a phase boundary — including the brainstorming → `super.writing-plans` handoff, where the PRD suggestion is already the single go/no-go — is the anti-pattern this note prevents.
+Do not call `ask_user` to "wait for" a dispatched subagent, or to ask "continue?" between phases. The only legitimate calls are the flow's explicit, named gates: the Branch Guard's two exceptions (the feature branch already exists, or the repo pins work to the default branch), the auto-commit suggestion, and the execution-mode election (always asked, every plan). The QA gate is preference-decided, never asked. A `{ continue: boolean }` prompt at a phase boundary — including the brainstorming → `super.writing-plans` handoff, where the PRD suggestion is already the single go/no-go — is the anti-pattern this note prevents.
 
 ## No native review skills
 
-Gemini CLI has no equivalent of Claude Code's `/simplify` and `/code-review`, or Copilot CLI's `review` and Rubber Duck Agent. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are silently ignored, and `derive-session-state.cjs --platform gemini` resolves every native-review variable to its safe default. **During onboarding, skip those platform-specific steps entirely** — do not ask about them, do not mention them.
+Gemini CLI has no equivalent of Claude Code's `/code-review` or Copilot CLI's `review`. The `claude_code:` and `copilot:` sections of `.superpowers/preferences.yml` are silently ignored, and `derive-session-state.cjs --platform gemini` resolves every native-review variable to its safe default. **During onboarding, skip those platform-specific steps entirely** — do not ask about them, do not mention them.
 
-The per-task spec compliance review and code quality review gates always run, on every platform, as do the default final code reviewer and the always-on `super.independent-verification` gate.
+The per-task spec compliance review and code quality review gates always run, on every platform, as does the default final code reviewer.
 
 ## Additional Gemini CLI tools
 

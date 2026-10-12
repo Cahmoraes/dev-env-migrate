@@ -9,20 +9,15 @@
  * ~43.5k chars (~10.9k tokens), not the ~8.4k the file size suggests. So every byte left in the
  * eager SKILL.md is paid at roughly double rate, on every session, whether or not it gets used.
  *
- * The tier table and the verification-rigor invariant describe what a tier *provisions* — they
- * are consumed after routing, by brainstorming/planning/execution, not by the router deciding
- * where to send the user. They were moved to references/triage-sizing.md. This test keeps them
- * there: a future edit that pastes them back would silently re-inflate every session.
+ * The three path definitions (spike / bounded / architectural), the bounded announcement and the
+ * user pauses per path are consumed only when a request is being sized. They live in
+ * references/session-start.md, which the bootstrap already `cat`s in the SAME call as the state
+ * read — so they are in context at zero extra round trips. What the test guards is that
+ * invariant: SKILL.md keeps `cat`ing that file, and the definitions are not pasted back into the
+ * eager tier. The verification-rigor invariant is consumed by execution; it lives with the
+ * inline path (references/bounded-path.md), deferred, never deleted.
  *
- * The "Classification checklist" signal rubric used to stay eager for one reason only: the
- * router fills `assess-complexity.cjs --signals` at checkpoint 0, so deferring it would have
- * traded tokens for an extra round trip. That premise is gone — the bootstrap now `cat`s
- * references/session-start.md in the SAME call as the state read, so the rubric is already in
- * context when checkpoint 0 runs, at zero extra round trips. What the test guards is therefore
- * the invariant, not the location: the rubric and its invocation must be reachable without a
- * second round trip, which means SKILL.md has to keep `cat`ing that file from the bootstrap.
- *
- * Run with: node --test super.using-superpowers/scripts/__tests__/
+ * Run with: node --test super.using-superpowers/scripts/__tests__/skillmd-eager-cost.test.cjs
  */
 
 const test = require('node:test');
@@ -34,54 +29,35 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..');
 const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
 
 const ROUTER = 'super.using-superpowers/SKILL.md';
-const REF = 'super.using-superpowers/references/triage-sizing.md';
+const INLINE = 'super.using-superpowers/references/bounded-path.md';
 const SESSION_START = 'super.using-superpowers/references/session-start.md';
 
-test('the tier table lives in the reference, not in the eager SKILL.md', () => {
+test('the path definitions ride the bootstrap call, not the eager SKILL.md', () => {
   const body = read(ROUTER);
-  const ref = read(REF);
-
-  const TABLE_HEADER = '| Tier | Criteria | Spec/PRD | Design | Tasks | Execution + Gates |';
-  assert.ok(ref.includes(TABLE_HEADER),
-    'references/triage-sizing.md must own the tier table');
-  assert.ok(!body.includes(TABLE_HEADER),
-    'the tier table must NOT be pasted back into SKILL.md — it is charged twice per invocation');
-
-  // The router still has to be told where it went, or the content is simply lost.
-  assert.match(body, /references\/triage-sizing\.md/,
-    'SKILL.md must point at the reference it deferred the table to');
+  const sessionStart = read(SESSION_START);
+  // Anchored on the definitions themselves, not on the heading: a heading alone passes even
+  // when the content under it is gone.
+  for (const def of [/^- \*\*Spike\*\* — a feasibility question/m, /^- \*\*Bounded\*\* — a change to a flow that already exists in this repo to read/m, /^- \*\*Architectural\*\* — everything else/m]) {
+    assert.match(sessionStart, def, 'references/session-start.md must own the path definitions');
+    assert.doesNotMatch(body, def, 'the definitions must NOT be pasted back into SKILL.md — it is charged twice per invocation');
+  }
+  assert.match(sessionStart, /\*\*User pauses per path — the whole list\.\*\*/,
+    'the closed list of user pauses travels with the definitions');
+  // The load-bearing half: the bootstrap snippet must still pull the file in-call.
+  assert.match(body, /cat \$B\/references\/session-start\.md/,
+    'the bootstrap must cat references/session-start.md, or the definitions cost a round trip');
+  assert.match(body, /\.\/references\/session-start\.md/,
+    'SKILL.md must point at the reference that owns the path definitions');
 });
 
 test('the verification-rigor invariant is deferred, not deleted', () => {
   // Deferring is only safe if the content survives. Dropping a normative invariant
   // while "optimizing tokens" is the failure mode this guards.
-  const ref = read(REF);
-  assert.match(ref, /Verification rigor does not scale down with the tier/,
-    'the rigor invariant must survive in the reference');
-  assert.match(ref, /author ≠ verifier/,
+  const ref = read(INLINE);
+  assert.match(ref, /Verification rigor does not scale down with the path/,
+    'the rigor invariant must survive in the bounded-path reference');
+  assert.match(ref, /author ≠ reviewer/,
     'the four lenses must survive with it');
   assert.ok(!read(ROUTER).includes('Verification rigor does not scale down'),
     'the invariant must not also sit in the eager SKILL.md (that is duplication, at 2x cost)');
-});
-
-test('the signal rubric costs no round trip — it rides the bootstrap call', () => {
-  // Counterpart to the tests above: moving it is only safe while the bootstrap keeps
-  // reading the file in the same call the state read already pays for. Drop the `cat`
-  // and this content becomes a second round trip at checkpoint 0 — the regression the
-  // original "stays eager" assertion was really protecting against.
-  const body = read(ROUTER);
-  const sessionStart = read(SESSION_START);
-  // Anchored on the signal table itself, not on the heading: a mutation run showed the
-  // heading alone passes even when renamed, so it proved nothing about the rubric.
-  assert.ok(sessionStart.includes('| Tier | `fileScope` | `abstraction` | `prd` | `decision` | `steps` |'),
-    'references/session-start.md must own the signal rubric table');
-  assert.match(sessionStart, /assess-complexity\.cjs --checkpoint 0/,
-    'the checkpoint-0 invocation must travel with its rubric');
-  assert.ok(!body.includes('| Tier | `fileScope` | `abstraction` | `prd` | `decision` | `steps` |'),
-    'the rubric must NOT be pasted back into SKILL.md — it is charged twice per invocation');
-  // The load-bearing half: the bootstrap snippet must still pull the file in-call.
-  assert.match(body, /cat \$B\/references\/session-start\.md/,
-    'the bootstrap must cat references/session-start.md, or the rubric costs a round trip');
-  assert.match(body, /references\/session-start\.md/,
-    'SKILL.md must point at the reference it deferred the rubric to');
 });

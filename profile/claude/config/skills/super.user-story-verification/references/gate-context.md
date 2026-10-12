@@ -6,7 +6,7 @@ Entry material: read once, when deciding whether to run the QA gate. Nothing her
 
 Unit tests and code reviews verify *how* the code works; this gate verifies *what* the feature does for the user. Before merge there must be evidence each PRD user story was delivered — behaviors exist, flows work end-to-end, screenshots capture the real UI. Without it, branches that pass linting and unit tests still ship missing user-facing requirements.
 
-**This gate is opt-in at every tier.** It boots a server and drives a browser (screenshots via `playwright-cli`), so it is never automatic — the controller offers it and runs it only on user consent, at any tier. It is **not** part of the mandatory verification gate (which is spec coverage + mutation + code-quality, always-on and blind). What varies by tier is only the mechanism when the user *does* opt in: in **Small/Medium** (`super.using-superpowers/references/medium-inline-path.md`) the boot-app / run-primary-flow / screenshot mechanism runs **once, inline**, not fanned out per story; in **Large/Complex** this skill's full mechanism applies unchanged — one QA subagent per story, dispatched in parallel waves. Declining QA (any tier) skips only this user-observable lens; the mandatory verification gate still runs.
+**This gate is preference-gated on every path.** It boots a server and drives a browser (screenshots via `playwright-cli`), so the user decides at onboarding (`workflow.qa_gate`) — `true` and a PRD present: the controller runs it without asking, at any tier, nothing is offered at the final stage; `ask`: the user deferred that decision to the gate, and the controller asks once, with a PRD present, before invoking this skill. The mechanism is the same on every path, the bounded one included: one QA subagent per story, dispatched in parallel waves. Turning the preference off (any tier) skips only this user-observable lens; the per-task mutation step and the final code review still run.
 
 ## Why the stack boot is decided once, upstream
 
@@ -18,11 +18,12 @@ A boot that is attempted and fails, or a stack that stays unreachable (port in u
 
 ## PRD discovery, priority 4 (embedded PRD)
 
-Folding requirements straight into the spec instead of writing a separate PRD file is the same case `super.writing-plans`' FR-coverage gate already handles via `find-feature-files.cjs` — which is why Step 1 runs that script rather than guessing. A missing `prd.embeddedIn` therefore means there is genuinely nothing to verify, not that discovery was incomplete.
+Folding requirements straight into the spec instead of writing a separate PRD file is the same case `super.writing-plans`' FR-coverage gate already handles via `<super.writing-plans-base-dir>/scripts/find-feature-files.cjs` — which is why Step 1 runs that script rather than guessing. A missing `prd.embeddedIn` therefore means there is genuinely nothing to verify, not that discovery was incomplete.
 
 ## Integration
 
-**Invoked by:** the orchestrator — after all tasks complete and the final code reviewer approves, when a PRD exists **and the user opts into QA verification**, before `super.finishing-a-development-branch` is called. Tier mechanism (Large/Complex fan-out vs. Small/Medium inline) is covered above under "Why This Gate Exists."
+**Invoked by:** the orchestrator — after all tasks complete and the final code reviewer approves, when a PRD exists **and `workflow.qa_gate` is on** (`true`: never asked at the final stage; `ask`: one question there first), before `super.finishing-a-development-branch` is called.
 **Artifacts saved to:** `docs/superpowers/<feature-name>/qa/`
 **Required context:** PRD path, feature name, test runner command
 **Optional context:** playwright-cli, Playwright, or Puppeteer availability
+**On `FAILED`:** the gate runs one fix round itself — reopens the story's task, dispatches implementer + combined review with the `failure_details`, re-verifies the story — and only then returns; a second `FAILED` is a STOP for the user (Step 6).

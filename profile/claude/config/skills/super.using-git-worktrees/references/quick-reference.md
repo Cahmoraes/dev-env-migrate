@@ -15,9 +15,8 @@ Decision cheat-sheet for `super.using-git-worktrees`. Each row maps to a step in
 | Global path exists | Use it (backward compat) |
 | Directory not ignored | Add to .gitignore + commit |
 | Permission error on create | Sandbox fallback, work in place |
-| Project binds ports, no `ports.yml` | `allocate-ports.cjs --detect`, propose to user (Step 3.5) |
-| `ports.yml` present | Allocate before the baseline; load `ports.env` (Step 3.5) |
+| Project binds ports, no `ports.yml` | `allocate-ports.cjs --detect`, propose to user (Step 3) |
+| `ports.yml` present | Allocate before the baseline; load `ports.env` (Step 3) |
 | Allocation reports `conflicts` | No block granted — do not start services; widen `range` |
 | Tearing a worktree down | `allocate-ports.cjs --release` first |
-| Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |

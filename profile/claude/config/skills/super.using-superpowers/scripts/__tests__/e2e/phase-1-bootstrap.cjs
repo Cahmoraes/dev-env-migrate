@@ -1,7 +1,7 @@
 'use strict';
 // FASE 1 — Bootstrap / roteamento de entrada (super.using-superpowers).
 // Foco de regressao: o bootstrap e UMA chamada (derive-session-state + o `cat` do
-// session-start.md) e a tabela de tiers vive em references/triage-sizing.md.
+// session-start.md), que carrega a classificacao spike/bounded/architectural.
 const { run, sh, write, check, assert, eq, setPhase, report, ROOT, fs, path } = require('./harness.cjs');
 
 check('setup: sandbox git virgem', () => {
@@ -53,12 +53,10 @@ check('bootstrap de 1 call: derive + o `cat` do session-start rodam encadeados',
 setPhase('P1 bootstrap: write-preferences -> derive (juncao real)');
 
 const prefsFull = {
-  workflow: { auto_commit: true, confirm_destructive_actions: true, qa_gate: true, visual_companion: true },
-  communication: { language: 'pt-BR' },
-  claude_code: { simplify: true, code_review_final: true, code_review_effort: 'high' },
-  copilot: { rubber_duck: false, review_final: true },
+  workflow: { auto_commit: true, qa_gate: true, visual_companion: true, finish_action: 'pr' },
+  claude_code: { review_final: true, review_effort: 'high' },
+  copilot: { review_final: true },
   context: { has_corporate_artifacts: false },
-  optimization: { caveman: true, caveman_level: 'ultra' },
   model_tiers: { cheap: 'haiku', standard: 'sonnet', capable: 'opus' },
 };
 
@@ -77,13 +75,10 @@ check('derive le o que write gravou (nao ha drift de schema entre os dois)', () 
   const r = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
   const s = r.json.sessionState;
   eq(r.json.preferencesFound, true, 'preferencesFound');
-  eq(s.session_language, 'pt-BR', 'language');
-  eq(s.session_caveman_active, true, 'caveman_active');
-  eq(s.session_caveman_level, 'ultra', 'caveman_level');
+  eq(s.session_finish_action, 'pr', 'finish_action');
   eq(s.session_qa_gate_enabled, true, 'qa_gate');
   eq(s.session_visual_companion_enabled, true, 'visual_companion');
-  eq(s.session_simplify_enabled, true, 'simplify');
-  eq(s.session_code_review_final_enabled, true, 'code_review_final');
+  eq(s.session_code_review_final_enabled, true, 'review_final');
   eq(s.session_model_tier_cheap, 'haiku', 'tier cheap');
   eq(s.session_model_tier_capable, 'opus', 'tier capable');
   return 'mapeamento integro';
@@ -95,20 +90,39 @@ check('gating de plataforma: claude_code.* inerte fora do claude-code', () => {
     const r = run(`${US}/derive-session-state.cjs`, ['--platform', p, '--repo-root', ROOT]);
     assert(r.json, `plataforma ${p} sem JSON: ${r.stderr}`);
     const s = r.json.sessionState;
-    seen[p] = [s.session_simplify_enabled, s.session_code_review_final_enabled, s.session_copilot_review_final_enabled];
+    seen[p] = [s.session_code_review_final_enabled, s.session_copilot_review_final_enabled];
     if (p !== 'claude-code') {
-      assert(s.session_simplify_enabled === false, `${p}: simplify deveria ser false`);
-      assert(s.session_code_review_final_enabled === false, `${p}: code_review_final deveria ser false`);
+      assert(s.session_code_review_final_enabled === false, `${p}: review_final deveria ser false`);
     }
     if (p !== 'copilot') {
       assert(s.session_copilot_review_final_enabled === false, `${p}: copilot_review deveria ser false`);
     }
     // Cross-platform vars sobrevivem em TODA plataforma.
-    eq(s.session_language, 'pt-BR', `${p}: language cross-platform`);
-    eq(s.session_model_tier_capable, 'opus', `${p}: model_tiers cross-platform`);
+    eq(s.session_finish_action, 'pr', `${p}: finish_action cross-platform`);
+
+    // model_tiers continua cross-platform como MAPEAMENTO — nenhuma plataforma o
+    // apaga por ser "de outro harness", como acontece com claude_code.*. O que ele
+    // sofre e' resolucao de DISPONIBILIDADE: os tres tiers da fixture sao modelos
+    // Anthropic, e codex/gemini nao servem Anthropic, entao la cada um cai — para o rung
+    // da propria plataforma quando ela publica um, ou para "auto" quando nao publica —
+    // em vez de despachar um modelo inexistente no meio do plano. Nem codex nem gemini
+    // publicam rungs, entao la o valor e' "auto". A queda nunca e' silenciosa: sai em
+    // unavailableModelTiers.
+    const servesAnthropic = !['codex', 'gemini'].includes(p);
+    if (servesAnthropic) {
+      eq(s.session_model_tier_capable, 'opus', `${p}: model_tiers cross-platform`);
+      eq(r.json.unavailableModelTiers, [], `${p}: nada deveria cair`);
+    } else {
+      eq(s.session_model_tier_capable, 'auto', `${p}: opus indisponivel e sem rung proprio`);
+      eq(
+        r.json.unavailableModelTiers.map((u) => `${u.tier}:${u.configured}`),
+        ['cheap:haiku', 'standard:sonnet', 'capable:opus'],
+        `${p}: a queda precisa ser reportada, nunca silenciosa`,
+      );
+    }
   }
-  eq(seen['claude-code'], [true, true, false], 'claude-code');
-  eq(seen['copilot'], [false, false, true], 'copilot');
+  eq(seen['claude-code'], [true, false], 'claude-code');
+  eq(seen['copilot'], [false, true], 'copilot');
   return '6 plataformas gateadas';
 });
 
@@ -116,7 +130,6 @@ check('read-preferences e derive concordam (mesmo loader)', () => {
   const rp = run(`${US}/read-preferences.cjs`, ['--repo-root', ROOT]);
   const ds = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
   eq(rp.json.found, ds.json.preferencesFound, 'found vs preferencesFound');
-  eq(rp.json.preferences.communication.language, ds.json.sessionState.session_language, 'language');
   eq(rp.json.preferences.model_tiers.cheap, ds.json.sessionState.session_model_tier_cheap, 'tier cheap');
   return 'consistente';
 });
@@ -133,8 +146,23 @@ check('qa_gate:false desliga session_qa_gate_enabled', () => {
   const r = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
   const s = r.json.sessionState;
   eq(s.session_qa_gate_enabled, false, 'qa_gate');
+  eq(s.session_qa_gate_ask, false, 'qa_gate_ask');
   eq(s.session_auto_commit, false, 'auto_commit');
-  return 'dois gates desligados propagam';
+  return 'tres gates desligados propagam';
+});
+
+check('qa_gate:ask mantem session_qa_gate_enabled e liga session_qa_gate_ask', () => {
+  const p = JSON.parse(JSON.stringify(prefsFull));
+  p.workflow.qa_gate = 'ask';
+  const inFile = path.join(ROOT, 'prefs-ask.json');
+  fs.writeFileSync(inFile, JSON.stringify(p));
+  const w = run(`${US}/write-preferences.cjs`, ['--input-file', inFile, '--repo-root', ROOT]);
+  assert(w.json && w.json.roundTripValid === true, `ask nao sobreviveu ao round-trip: ${w.stdout.slice(0, 200)}`);
+  const r = run(`${US}/derive-session-state.cjs`, ['--platform', 'claude-code', '--repo-root', ROOT]);
+  const s = r.json.sessionState;
+  eq(s.session_qa_gate_enabled, true, 'qa_gate enabled');
+  eq(s.session_qa_gate_ask, true, 'qa_gate_ask');
+  return 'ask propaga como flag propria';
 });
 
 // A chave `memory:` existia enquanto o superpowers mantinha um banco de memoria. Ela
@@ -149,7 +177,7 @@ check('uma chave `memory:` legada no arquivo e ignorada, sem erro e sem vazar', 
   assert(r.json, `sem JSON com chave legada: ${r.stderr}`);
   eq(r.json.preferencesFound, true, 'preferencesFound');
   eq(r.json.malformed, false, 'malformed');
-  eq(r.json.sessionState.session_language, 'pt-BR', 'o resto do mapeamento sobreviveu');
+  eq(r.json.sessionState.session_finish_action, 'pr', 'o resto do mapeamento sobreviveu');
   const vazou = Object.keys(r.json.sessionState).filter((k) => /memory|resync/i.test(k));
   eq(vazou, [], 'nenhuma variavel de memoria pode voltar ao sessionState');
   const rp = run(`${US}/read-preferences.cjs`, ['--repo-root', ROOT]);
@@ -216,72 +244,7 @@ check('setup: prefs completas restauradas para as fases seguintes', () => {
   return 'prefs de referencia no disco';
 });
 
-setPhase('P1 triagem: assess-complexity');
-
-check('project-g (LRU+TTL) classifica em tier de planejamento', () => {
-  const signals = {
-    fileScope: 'new-component', abstraction: 'yes', prd: 'optional',
-    decision: 'may-exist', steps: 6,
-    text: 'Cache em memoria com politica LRU e expiracao por TTL',
-  };
-  const r = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify(signals), '--checkpoint', '0']);
-  assert(r.json, `sem JSON: ${r.stderr}`);
-  assert(['medium', 'large'].includes(r.json.tier), `tier inesperado: ${r.json.tier}`);
-  eq(r.json.consentGates, [], 'tier nao-complex nao oferece consent gates');
-  return `tier=${r.json.tier} conf=${r.json.confidence}`;
-});
-
-check('criticalSurface tri-state: interpretador primario, regex backstop, false=veto', () => {
-  // O piso e small (nunca micro) — so uma base que cairia em micro expoe o efeito.
-  const base = { fileScope: 'single-existing', abstraction: 'none', prd: 'none', decision: 'none', steps: 1 };
-  const neutro = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ ...base, text: 'renomeia variavel' })]).json;
-  const backstop = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ ...base, text: 'ajusta o middleware de auth' })]).json;
-  const veto = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ ...base, text: 'ajusta o middleware de auth', criticalSurface: false })]).json;
-  const forcado = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ ...base, text: 'renomeia variavel', criticalSurface: true })]).json;
-  eq(neutro.tier, 'micro', 'sem sinal critico');
-  eq(backstop.tier, 'small', 'regex backstop deve pisar em small');
-  eq(veto.tier, 'micro', 'criticalSurface:false deve VETAR o regex');
-  eq(forcado.tier, 'small', 'criticalSurface:true deve pisar sem keyword');
-  return 'micro | kw:small | veto:micro | semantico:small';
-});
-
-check('tier complex oferece consent gate por checkpoint', () => {
-  const signals = { fileScope: 'cross-cutting', abstraction: 'ambiguous', prd: 'required', decision: 'open-fork', steps: 20 };
-  const cp0 = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify(signals), '--checkpoint', '0']).json;
-  const cp2 = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify(signals), '--checkpoint', '2']).json;
-  eq(cp0.tier, 'complex', 'tier cp0');
-  eq(cp0.consentGates, ['deep-research'], 'consentGates cp0');
-  eq(cp2.consentGates, ['reviewing-specs'], 'consentGates cp2');
-  return 'gates por checkpoint corretos';
-});
-
-check('sinal mal-formado FALHA em vez de virar Medium silencioso', () => {
-  // alias de CHAVE com valor valido: aceito
-  const alias = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ files: 'few-existing', new_abstractions: true, decisions: false })]);
-  assert(alias.json, `alias de chave deveria funcionar: ${alias.stderr}`);
-  // chave desconhecida: rejeitada com sugestao
-  const badKey = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ fileScopeee: 'single-existing' })]);
-  eq(badKey.status, 1, 'chave desconhecida deve sair 1');
-  assert(/did you mean|Valid keys/i.test(badKey.stderr + badKey.stdout), 'erro deveria ser auto-documentado');
-  // valor errado numa chave conhecida: rejeitado (nao vira Medium mudo)
-  const badVal = run(`${US}/assess-complexity.cjs`, ['--signals', JSON.stringify({ files: 3 })]);
-  eq(badVal.status, 1, 'valor fora do enum deve sair 1');
-  assert(/Valid fileScope/i.test(badVal.stderr + badVal.stdout), 'erro deveria listar o enum valido');
-  return `alias ok (tier=${alias.json.tier}); chave e valor ruins rejeitados`;
-});
-
-setPhase('P1 caveman + status');
-
-check('render-caveman-block reflete as preferences do disco', () => {
-  const r = run(`${US}/render-caveman-block.cjs`, ['--repo-root', ROOT]);
-  assert(r.json, `sem JSON: ${r.stderr}`);
-  eq(r.json.active, true, 'active');
-  eq(r.json.level, 'ultra', 'level');
-  assert(r.json.block && r.json.block.length > 0, 'bloco vazio com caveman ativo');
-  const off = run(`${US}/render-caveman-block.cjs`, ['--active', 'false', '--repo-root', ROOT]);
-  eq(off.json.block, '', 'caveman off deve render bloco vazio');
-  return `bloco ${r.json.block.length}B ligado, vazio desligado`;
-});
+setPhase('P1 status');
 
 check('superpowers-status nunca sai != 0 (sempre reporta em JSON)', () => {
   const r = run(`${US}/superpowers-status.cjs`, ['--repo-root', ROOT]);

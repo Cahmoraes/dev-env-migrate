@@ -8,8 +8,8 @@
  * runs the whole suite / the typecheck / the build / the formatter in fix mode
  * therefore reads as an instruction that OUTRANKS the execution skill's
  * prohibition against exactly that command — which is how a plan makes every
- * implementer and every reviewer re-run what the integration barrier already runs
- * once per wave.
+ * implementer and every reviewer re-run what the full-suite checkpoint already runs
+ * once per batch.
  *
  * The check is deliberately stack-neutral: it classifies by ROLE (test runner,
  * typecheck, build, fix-mode formatter), so the fixtures below span JS, Python,
@@ -45,7 +45,6 @@ function taskFile({ steps = '', criteria = '' } = {}) {
     '**Status:** PENDING',
     '**PRD:** `../prd/prd-x.md`',
     '**Spec:** `../specs/x-design.md`',
-    '**Depends on:** N/A',
     '',
     '## Passos',
     steps,
@@ -72,7 +71,7 @@ function scopeOf({ steps, criteria }) {
 
 const kinds = (r) => r.stepScope.findings.map((f) => f.kind).sort();
 
-// ─── The four barrier-owned command roles ────────────────────────────────────
+// ─── The four checkpoint-owned command roles ────────────────────────────────────
 //
 // Table-driven so that adding an ecosystem is a one-line change, and so a
 // regression that only survives in one language is visible as a single red row.
@@ -106,16 +105,16 @@ const BARRIER_OWNED = [
   ['ruff format', 'Run: `ruff format src/`', 'formatter/linter in fix mode'],
 ];
 
-test('every barrier-owned command role is flagged, in every ecosystem', () => {
+test('every checkpoint-owned command role is flagged, in every ecosystem', () => {
   // Anti-staleness: a fixture table that silently empties would pass a loop.
   assert.ok(BARRIER_OWNED.length >= 20, 'fixture table shrank — re-derive it before trusting this file');
   const roles = new Set(BARRIER_OWNED.map(([, , kind]) => kind));
-  assert.equal(roles.size, 4, 'all four barrier-owned roles must be represented');
+  assert.equal(roles.size, 4, 'all four checkpoint-owned roles must be represented');
 
   for (const [label, steps, expected] of BARRIER_OWNED) {
     const r = scopeOf({ steps });
     assert.deepEqual(kinds(r), [expected], `${label}: expected exactly one ${expected} finding`);
-    assert.equal(r.valid, false, `${label}: a barrier-owned step must invalidate the plan`);
+    assert.equal(r.valid, false, `${label}: a checkpoint-owned step must invalidate the plan`);
   }
 });
 
@@ -167,6 +166,18 @@ test('legitimate scoped commands and non-test shell verbs are not flagged', () =
   }
 });
 
+test('a plugin name that starts with a runner is a dependency, not the suite (hyphen is a word boundary)', () => {
+  // Measured: `pytest-playwright` inside an "Expected:" line was reported as "full test suite".
+  const PLUGINS = ['pytest-playwright', 'pytest-cov', 'pytest-asyncio', 'jest-dom', 'vitest-fetch-mock'];
+  for (const name of PLUGINS) {
+    const r = scopeOf({ steps: `Run: \`python -m pytest tests/test_x.py::test_a -v\`\nExpected: FAIL with missing \`${name}\` fixture` });
+    assert.deepEqual(r.stepScope.findings, [], `${name}: a plugin name must not read as the bare runner`);
+  }
+  // The bare runner keeps failing — the boundary change must not open the door it guards.
+  const bare = scopeOf({ steps: 'Run: `pytest`' });
+  assert.deepEqual(kinds(bare), ['full test suite']);
+});
+
 // ─── Where the check looks, and how it reports ───────────────────────────────
 
 test('the criteria section is scanned too — the same demand leaks through it', () => {
@@ -196,8 +207,8 @@ test('a finding names the task, the file, the role and the offending command', (
   assert.match(f.command, /pnpm build/u);
   // The error must send the author to the rule, not just name the symptom.
   assert.ok(
-    r.errors.some((e) => /required-task-step-pattern\.md/u.test(e.message) && /integration barrier/u.test(e.message)),
-    'the error must cite the barrier and point at the reference that states the rule',
+    r.errors.some((e) => /required-task-step-pattern\.md/u.test(e.message) && /full-suite checkpoint/u.test(e.message)),
+    'the error must cite the checkpoint and point at the reference that states the rule',
   );
 });
 

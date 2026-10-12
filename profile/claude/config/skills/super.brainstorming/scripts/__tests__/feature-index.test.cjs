@@ -181,6 +181,16 @@ test('out of scope comes from the PRD, and the spec is the fallback', () => {
   assert.deepEqual(b.outOfScope, ['Auditoria de leitura (apenas escrita é registrada)']);
 });
 
+test('a PRD whose Fora de Escopo only cites the spec falls back to the spec list (prd-template rule)', () => {
+  const root = makeRepo();
+  const prd = PRD('C').replace(/## Fora de Escopo[\s\S]*$/, '## Fora de Escopo\nAs exclusões da spec valem (## Escopo).\n');
+  writeArtifact(root, 'c', 'prd', 'prd-c.md', prd);
+  writeArtifact(root, 'c', 'specs', 'c-design.md', SPEC('C'));
+  const [c] = buildIndex(opts(root)).features;
+  assert.equal(c.sources.outOfScope, 'spec');
+  assert.deepEqual(c.outOfScope, ['Auditoria de leitura (apenas escrita é registrada)']);
+});
+
 test('an English "Out of Scope" heading is read the same as the pt-BR one', () => {
   const root = makeRepo();
   writeArtifact(root, 'a', 'prd', 'prd-a.md', '# PRD\n\n## Overview\n\nAlgo.\n\n## Out of Scope\n\n- Nothing else\n');
@@ -221,15 +231,15 @@ test('`full` is the default detail — the arm that won the retrieval benchmark'
 
 // ─── Artifact flags ──────────────────────────────────────────────────────────
 
-test('artifact flags distinguish the QA report from the independent-verification report', () => {
+test('artifact flags mark the QA report, and only the QA report, under qa/', () => {
   const root = makeRepo();
   writeArtifact(root, 'a', 'specs', 'a-design.md', SPEC('A'));
-  writeArtifact(root, 'a', 'qa', 'validation-a.md', '# Validation\n');
+  writeArtifact(root, 'a', 'qa', 'notes.md', '# Notes\n');
   writeArtifact(root, 'b', 'specs', 'b-design.md', SPEC('B'));
   writeArtifact(root, 'b', 'qa', 'qa-report-b.md', '# QA\n');
   const { features } = buildIndex(opts(root));
-  assert.deepEqual(features[0].artifacts, { spec: true, prd: false, plan: false, qa: false, iv: true });
-  assert.deepEqual(features[1].artifacts, { spec: true, prd: false, plan: false, qa: true, iv: false });
+  assert.deepEqual(features[0].artifacts, { spec: true, prd: false, plan: false, qa: false });
+  assert.deepEqual(features[1].artifacts, { spec: true, prd: false, plan: false, qa: true });
 });
 
 test('a plans/ directory of task files without the index does not count as a plan', () => {

@@ -25,9 +25,17 @@ FORCE_BACKGROUND="false"
 REUSE="false"
 BIND_HOST="127.0.0.1"
 URL_HOST=""
+# A value flag given last would make `shift 2` fail without shifting, looping forever.
+need_value() {
+  if [[ $# -lt 2 || "$2" == --* ]]; then
+    echo "{\"error\": \"$1 requires a value\"}"
+    exit 1
+  fi
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project-dir)
+      need_value "$@"
       PROJECT_DIR="$2"
       shift 2
       ;;
@@ -36,10 +44,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --host)
+      need_value "$@"
       BIND_HOST="$2"
       shift 2
       ;;
     --url-host)
+      need_value "$@"
       URL_HOST="$2"
       shift 2
       ;;
@@ -57,6 +67,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Absolute before anything uses it: the script cd's into its own dir below, so a
+# relative --project-dir would otherwise point every session path at the wrong place.
+if [[ -n "$PROJECT_DIR" ]]; then
+  mkdir -p "$PROJECT_DIR" && PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)" || {
+    echo "{\"error\": \"cannot use --project-dir $PROJECT_DIR\"}"
+    exit 1
+  }
+fi
 
 if [[ -z "$URL_HOST" ]]; then
   if [[ "$BIND_HOST" == "127.0.0.1" || "$BIND_HOST" == "localhost" ]]; then
@@ -91,8 +110,9 @@ if [[ "$REUSE" == "true" && -n "$PROJECT_DIR" ]]; then
       [[ -z "$info" ]] && continue
       sdir="$(dirname "$info")"
       [[ -f "$sdir/server-stopped" ]] && continue
-      pidf="$sdir/server.pid"
-      if [[ -f "$pidf" ]] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; then
+      [[ -f "$sdir/server.pid" ]] || continue
+      pid="$(<"$sdir/server.pid")"
+      if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
         cat "$info"
         exit 0
       fi
@@ -128,10 +148,12 @@ if [[ -z "$OWNER_PID" || "$OWNER_PID" == "1" ]]; then
   OWNER_PID="$PPID"
 fi
 
+SERVER_CMD=(env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs)
+
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
   echo "$$" > "$PID_FILE"
-  env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs
+  "${SERVER_CMD[@]}"
   exit $?
 fi
 
@@ -154,29 +176,41 @@ fi
 #                        Insufficient for session-based reapers; Windows/Git Bash and
 #                        Codex are handled by the auto-foreground blocks above.
 if command -v setsid >/dev/null 2>&1; then
-  setsid env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs > "$LOG_FILE" 2>&1 < /dev/null &
+  setsid "${SERVER_CMD[@]}" > "$LOG_FILE" 2>&1 < /dev/null &
   SERVER_PID=$!
 elif [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] && command -v perl >/dev/null 2>&1; then
   # macOS lacks the setsid binary but ships perl with POSIX module, which exposes
   # the same setsid(2) syscall. This creates a brand-new session so the server
   # survives agent-harness (Copilot CLI, etc.) session teardown on macOS.
   perl -e 'use POSIX "setsid"; setsid() or die; exec @ARGV' -- \
-    env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs > "$LOG_FILE" 2>&1 < /dev/null &
+    "${SERVER_CMD[@]}" > "$LOG_FILE" 2>&1 < /dev/null &
   SERVER_PID=$!
 else
-  nohup env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs > "$LOG_FILE" 2>&1 < /dev/null &
+  nohup "${SERVER_CMD[@]}" > "$LOG_FILE" 2>&1 < /dev/null &
   SERVER_PID=$!
   disown "$SERVER_PID" 2>/dev/null
 fi
 echo "$SERVER_PID" > "$PID_FILE"
 
-# Wait for server-started message (check log file)
+# Wait for server-started message (check log file). The first line of the log is the
+# server-started JSON; reading it with a builtin avoids spawning grep on every tick.
+started_line() {
+  local line
+  [[ -f "$LOG_FILE" ]] || return 1
+  while IFS= read -r line; do
+    if [[ "$line" == *server-started* ]]; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done < "$LOG_FILE"
+  return 1
+}
 for i in {1..50}; do
-  if grep -q "server-started" "$LOG_FILE" 2>/dev/null; then
+  if STARTED="$(started_line)"; then
     # The server writes its own authoritative pid to PID_FILE before printing
     # server-started, so by now PID_FILE names the real listener even if setsid
     # forked and changed what $! pointed at. Adopt it for the alive-check.
-    if [[ -s "$PID_FILE" ]]; then SERVER_PID="$(cat "$PID_FILE")"; fi
+    if [[ -s "$PID_FILE" ]]; then SERVER_PID="$(<"$PID_FILE")"; fi
     # Short liveness window to catch an immediate post-listen crash (e.g. the node
     # process dies right after binding). This does NOT guard against agent-harness
     # session reapers — those kill the server AFTER this bash call returns, so they
@@ -194,7 +228,7 @@ for i in {1..50}; do
       echo "{\"error\": \"Server started but was killed. Retry in a persistent terminal with: $SCRIPT_DIR/start-server.sh${PROJECT_DIR:+ --project-dir $PROJECT_DIR} --host $BIND_HOST --url-host $URL_HOST --foreground\"}"
       exit 1
     fi
-    grep "server-started" "$LOG_FILE" | head -1
+    printf '%s\n' "$STARTED"
     exit 0
   fi
   sleep 0.1

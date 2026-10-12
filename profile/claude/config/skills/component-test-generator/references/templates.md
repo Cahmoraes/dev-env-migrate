@@ -30,6 +30,7 @@ Indentação de 2 espaços. Título do Feature em inglês (nome do componente), 
 Feature: CT001 - Subscription Component
   Scenario: Verificar se o componente Subscription renderiza corretamente com tipo Postpaid
     Given Eu visito o componente SubscriptionController com assinatura Postpaid
+    When Eu aguardo o carregamento da assinatura
     Then A view de assinatura Postpaid deve ser renderizada
     And Os dados da assinatura devem estar visíveis
 ```
@@ -40,10 +41,12 @@ Quando um CT cobre múltiplos CAs distintos, use um `Scenario` por CA:
 Feature: CT001 - Subscription Detail
   Scenario: CA001 - Acesso ao detalhe da assinatura
     Given Eu visito o componente SubscriptionController com assinatura Postpaid
+    When Eu seleciono o card da assinatura
     Then A view de assinatura Postpaid deve ser renderizada
 
   Scenario: CA002 - Exibição dos dados da assinatura
     Given Eu visito o componente SubscriptionController com assinatura Postpaid
+    When Eu aguardo o carregamento da assinatura
     Then Os dados da assinatura devem estar visíveis
 ```
 
@@ -52,7 +55,7 @@ Feature: CT001 - Subscription Detail
 Boilerplate completo (base: `PTIECSUB-001/CT001`). Ajuste os pontos marcados com `// AJUSTE`.
 
 ```tsx
-import { Before, Given, Then } from "@badeball/cypress-cucumber-preprocessor"
+import { Before, Given, Then, When } from "@badeball/cypress-cucumber-preprocessor"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ThemeContextProvider } from "@telefonica/mistica"
 import { mount } from "cypress/react"
@@ -108,6 +111,14 @@ Given(
     )
   },
 )
+
+When("Eu aguardo o carregamento da assinatura", () => {
+  cy.get('[data-testid="postpaid-view"]', { timeout: 10000 }).should("exist")
+})
+
+When("Eu seleciono o card da assinatura", () => {
+  cy.get('[data-testid="subscription-card"]').click()
+})
 
 Then("A view de assinatura Postpaid deve ser renderizada", () => {
   // AJUSTE: data-testid real descoberto na view

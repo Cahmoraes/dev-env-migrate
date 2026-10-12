@@ -1,12 +1,12 @@
 'use strict';
 
-// Tests lite-reentry.cjs — the standalone projection of the three preferences a spec
-// review consumes (capable model, caveman state, language). Key invariants: it reuses
+// Tests lite-reentry.cjs — the standalone projection of the preference a spec
+// review consumes (the capable model). Key invariants: it reuses
 // read-preferences.cjs's parse/normalize (so semantics match the full re-entry), it
 // degrades to DEFAULTS when the file/repo is absent (found:false), and it never emits
 // anything outside the projected shape.
 //
-// Run: node --test scripts/__tests__/lite-reentry.test.cjs
+// Run: node --test super.reviewing-specs/scripts/__tests__/lite-reentry.test.cjs
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,8 +26,10 @@ function makeRepo(prefsBody) {
   return dir;
 }
 
-function run(repoRoot) {
-  const out = execFileSync('node', [SCRIPT, '--repo-root', repoRoot], {
+function run(repoRoot, platform) {
+  const args = [SCRIPT, '--repo-root', repoRoot];
+  if (platform) args.push('--platform', platform);
+  const out = execFileSync('node', args, {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
   return JSON.parse(out);
@@ -38,18 +40,12 @@ test('absent preferences.yml → found:false with safe DEFAULTS', () => {
   const r = run(dir);
   assert.equal(r.found, false);
   assert.equal(r.capableModel, 'auto'); // null model_tiers.capable → "auto"
-  assert.equal(r.caveman.active, false);
-  assert.equal(r.caveman.level, 'full');
-  assert.equal(r.language, 'pt-BR');
 });
 
-test('populated file projects exactly the three consumed inputs', () => {
+test('populated file projects exactly the consumed input', () => {
   const dir = makeRepo([
-    'communication:',
-    '  language: en-US',
-    'optimization:',
-    '  caveman: true',
-    '  caveman_level: ultra',
+    'workflow:',
+    '  auto_commit: false',
     'model_tiers:',
     '  cheap: haiku',
     '  standard: sonnet',
@@ -58,17 +54,8 @@ test('populated file projects exactly the three consumed inputs', () => {
   const r = run(dir);
   assert.equal(r.found, true);
   assert.equal(r.capableModel, 'opus');
-  assert.equal(r.caveman.active, true);
-  assert.equal(r.caveman.level, 'ultra');
-  assert.equal(r.language, 'en-US');
   // Projection only — no leakage of other preference sections.
-  assert.deepEqual(Object.keys(r).sort(), ['capableModel', 'caveman', 'found', 'language', 'repoRoot']);
-});
-
-test('caveman_level is case-normalized to lower-case, like read-preferences', () => {
-  const dir = makeRepo('optimization:\n  caveman: true\n  caveman_level: ULTRA\n');
-  const r = run(dir);
-  assert.equal(r.caveman.level, 'ultra');
+  assert.deepEqual(Object.keys(r).sort(), ['capableModel', 'found', 'repoRoot']);
 });
 
 test('model_tiers.capable unset → "auto" (harness picks); set → verbatim', () => {
@@ -82,12 +69,30 @@ test('model_tiers.capable unset → "auto" (harness picks); set → verbatim', (
   assert.equal(named.capableModel, 'claude-opus-4-8');
 });
 
+test('--platform drops a capable model the running harness cannot serve', () => {
+  // preferences.yml is per-REPO, model names are per-HARNESS: `capable: gpt-5` written
+  // from Copilot CLI is a model Claude Code does not have. Handing it to the dispatch
+  // fails at fan-out time, so it is dropped — and it lands on the platform's own `capable`
+  // rung alias, the same place an unset tier lands. Never the word "auto": a dispatch
+  // cannot carry it, and a controller handed it resolves it to its own model.
+  const foreign = makeRepo('model_tiers:\n  capable: gpt-5\n');
+  assert.equal(run(foreign, 'claude-code').capableModel, 'sonnet');
+  assert.equal(run(foreign, 'copilot').capableModel, 'gpt-5', 'Copilot CLI does serve it');
+
+  // Omitting the flag must not change anything this script did before: `other` is an
+  // open catalog, so the configured name comes back verbatim.
+  assert.equal(run(foreign).capableModel, 'gpt-5');
+
+  // And a name we cannot classify is never second-guessed, on any platform.
+  const custom = makeRepo('model_tiers:\n  capable: internal-gateway-v2\n');
+  assert.equal(run(custom, 'claude-code').capableModel, 'internal-gateway-v2');
+});
+
 test('module API: liteReentry() matches the CLI projection', () => {
   const { liteReentry } = require('../lite-reentry.cjs');
-  const dir = makeRepo('optimization:\n  caveman: true\n  caveman_level: lite\n');
+  const dir = makeRepo('model_tiers:\n  capable: opus\n');
   const r = liteReentry(dir);
   assert.equal(r.found, true);
-  assert.equal(r.caveman.active, true);
-  assert.equal(r.caveman.level, 'lite');
+  assert.equal(r.capableModel, 'opus');
   assert.equal(r.repoRoot, dir);
 });

@@ -78,11 +78,14 @@ const EXEMPT = new Set([path.resolve(__filename)]);
 /** Binary or generated payloads have no prose to couple. */
 const SKIP_EXT = new Set(['.pyc', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.pdf']);
 const SKIP_DIR = new Set(['.git', 'node_modules', '__pycache__']);
+/** `claude plugin eval` output: gitignored, and it records the local checkout path by design. */
+const SKIP_PATH = new Set([path.join(ARTIFACTS, 'superpowers', 'plugin-evals', 'results')]);
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     if (e.isDirectory()) {
-      if (!SKIP_DIR.has(e.name)) walk(path.join(dir, e.name), out);
+      const p = path.join(dir, e.name);
+      if (!SKIP_DIR.has(e.name) && !SKIP_PATH.has(p)) walk(p, out);
     } else if (e.isFile() && !SKIP_EXT.has(path.extname(e.name))) {
       out.push(path.join(dir, e.name));
     }
@@ -158,20 +161,18 @@ test('no artifact names a consumer project, its features, or its files', () => {
 
 // ─── The rules themselves ────────────────────────────────────────────────────
 
-test('a named consumer identifier is flagged wherever it appears', () => {
+test('a named consumer identifier is flagged wherever it appears, in any case', () => {
   assert.ok(BANNED.length >= 15, 'the quarantine list shrank — re-derive it before trusting this sweep');
+  // Title-Case is the same proper noun: that exact shape survived a case-sensitive sed once.
+  const titleCase = (t) => t.replace(/(^|-)([a-z])/g, (_, sep, c) => sep + c.toUpperCase());
   for (const token of BANNED) {
-    const found = scanText(`// Measured on feature ${token}: it was slow.`);
-    assert.equal(found.length, 1, `${token}: must be flagged`);
-    assert.equal(found[0].rule, 'named-consumer-identifier');
+    for (const shape of [token, titleCase(token)]) {
+      const found = scanText(`// Measured on feature ${shape}: it was slow.`);
+      assert.equal(found.length, 1, `${shape}: must be flagged`);
+      assert.equal(found[0].rule, 'named-consumer-identifier');
+      assert.equal(found[0].token, token);
+    }
   }
-});
-
-test('matching is case-insensitive — a Title-Case slug is the same proper noun', () => {
-  // This exact shape survived a case-sensitive sed and was caught only by a failing test.
-  const found = scanText("driftedSlugs(['Home-Planos-Contato'], presence)");
-  assert.equal(found.length, 1);
-  assert.equal(found[0].token, 'home-planos-contato');
 });
 
 test('an absolute checkout path is flagged even for a project the list never heard of', () => {
@@ -189,9 +190,9 @@ test('invented example slugs and generic route names are NOT flagged', () => {
     'docs/superpowers/my-feature/plans/',
     "mkdir docs/superpowers/broker-fanout',",
     "@Post('forgot-password')",
-    '// Measured on one 19-task feature: 16 barrier invocations.',
+    '// Measured on one 19-task feature: 16 full-suite invocations.',
     '// Reproduces a real PRD shape observed in the field:',
-    'node scripts/parse-waves.cjs --tasks-index docs/superpowers/<feature>/plans/',
+    'node scripts/parse-plan.cjs --tasks-index docs/superpowers/<feature>/plans/',
   ];
   for (const line of clean) assert.deepEqual(scanText(line), [], `${line}: must not be flagged`);
 });
@@ -218,24 +219,58 @@ test('the sweep actually reads its neighbours — a planted violation next door 
   }
 });
 
-// ─── Opt-in: exhaustive cross-check against a real consuming repo ────────────
+// ─── Exhaustive cross-check against a consuming repo's feature list ──────────
 
-test('every feature slug in a real consuming repo is absent from artifacts (opt-in)', (t) => {
-  // The denylist only knows what has already leaked. Point this at a consuming checkout
-  // to check ALL of its feature slugs at once:
-  //   SUPERPOWERS_CONSUMER_REPO=/path/to/repo node --test <this file>
-  const repo = process.env.SUPERPOWERS_CONSUMER_REPO;
-  const featuresDir = repo && path.join(repo, 'docs', 'superpowers');
-  if (!repo || !fs.existsSync(featuresDir)) {
-    t.skip('set SUPERPOWERS_CONSUMER_REPO to a checkout with docs/superpowers/ to run this');
-    return;
-  }
-  const slugs = fs
+/**
+ * The feature slugs a consuming repo declares: one directory per feature under
+ * docs/superpowers/. Slugs short enough to be ordinary English (`forgot-password`) are not
+ * proper nouns and are left out.
+ */
+function consumerSlugs(featuresDir) {
+  return fs
     .readdirSync(featuresDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
-    // Slugs short enough to be ordinary English (`forgot-password`) are not proper nouns.
     .filter((s) => s.split('-').length >= 3);
-  assert.ok(slugs.length > 0, `${featuresDir} has no feature directories — wrong repo?`);
-  assertClean(slugs);
+}
+
+test('every feature slug a consuming repo declares is absent from artifacts', () => {
+  // The denylist only knows what has already leaked. This derives the slug list from a
+  // consumer's docs/superpowers/ tree — the shape the sweep meets in the field — and runs
+  // the full sweep against it. The consumer is synthetic so the test runs everywhere: it
+  // used to skip unless SUPERPOWERS_CONSUMER_REPO was set, and a test that skips on every
+  // run guards nothing. Pointing SUPERPOWERS_CONSUMER_REPO at a real checkout ADDS that
+  // repo's slugs to the same run:
+  //   SUPERPOWERS_CONSUMER_REPO=/path/to/repo node --test <this file>
+  const consumer = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'consumer-'));
+  const planted = path.join(__dirname, 'no-consumer-coupling.fixture.tmp.md');
+  try {
+    const featuresDir = path.join(consumer, 'docs', 'superpowers');
+    for (const dir of ['alpha-beta-gamma', 'delta-epsilon-zeta-eta', 'forgot-password']) {
+      fs.mkdirSync(path.join(featuresDir, dir), { recursive: true });
+    }
+    fs.writeFileSync(path.join(featuresDir, 'README.md'), '', 'utf8');
+    const slugs = consumerSlugs(featuresDir);
+    assert.deepEqual(slugs.sort(), ['alpha-beta-gamma', 'delta-epsilon-zeta-eta'],
+      'directories only, and only those long enough to be a proper noun');
+
+    const real = process.env.SUPERPOWERS_CONSUMER_REPO;
+    if (real) {
+      const realDir = path.join(real, 'docs', 'superpowers');
+      assert.ok(fs.existsSync(realDir), `${realDir} does not exist — wrong repo?`);
+      const realSlugs = consumerSlugs(realDir);
+      assert.ok(realSlugs.length > 0, `${realDir} has no feature directories — wrong repo?`);
+      slugs.push(...realSlugs);
+    }
+
+    assertClean(slugs);
+
+    // The derived list is what drives the sweep — not the quarantine: a slug the denylist
+    // has never heard of, planted next door, must still be caught.
+    fs.writeFileSync(planted, 'Measured on feature alpha-beta-gamma.\n', 'utf8');
+    assert.throws(() => assertClean(slugs), /no-consumer-coupling\.fixture\.tmp\.md/u);
+  } finally {
+    fs.rmSync(planted, { force: true });
+    fs.rmSync(consumer, { recursive: true, force: true });
+  }
 });

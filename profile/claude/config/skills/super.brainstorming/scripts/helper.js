@@ -59,7 +59,8 @@
     };
 
     ws.onmessage = (msg) => {
-      const data = JSON.parse(msg.data);
+      let data;
+      try { data = JSON.parse(msg.data); } catch (e) { return; }
       if (data.type === 'reload') {
         window.location.reload();
       } else if (data.type === 'agent-waiting') {

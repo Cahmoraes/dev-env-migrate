@@ -5,19 +5,15 @@
  * port-isolation-contract.test.cjs — the PROSE half of runtime isolation.
  *
  * allocate-ports.cjs is only half the mechanism. The other half is prose, and prose is
- * the part that silently stops working: the allocator can be perfect while the wave
+ * the part that silently stops working: the allocator can be perfect while the controller
  * never calls it, or calls it and never tells the implementer, at which point every
  * subagent hard-codes the canonical port and the collision comes back with the script
  * still passing all 38 of its own tests.
  *
- * So this file pins the four places the instruction has to exist, and pins them where a
+ * So this file pins the two places the instruction has to exist, and pins them where a
  * reader would look:
  *   1. the worktree skill runs the allocator, BEFORE the baseline;
- *   2. the parallel wave audits the whole wave once every worktree exists;
- *   3. the dispatched implementer is told to load its ports and never hard-code one;
- *   4. teardown releases the block.
- *
- * It also owns the wave-level STOP registered in stop-gate-registry.test.cjs.
+ *   2. teardown releases the block before the worktree directory goes away.
  *
  * Run: node --test super.using-git-worktrees/scripts/__tests__/port-isolation-contract.test.cjs
  */
@@ -29,7 +25,6 @@ const path = require("node:path");
 
 const SKILLS = path.resolve(__dirname, "..", "..", "..");
 const WT = "super.using-git-worktrees";
-const PSD = "super.parallel-subagent-development";
 
 const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), "utf8");
 
@@ -55,9 +50,9 @@ test("port allocation is ordered BEFORE the clean-baseline step", () => {
   // itself collide — and a red baseline is exactly the signal the skill uses to refuse
   // to dispatch, so the failure would be attributed to the task's starting state.
   const skill = read(`${WT}/SKILL.md`);
-  const alloc = skill.indexOf("## Step 3.5: Runtime Isolation (Ports)");
-  const baseline = skill.indexOf("## Step 4: Verify Clean Baseline");
-  assert.ok(alloc > 0, "Step 3.5 must exist");
+  const alloc = skill.indexOf("## Step 3: Runtime Isolation (Ports)");
+  const baseline = skill.indexOf("## Step 4: Report");
+  assert.ok(alloc > 0, "Step 3 must exist");
   assert.ok(baseline > 0, "Step 4 must exist");
   assert.ok(alloc < baseline, "allocation must precede the baseline");
 });
@@ -86,112 +81,26 @@ test("the model is forbidden from writing ports.yml from its own inference", () 
   assert.match(skill, /detection proposes, a human decides/iu);
 });
 
-// ─── 2. the wave-level audit (owns the registered STOP) ──────────────────────
-
-test("the parallel wave audits every worktree's block once they all exist", () => {
-  const ref = read(`${PSD}/references/integrating-worktrees.md`);
-  assert.match(ref, /allocate-ports\.cjs --check/u);
-  assert.match(ref, /`disjoint: false` is a \*\*STOP\*\*/u);
-});
-
-test("the wave-level STOP survives verbatim in the parallel SKILL.md", () => {
-  // Registered in stop-gate-registry.test.cjs with this file as its owner. The wording
-  // is the gate: naming `port_block_overlap` a STOP is what makes it non-optional.
-  assert.match(
-    read(`${PSD}/SKILL.md`),
-    /`port_block_overlap` is a \*\*STOP\*\*/u,
-    "the wave-level port audit must remain a STOP, not a suggestion",
-  );
-});
-
-test("the SKILL.md hands the audit to the mechanical pre-flight, not to the model's memory", () => {
-  // The defect this replaced: the SKILL.md ordered a hand-run audit ("audit them
-  // together") and seventeen guards proved that sentence existed. None could observe
-  // whether it ran, and a measured run skipped it with a correct-by-accident outcome.
-  // The obligation now lives in a manifest field that validate-dispatch.cjs rejects.
-  const skill = read(`${PSD}/SKILL.md`);
-  assert.match(
-    skill,
-    /Never audit the port blocks by hand/u,
-    "a step the controller must remember is the failure mode; say it is not one",
-  );
-  assert.match(
-    skill,
-    /`workspace` = its worktree path/u,
-    "the manifest field that ARMS the gate must be named where the manifest is built — without it the fan-out is invisible and the audit never fires",
-  );
-});
-
-test("the pass-with-a-receipt warning is documented in the reference, not lost", () => {
-  // `port_isolation_off` is the whole point of the redesign: before it, "audited, nothing
-  // to audit" and "never audited" were byte-identical. It lives in the reference rather
-  // than the SKILL.md because that file is at its compaction ceiling — but it has to live
-  // SOMEWHERE, or the verdict reads as noise the first time a controller sees it.
-  assert.match(
-    read(`${PSD}/references/integrating-worktrees.md`),
-    /`port_isolation_off`/u,
-  );
-  assert.match(
-    read(`${PSD}/references/integrating-worktrees.md`),
-    /You do not run this audit by hand, and you cannot forget it/u,
-  );
-});
-
-test("a repo without port isolation PASSES the wave audit instead of blocking it", () => {
-  // Without this, every consumer that never configured ports would hit a gate it cannot
-  // satisfy, and the pressure would be to skip the gate rather than configure the repo.
-  assert.match(
-    read(`${PSD}/references/integrating-worktrees.md`),
-    /`enabled: false`[^\n]*that is a pass, not a skip/u,
-  );
-});
-
-// ─── 3. the dispatched implementer is told ───────────────────────────────────
-
-test("the implementer scoping block carries the ports into the subagent prompt", () => {
-  // The measured failure mode this closes: a rule that lives only in the controller's
-  // prose never reaches the subagent, which then hard-codes the canonical port.
-  const block = read(`${PSD}/agents/implementer.md`);
-  assert.match(block, /\.superpowers\/ports\.env/u, "the prompt must name the file");
-  assert.match(block, /set -a; \. \.superpowers\/ports\.env; set \+a/u, "and how to load it");
-  assert.match(block, /never a literal port number/u, "and the prohibition");
-});
-
-test("the implementer is told what to do when no ports were allocated", () => {
-  // The open branch is where a subagent improvises. "No ports.env" must resolve to
-  // "report it", never to "pick a number".
-  assert.match(
-    read(`${PSD}/agents/implementer.md`),
-    /rather than picking a number yourself/u,
-  );
-});
-
-test("the worktree scoping block lists ports alongside the path and branch", () => {
-  const block = read(`${PSD}/agents/implementer.md`);
-  const ports = block.indexOf("**Your ports:**");
-  const rules = block.indexOf("Rules:");
-  assert.ok(ports > 0, "ports must be one of the pinned scope fields");
-  assert.ok(ports < rules, "it belongs with the other scope facts, before the rules");
-});
-
 // ─── 4. teardown returns the block ───────────────────────────────────────────
 
-test("cleanup releases the lease before the worktree directory disappears", () => {
-  // --release needs the path to still exist. Ordering it after removal would make the
-  // instruction unrunnable, which is indistinguishable from not having it.
-  const ref = read(`${PSD}/references/integrating-worktrees.md`);
-  const cleanup = ref.slice(ref.indexOf("## Cleanup"));
-  const release = cleanup.indexOf("--release");
-  const remove = cleanup.indexOf("git worktree remove");
-  assert.ok(release > 0, "cleanup must release the block");
-  assert.ok(remove > 0, "precondition: cleanup still removes worktrees");
-  assert.ok(release < remove, "release must come before removal");
+test("the skill says to release the lease when the worktree is torn down", () => {
+  // --release needs the path to still exist, so "release, then remove" is the only
+  // runnable order. A lease nobody gives back survives until something reaps it, and
+  // the next worktree gets a narrower range for no visible reason.
+  assert.match(
+    read(`${WT}/SKILL.md`),
+    /Release the block when the worktree is torn down: `allocate-ports\.cjs --release --worktree <path>`/u,
+    "the SKILL.md must name the release command, not just the idea",
+  );
 });
 
-test("cleanup also stops containers, which outlive a worktree and keep holding ports", () => {
+test("the reference states the ordering and what forgetting it costs", () => {
+  const ref = read(`${WT}/references/port-isolation.md`);
+  assert.match(ref, /run before removing the worktree/u, "the ordering is the contract");
   assert.match(
-    read(`${PSD}/references/integrating-worktrees.md`),
-    /docker compose down/u,
+    ref,
+    /Removing a worktree without `--release`/u,
+    "the failure mode has to be named, or the ordering reads as a style preference",
   );
 });
 
@@ -213,9 +122,9 @@ test("the reference documents the config file, the env contract and the adjacent
   }
 });
 
-test("the quick reference routes the port situations to Step 3.5", () => {
+test("the quick reference routes the port situations to Step 3", () => {
   const quick = read(`${WT}/references/quick-reference.md`);
   assert.match(quick, /--detect/u);
   assert.match(quick, /--release/u);
-  assert.match(quick, /Step 3\.5/u);
+  assert.match(quick, /\(Step 3\)/u);
 });

@@ -39,44 +39,14 @@
 const fs = require('fs')
 const path = require('path')
 
-const { findLiveSession, isLiveSession, listScreens } = require('./check-visual-state.cjs')
+const {
+  parseArgs, isAlive, fail, findLiveSession, isLiveSession, listScreens,
+} = require('./check-visual-state.cjs')
 
 // SIGTERM lets server.cjs run its own shutdown (drains parked agent polls with a
 // reason, writes the server-stopped marker). Only escalate when it does not go.
 const TERM_GRACE_MS = 3000
 const POLL_INTERVAL_MS = 100
-
-function fail(msg) {
-  process.stdout.write(JSON.stringify({ error: msg }) + '\n')
-  process.exit(1)
-}
-
-function parseArgs(argv) {
-  const args = {}
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--help' || a === '-h') return { help: true }
-    if (!a.startsWith('--')) continue
-    const next = argv[i + 1]
-    if (next === undefined || next.startsWith('--')) {
-      args[a.slice(2)] = true
-    } else {
-      args[a.slice(2)] = next
-      i++
-    }
-  }
-  return args
-}
-
-function isAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return e.code === 'EPERM'
-  }
-}
 
 function readPid(stateDir) {
   try {

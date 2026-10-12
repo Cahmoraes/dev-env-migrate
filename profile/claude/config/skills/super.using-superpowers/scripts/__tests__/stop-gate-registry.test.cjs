@@ -45,15 +45,9 @@ const SKILLS = path.resolve(__dirname, '..', '..', '..'); // .../artifacts/super
 const HERE = Symbol('pinned by this file');
 
 const SDD = 'super.subagent-driven-development';
-const PSIT = 'super.parallel-subagent-in-tree';
-const PSD = 'super.parallel-subagent-development';
 const FIN = 'super.finishing-a-development-branch';
 
-const BRANCH_GUARD = `${SDD}/scripts/__tests__/branch-guard.test.cjs`;
-const AUTO_COMMIT = `${PSD}/scripts/__tests__/auto-commit-conflict-gate.test.cjs`;
 const GIT_SAFETY = `${FIN}/scripts/__tests__/finishing-git-safety.test.cjs`;
-const PORT_ISOLATION = 'super.using-git-worktrees/scripts/__tests__/port-isolation-contract.test.cjs';
-const RW_HAZARD = `${PSD}/scripts/__tests__/readwrite-hazard-gate.test.cjs`;
 
 const REGISTRY = [
   // --- controller never implements inline -------------------------------------------
@@ -61,78 +55,68 @@ const REGISTRY = [
   // guarded. Losing it does not fail anything: the work still gets done, just without
   // the reviews, the per-task model selection and the verification gate.
   { skill: SDD, what: 'cardinal rule: no inline implementation',
-    anchor: /thinking "this is small, I'll do it inline," STOP/, owner: HERE },
-  { skill: PSIT, what: 'cardinal rule: no inline implementation',
-    anchor: /If you catch yourself editing a file directly, STOP\./, owner: HERE },
-  { skill: PSD, what: 'cardinal rule: no inline implementation',
-    anchor: /If you catch yourself editing a file directly, STOP:/, owner: HERE },
+    anchor: /opening a source or test file to edit it yourself is the STOP signal/, owner: HERE },
 
-  // --- branch guard ------------------------------------------------------------------
-  { skill: SDD, what: 'default-branch guard before dispatching',
-    anchor: /\*\*STOP and ask the user before dispatching\*\*/,
-    owner: { test: BRANCH_GUARD, proof: /STOP and ask the user before dispatching/ } },
-  { skill: PSIT, what: 'default-branch guard before the first wave',
-    anchor: /\*\*STOP and ask the user\*\* before the first wave/,
-    owner: { test: BRANCH_GUARD, proof: /EXECUTION_SKILLS/ } },
-  { skill: PSD, what: 'default-branch guard before spawning a worktree',
-    anchor: /\*\*STOP and ask the user\*\* before spawning any worktree/,
-    owner: { test: BRANCH_GUARD, proof: /EXECUTION_SKILLS/ } },
-
-  // --- auto_commit conflict ------------------------------------------------------------
-  { skill: PSIT, what: 'auto_commit:false conflict gate (per wave)',
-    anchor: /\*\*STOP before the first wave\*\*/,
-    owner: { test: AUTO_COMMIT, proof: /never commit silently under/ } },
-  { skill: PSD, what: 'auto_commit:false conflict gate (before dispatch)',
-    anchor: /\*\*STOP before dispatching\*\*/,
-    owner: { test: AUTO_COMMIT, proof: /never commit silently under/ } },
-
-  // --- runtime (port) isolation across a wave's worktrees --------------------------------
-  // Worktrees isolate files, not the loopback interface. Two implementers booting the
-  // same stack collide on EADDRINUSE, and the failure lands on whichever task started
-  // second — so it reads as that task's bug, not as a missing environment.
-  // Owner moved from prose to mechanism: the audit is now run by validate-dispatch.cjs on
-  // any worktree fan-out, so the STOP is a returned error code rather than a step the
-  // controller has to remember. The textual anchor stays because the SKILL.md still has to
-  // TELL the controller which verdict is fatal.
-  { skill: PSD, what: 'overlapping port blocks block the wave dispatch',
-    anchor: /`port_block_overlap` is a \*\*STOP\*\*/,
-    owner: { test: PORT_ISOLATION, proof: /`port_block_overlap` is a \\\*\\\*STOP\\\*\\\*/ } },
-
-  // --- stale reads across a wave's worktrees ---------------------------------------------
-  // Isolation solves write∩write and nothing else. A task reading a file its sibling
-  // creates in another worktree gets the pre-change version, merges clean, and no gate
-  // downstream disagrees — so the pre-flight is the only place it can surface.
-  { skill: PSD, what: 'read∩write hazard halts the wave before dispatch',
-    anchor: /Non-empty `readWriteHazards` → \*\*STOP\*\*, serialize those tasks in dependency order/,
-    owner: { test: RW_HAZARD, proof: /read_write_hazard/ } },
+  // --- branch guard: deliberately NOT a STOP any more ------------------------------------
+  // On the default branch the execution skills create `feat/<feature-name>` themselves and
+  // announce it — a local branch is safe and reversible, so it is not a consent gate. The
+  // check is still deterministic and still runs every session; branch-guard.test.cjs owns
+  // that contract. Only its two exceptions (the branch already exists, or the repo pins
+  // work to the default branch) ask, and neither is phrased as a STOP.
 
   // --- written tier is binding ---------------------------------------------------------
   // Drift here is silent by construction: a more expensive model produces good work, so
   // nothing looks wrong. Only the bill and the manifest disagree.
   { skill: SDD, what: 'pre-dispatch tier gate',
     anchor: /\*\*STOP and correct if it differs with no recorded escalation\*\*/, owner: HERE },
-  { skill: PSD, what: 'pre-dispatch tier gate',
-    anchor: /\*\*STOP and correct if the model differs and no escalation reason is recorded\*\*/, owner: HERE },
 
   // --- QA gate verdict -------------------------------------------------------------------
-  // Two locations, deliberately. The prose STOP stays in the SKILL.md five-gate index so a
+  // Two locations, deliberately. The prose STOP stays in the SKILL.md gate index so a
   // controller that has not yet opened the reference already knows a FAILED QA halts the
   // flow; the verdict table is the reference's, next to the rest of the QA procedure.
-  { skill: SDD, what: 'QA FAILED halts the flow (prose, in the five-gate index)',
-    anchor: /On `FAILED` → \*\*STOP\*\* and report the failing user stories/, owner: HERE },
-  { skill: SDD, what: 'QA FAILED halts the flow (verdict table, in finish-tail.md)',
-    anchor: /\| `FAILED` \| \*\*STOP\.\*\* Report the failing user stories/, owner: HERE },
+  { skill: SDD, what: 'QA FAILED halts the flow (prose, in the gate index)',
+    anchor: /`FAILED` → the QA skill ran its one fix round; still failing → \*\*STOP\*\* and report/, owner: HERE },
+  { skill: SDD, what: 'QA FAILED halts the flow (verdict table, in final-stage.md)',
+    anchor: /\| `FAILED` \| The QA skill already ran its one fix round.*\*\*STOP\.\*\* Report the residual stories/, owner: HERE },
 
-  // --- finish tail: the index must not be mistaken for the procedure --------------------
-  // The index lists five gates in a few lines. That is enough to look actionable and is not
+  // --- final stage: the index must not be mistaken for the procedure --------------------
+  // The index lists the gates in a few lines. That is enough to look actionable and is not
   // enough to run: the fix-loop caps, the PRD discovery order and the consent wording all
   // live in the reference. Without this STOP the cheapest reading is "I have the list".
-  { skill: SDD, what: 'the five-gate index is not a substitute for finish-tail.md',
-    anchor: /\*\*STOP — read `\.\/references\/finish-tail\.md` before running any of them\.\*\*/, owner: HERE },
+  { skill: SDD, what: 'the gate index is not a substitute for final-stage.md',
+    anchor: /\*\*STOP — read `\.\/references\/final-stage\.md` before running any of them\.\*\*/, owner: HERE },
+
+  // --- review range: a reviewer handed nothing, or the wrong line, approves it -------------
+  // Upstream reproduced both: an implementer committed to another branch, the range was
+  // empty, and the reviewer returned "clean". The verdict is the script's; the STOP is the
+  // half that keeps the controller from dispatching over it. Registered in the loop line of
+  // the SKILL.md and, spelled out, in the execution-loop reference.
+  { skill: SDD, what: 'review range guard: the reviewer builder refuses a bad range, and the refusal is a STOP (loop line)',
+    anchor: /The builder refuses a range it cannot hand over — HEAD not on BASE's line, or empty with auto-commit on — and that refusal is a \*\*STOP\*\* \(`\.\/references\/execution-loop\.md`, "Review range guard"\)/,
+    owner: { test: `${SDD}/scripts/__tests__/build-task-dispatch.test.cjs`, proof: /reviewer refuses a range it cannot hand over/ } },
+  { skill: SDD, what: 'review range guard: the builder refusal (per task and final) is a STOP, not retried around (reference)',
+    anchor: /on either shape — that refusal is a \*\*STOP\*\*, never a flag to retry around/, owner: HERE },
+  { skill: SDD, what: 'final review: the builder refuses a merge-base range HEAD is not on, or empty with auto-commit on',
+    anchor: /auto-commit on, and that refusal is a \*\*STOP\*\* \(`\.\/execution-loop\.md`, "Review range guard"\)/,
+    owner: { test: `${SDD}/scripts/__tests__/build-task-dispatch.test.cjs`, proof: /final without --base derives the merge-base/ } },
+  { skill: SDD, what: 'finish call: a done-state gate that did not run is a STOP, never a pass',
+    anchor: /Anything in `errors` is a \*\*STOP\*\* — the gate did not run/,
+    owner: { test: `${SDD}/scripts/__tests__/sdd-finish.test.cjs`, proof: /a gate that cannot run is named in errors/ } },
+  { skill: SDD, what: 'start call: a part that did not run is a STOP, never a pass',
+    anchor: /A name in its `errors` is a gate that did not run: \*\*STOP\*\*/,
+    owner: { test: `${SDD}/scripts/__tests__/sdd-start.test.cjs`, proof: /a part that cannot run is named in errors/ } },
+
+  // --- single-implementer mode (--single / answer 3): opt-in, no per-task reviewer -------
+  // The mode is offered only for a plan the parser marked eligible; a plan that changed since
+  // the gate (or an answer given to a plan the option was never rendered for) re-opens the
+  // gate instead of running a capable-tier task on the standard tier anyway.
+  { skill: SDD, what: 'single-implementer: ineligible plan re-opens the gate, never downgrades a review',
+    anchor: /`false` → \*\*STOP\.\*\* Say which reason in `singleImplementer\.reasons\[\]` blocks it/,
+    owner: { test: 'super.writing-plans/scripts/__tests__/parse-plan-single-implementer.test.cjs', proof: /need the capable tier/ } },
+  { skill: SDD, what: 'single-implementer: a task reported done without Status: DONE on disk is a claim',
+    anchor: /the tracker is the record\. \*\*STOP\*\* and re-dispatch from that task/, owner: HERE },
 
   // --- finishing: the irreversible ones ----------------------------------------------------
-  { skill: FIN, what: 'invalid IV report blocks merge/PR/handoff',
-    anchor: /→ STOP\. Do not merge\/PR\/handoff/, owner: HERE },
   { skill: FIN, what: 'unguarded checkout would pollute the wrong branch',
     anchor: /pollute it\. STOP\./,
     owner: { test: GIT_SAFETY, proof: /land on whatever branch MAIN_ROOT is still on/ } },
@@ -154,18 +138,14 @@ const REGISTRY = [
   // Measured on Copilot CLI session 8bf714be: the controller could not resolve
   // `<super.using-superpowers-base-dir>`, fell back to `glob` (blind to dotdirs, so
   // `.claude/skills/**` answered "no files matched"), and continued in silence. Session
-  // state, the memory gate and caveman never ran, and nothing in the transcript said so.
+  // state and the memory gate never ran, and nothing in the transcript said so.
   // Later in the same session it asserted a script was "not available in this environment"
   // with that script's absolute path printed in its own context header.
   //
   // The STOP is the half that stops the silence; the resolution rule beside it removes the
   // reason to go hunting in the first place. Both halves are one sentence, verbatim in all
-  // four skills, so a reworded copy fails here rather than degrading quietly in one skill.
+  // both skills, so a reworded copy fails here rather than degrading quietly in one skill.
   { skill: SDD, what: 'a gate script that will not run is a STOP, not a skip',
-    anchor: /a gate script that will not run is a \*\*STOP\*\*, never a skipped gate/, owner: HERE },
-  { skill: PSIT, what: 'a gate script that will not run is a STOP, not a skip',
-    anchor: /a gate script that will not run is a \*\*STOP\*\*, never a skipped gate/, owner: HERE },
-  { skill: PSD, what: 'a gate script that will not run is a STOP, not a skip',
     anchor: /a gate script that will not run is a \*\*STOP\*\*, never a skipped gate/, owner: HERE },
   { skill: FIN, what: 'a gate script that will not run is a STOP, not a skip',
     anchor: /a gate script that will not run is a \*\*STOP\*\*, never a skipped gate/, owner: HERE },
@@ -178,17 +158,22 @@ const REGISTRY = [
 ];
 
 const read = (rel) => fs.readFileSync(path.join(SKILLS, rel), 'utf8');
-const SCOPE = [SDD, PSIT, PSD, FIN];
+const SCOPE = [SDD, FIN];
 
 // Files a skill delegates to, whose STOPs are still that skill's responsibility.
 //
 // Scanning SKILL.md alone made this registry lose gates the moment prose moved into a
 // reference — which is precisely how a STOP goes unowned without anyone noticing, the
-// failure this file exists to catch. `references/finish-tail.md` is the canonical finish
-// tail for all three execution modes; it is hosted under SDD, so its STOPs are registered
-// once, there. The two parallel skills pointing at the same file need no duplicate entry.
+// failure this file exists to catch. `references/final-stage.md` is the canonical final
+// stage for both execution modes; it is hosted under SDD, so its STOPs are registered
+// once, there. The parallel skill pointing at the same file needs no duplicate entry.
 const DELEGATED = {
-  [SDD]: [`${SDD}/references/finish-tail.md`],
+  [SDD]: [`${SDD}/references/final-stage.md`, `${SDD}/references/execution-loop.md`, `${SDD}/references/single-implementer-mode.md`],
+  [FIN]: [
+    `${FIN}/references/options-standard.md`,
+    `${FIN}/references/options-on-base.md`,
+    `${FIN}/references/options-detached.md`,
+  ],
 };
 
 function stopLines(skill) {

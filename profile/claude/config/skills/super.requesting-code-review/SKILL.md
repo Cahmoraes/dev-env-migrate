@@ -1,6 +1,6 @@
 ---
 name: super.requesting-code-review
-description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+description: Use after completing a task or feature, or before merging, to review the work against its requirements.
 user-invocable: false
 ---
 
@@ -26,24 +26,22 @@ Dispatch a code reviewer subagent to catch issues before they cascade. The revie
 
 **1. Get git SHAs:**
 ```bash
-BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
+BASE_SHA=$(git rev-parse HEAD~1)  # or: git merge-base origin/main HEAD
 HEAD_SHA=$(git rev-parse HEAD)
 ```
 
 **2. Dispatch code reviewer subagent:**
 
-Dispatch a subagent with your platform's dispatch tool, filling the template at `agents/code-reviewer.md`. Set an explicit `model:` on the dispatch — a code reviewer is a validation gate: it runs at the task's tier floored at `standard` (a cheap task is reviewed one family up, by the standard tier, not the most-expensive capable); never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
+Dispatch a subagent with your platform's dispatch tool, filling the template at `agents/code-reviewer.md`. Set an explicit `model:` on the dispatch — a code reviewer is a validation gate: a **scoped** review (one task's diff, with a brief) runs at the task's tier floored at `standard` (a cheap task is reviewed one family up, by the standard tier, not the most-expensive capable), while the **whole-branch final review** runs on `capable` whatever the tasks' tier — it has no task and no brief scoping what to look at; never inherit the controller's model by omission (see super.subagent-driven-development, "Model Selection" section).
 
-**Placeholders:**
-- `{DESCRIPTION}` - Brief summary of what you built
-- `{PLAN_OR_REQUIREMENTS}` - What it should do
-- `{BASE_SHA}` - Starting commit
-- `{HEAD_SHA}` - Ending commit
+**Placeholders:** the **Placeholders** section of `agents/code-reviewer.md` lists the eight the template takes and says when each one is required — four on every review, the rest only for a cumulative diff or for the whole-branch final pass. Fill them from there; a list restated here would be the one that goes stale.
 
-**3. Act on feedback:**
-- Fix Critical issues immediately
-- Fix Important issues before proceeding
-- Note Minor issues for later
+**3. Act on feedback** — from a reviewer subagent, the user or a PR:
+- Fix Critical issues immediately, Important ones before proceeding; note Minor ones for later
+- Any item unclear → clarify it before implementing any of them (items interact)
+- Verify each suggestion against the code before acting; a suggested "professional" addition gets a usage search first — nothing calls it → propose removing it (YAGNI)
+- Wrong for this codebase, or against a decision the user already made → push back with the technical reason; no performative agreement ("great point!") — state the fix or just make it
+- PR review comments get their reply in the comment's own thread
 
 ## Example
 
@@ -57,7 +55,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch code reviewer subagent]
   DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
-  PLAN_OR_REQUIREMENTS: Task 2 from docs/superpowers/plans/deployment-plan.md
+  PLAN_OR_REQUIREMENTS: docs/superpowers/<feature>/plans/task-02.md
   BASE_SHA: a7981ec
   HEAD_SHA: 3df7661
 
@@ -85,13 +83,4 @@ You: [Fix progress indicators]
 
 ## Red Flags
 
-**Never:**
-- Skip review because "it's simple"
-- Ignore Critical issues
-- Proceed with unfixed Important issues
-- Argue with valid technical feedback
-
-**If reviewer wrong:**
-- Push back with technical reasoning
-- Show code/tests that prove it works
-- Request clarification
+Critical and Important findings are fixed before moving on. A reviewer you believe is wrong gets technical reasoning and the code or test that proves it — never silence.

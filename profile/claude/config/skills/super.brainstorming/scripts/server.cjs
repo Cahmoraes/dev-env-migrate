@@ -68,7 +68,7 @@ function decodeFrame(buffer) {
   const totalLen = dataOffset + payloadLen;
   if (buffer.length < totalLen) return null;
 
-  const mask = buffer.slice(maskOffset, dataOffset);
+  const mask = buffer.subarray(maskOffset, dataOffset);
   const data = Buffer.alloc(payloadLen);
   for (let i = 0; i < payloadLen; i++) {
     data[i] = buffer[dataOffset + i] ^ mask[i % 4];
@@ -142,6 +142,19 @@ function getNewestScreen() {
 
 function handleRequest(req, res) {
   touchActivity();
+  // A screen can vanish between readdir and read (the agent rewrites them). A throw here
+  // would be uncaught and take the whole companion down; answer 500 and keep serving.
+  try {
+    routeRequest(req, res);
+  } catch (e) {
+    console.error('request failed:', e.message);
+    if (!res.headersSent) res.writeHead(500);
+    res.end('Internal error');
+  }
+}
+
+function routeRequest(req, res) {
+  const url = new URL(req.url, 'http://localhost');
   if (req.method === 'GET' && req.url === '/') {
     const screenFile = getNewestScreen();
     let html = screenFile
@@ -157,16 +170,19 @@ function handleRequest(req, res) {
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
-  } else if (req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/poll') {
+  } else if (req.method === 'GET' && url.pathname === '/poll') {
     // Exact pathname, not a prefix: `startsWith('/poll')` would also swallow
     // `/pollute` and, worse, `/poll-anything`, parking a request that was never a
     // poll. The client detects an old server by its 404 here, so a route that
     // answers too eagerly breaks the compatibility fallback.
-    handlePoll(req, res, new URL(req.url, 'http://localhost').searchParams);
+    handlePoll(req, res, url.searchParams);
   } else if (req.method === 'GET' && req.url.startsWith('/files/')) {
     const fileName = req.url.slice(7);
     const filePath = path.join(CONTENT_DIR, path.basename(fileName));
-    if (!fs.existsSync(filePath)) {
+    let body;
+    try {
+      body = fs.readFileSync(filePath);
+    } catch (e) {
       res.writeHead(404);
       res.end('Not found');
       return;
@@ -174,7 +190,7 @@ function handleRequest(req, res) {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': contentType });
-    res.end(fs.readFileSync(filePath));
+    res.end(body);
   } else {
     res.writeHead(404);
     res.end('Not found');
@@ -224,7 +240,7 @@ function handleUpgrade(req, socket) {
         return;
       }
       if (!result) break;
-      buffer = buffer.slice(result.bytesConsumed);
+      buffer = buffer.subarray(result.bytesConsumed);
 
       switch (result.opcode) {
         case OPCODES.TEXT:
@@ -306,13 +322,11 @@ const DEFAULT_POLL_TIMEOUT_MS = 30 * 1000;
 const pendingPolls = new Set();
 let announcedAgentWaiting = false;
 
+// Same count as `pollSnapshot` (parsed lines only). Counting raw lines instead made a
+// malformed line put the default cursor one above the digest, which `anchorSince` reads
+// as a truncated journal and answers by replaying every event from 0.
 function countJournaledEvents() {
-  try {
-    return fs.readFileSync(path.join(STATE_DIR, 'events'), 'utf-8')
-      .split('\n').filter((l) => l.trim()).length;
-  } catch (e) {
-    return 0;
-  }
+  return readEvents(STATE_DIR).count;
 }
 
 /**
@@ -388,15 +402,17 @@ function clampPollTimeout(raw) {
  * current count instead of 0, so a poll opened mid-session does not instantly
  * replay a decision the agent already consumed.
  */
-function resolvePollSince(raw) {
+function resolvePollSince(raw, count) {
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : countJournaledEvents();
+  if (Number.isFinite(n) && n >= 0) return n;
+  return count === undefined ? countJournaledEvents() : count;
 }
 
 function handlePoll(req, res, query) {
   // Anchor at park time too, not just inside `pollSnapshot`: a stranded cursor would
   // otherwise survive in `poll.since` and be reported back as the seq of a timeout.
-  const since = anchorSince(resolvePollSince(query.get('since')), countJournaledEvents());
+  const count = countJournaledEvents();
+  const since = anchorSince(resolvePollSince(query.get('since'), count), count);
   const timeout = clampPollTimeout(query.get('timeout'));
 
   const ready = pollSnapshot(since);
@@ -501,7 +517,13 @@ function startServer() {
         // `present:false`, indistinguishable from a user who never touched the browser.
         // Keeping one generation costs a rename and turns silent loss into recoverable
         // loss, which `check-visual-state --with-events` surfaces as `previousAnswer`.
-        if (fs.existsSync(eventsFile)) fs.renameSync(eventsFile, path.join(STATE_DIR, 'events.prev'));
+        // Runs in a timer, so a throw would be uncaught and kill the server: a failed
+        // displace is logged, never fatal.
+        try {
+          fs.renameSync(eventsFile, path.join(STATE_DIR, 'events.prev'));
+        } catch (e) {
+          if (e.code !== 'ENOENT') console.error('events displace failed:', e.message);
+        }
         // A new screen truncates the journal back to zero, which would strand any
         // poll parked at a higher `since` forever (count can never climb past it
         // again). Re-anchor them at 0 so the first click on the NEW screen wakes
@@ -517,19 +539,27 @@ function startServer() {
   });
   watcher.on('error', (err) => console.error('fs.watch error:', err.message));
 
+  let stopping = false;
   function shutdown(reason) {
+    // Idle timeout and a signal can both fire; the second call would rewrite the marker
+    // and re-close an already-closed watcher.
+    if (stopping) return;
+    stopping = true;
     console.log(JSON.stringify({ type: 'server-stopped', reason }));
     // Answer parked polls before closing: `server.close()` waits for in-flight
     // requests, so a parked long-poll would otherwise hang the shutdown until its
     // own timeout fires, and the agent would read a socket error instead of a
     // reason it can act on.
     drainPolls('server-stopped');
-    const infoFile = path.join(STATE_DIR, 'server-info');
-    if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
-    fs.writeFileSync(
-      path.join(STATE_DIR, 'server-stopped'),
-      JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
-    );
+    try {
+      fs.rmSync(path.join(STATE_DIR, 'server-info'), { force: true });
+      fs.writeFileSync(
+        path.join(STATE_DIR, 'server-stopped'),
+        JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
+      );
+    } catch (e) {
+      console.error('Failed to write stop marker:', e.message);
+    }
     watcher.close();
     clearInterval(lifecycleCheck);
     server.close(() => process.exit(0));

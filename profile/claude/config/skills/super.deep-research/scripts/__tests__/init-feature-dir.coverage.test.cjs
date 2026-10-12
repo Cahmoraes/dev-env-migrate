@@ -7,14 +7,13 @@
  *
  * The sibling init-feature-dir.test.cjs already exercises the happy paths
  * (create / idempotent / JSON shape / slug validation). This file targets the
- * lines those tests miss:
- *   - 64-66  : --help prints usage and exits 0
- *   - 72     : --slug flag given without a value
- *   - 78     : --repo-root flag given without a value
- *   - 83-84  : unknown argument is rejected
- *   - 89-99  : detectGitRoot() success (git repo) and catch (non-git cwd)
- *   - 105    : --slug omitted entirely
- *   - 119-120: mkdirSync throws (a file sits where a directory must go)
+ * paths those tests miss:
+ *   - --help / -h print usage and exit 0
+ *   - --slug or --repo-root given without a value; unknown argument; --slug omitted
+ *   - repo root discovery without --repo-root: detectGitRoot() walks up to the
+ *     nearest `.git` entry, and falls back to cwd when there is none
+ *   - mkdirSync throws (a file sits where a directory must go)
+ *   - the module exports SLUG_PATTERN when required in-process
  *
  * Uses a fresh tmp directory per test (os.tmpdir + mkdtempSync), cleaned up in
  * finally so the real repo is never touched.
@@ -55,38 +54,38 @@ function run(args, cwd) {
   }
 }
 
-test('--help prints usage and exits 0 (lines 64-66)', () => {
+test('--help prints usage and exits 0', () => {
   const { stdout, status } = run(['--help']);
   assert.equal(status, 0);
   assert.match(stdout, /init-feature-dir\.cjs/);
   assert.match(stdout, /--slug <slug>/);
 });
 
-test('-h short flag also prints usage and exits 0 (line 63 branch)', () => {
+test('-h short flag also prints usage and exits 0', () => {
   const { stdout, status } = run(['-h']);
   assert.equal(status, 0);
   assert.match(stdout, /Usage:/);
 });
 
-test('--slug without a value exits non-zero (line 72)', () => {
+test('--slug without a value exits non-zero', () => {
   const { status, stdout } = run(['--slug']);
   assert.notEqual(status, 0);
   assert.match(stdout, /--slug <slug> is required/);
 });
 
-test('--repo-root without a value exits non-zero (line 78)', () => {
+test('--repo-root without a value exits non-zero', () => {
   const { status, stdout } = run(['--slug', 'feat', '--repo-root']);
   assert.notEqual(status, 0);
   assert.match(stdout, /--repo-root <path> requires a value/);
 });
 
-test('unknown argument is rejected (lines 83-84)', () => {
+test('unknown argument is rejected', () => {
   const { status, stdout } = run(['--slug', 'feat', '--bogus']);
   assert.notEqual(status, 0);
   assert.match(stdout, /Unknown argument: --bogus/);
 });
 
-test('--slug omitted entirely exits non-zero (line 105)', () => {
+test('--slug omitted entirely exits non-zero', () => {
   const root = mkRoot();
   try {
     const { status, stdout } = run(['--repo-root', root]);
@@ -97,11 +96,11 @@ test('--slug omitted entirely exits non-zero (line 105)', () => {
   }
 });
 
-test('no --repo-root: detectGitRoot() resolves the git toplevel (lines 89-95)', () => {
+test('no --repo-root: detectGitRoot() resolves the repo root from the nearest .git entry', () => {
   const root = mkRoot();
   try {
-    // Make the tmp dir a real git repo so `git rev-parse --show-toplevel`
-    // returns its path; run with cwd inside it and no --repo-root flag.
+    // Make the tmp dir a real git repo (a `.git` directory) and run with cwd
+    // inside it and no --repo-root flag; the in-process walk-up must find it.
     execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
     const { stdout, status } = run(['--slug', 'git-detected-slug'], root);
     assert.equal(status, 0);
@@ -114,11 +113,11 @@ test('no --repo-root: detectGitRoot() resolves the git toplevel (lines 89-95)', 
   }
 });
 
-test('no --repo-root and no git repo: detectGitRoot() catch falls back to cwd (lines 96-97)', () => {
+test('no --repo-root and no git repo: detectGitRoot() returns null and the script falls back to cwd', () => {
   const root = mkRoot();
   try {
-    // tmp dir is NOT a git repo, so `git rev-parse` exits non-zero, the catch
-    // returns null, and the script falls back to process.cwd() (== root here).
+    // tmp dir is NOT a git repo (no `.git` anywhere up the tree), so the walk-up
+    // returns null and the script falls back to process.cwd() (== root here).
     const { stdout, status } = run(['--slug', 'cwd-fallback-slug'], root);
     assert.equal(status, 0);
     const json = JSON.parse(stdout);
@@ -129,7 +128,7 @@ test('no --repo-root and no git repo: detectGitRoot() catch falls back to cwd (l
   }
 });
 
-test('mkdirSync failure is reported and exits non-zero (lines 119-120)', () => {
+test('mkdirSync failure is reported and exits non-zero', () => {
   const root = mkRoot();
   try {
     // Plant a regular file where the "docs" directory needs to be created.
@@ -144,10 +143,10 @@ test('mkdirSync failure is reported and exits non-zero (lines 119-120)', () => {
   }
 });
 
-test('requiring the module in-process exports SLUG_PATTERN (line 142, guard false branch)', () => {
+test('requiring the module in-process exports SLUG_PATTERN without running main()', () => {
   // require.main !== module here, so the `if (require.main === module)` guard
-  // is false and main() never runs; this exercises module.exports (line 142),
-  // which a subprocess can never reach because main() calls process.exit first.
+  // is false and main() never runs; this exercises module.exports, which a
+  // subprocess can never reach because main() calls process.exit first.
   const mod = require('../init-feature-dir.cjs');
   assert.ok(mod.SLUG_PATTERN instanceof RegExp);
   assert.equal(mod.SLUG_PATTERN.test('valid-slug'), true);
@@ -155,15 +154,8 @@ test('requiring the module in-process exports SLUG_PATTERN (line 142, guard fals
 });
 
 /*
- * Deliberately NOT covered (left uncovered on purpose):
- *
- *  - Lines 124-125 (post-condition `if (!fs.existsSync(researchPath))` after a
- *    *successful* mkdirSync): unreachable without a filesystem race — mkdirSync
- *    resolving without throwing while the directory simultaneously vanishes
- *    before the existsSync check. Cannot be triggered deterministically and the
- *    house rules forbid editing the production script to make it reachable.
- *
- *  - Line 95 `|| null` alt (empty git output) is a branch only, not a line gap:
- *    `git rev-parse --show-toplevel` always prints a path on success, so the
- *    empty-string fallback cannot be produced deterministically.
+ * Deliberately NOT covered: the post-condition `if (!fs.existsSync(researchPath))`
+ * after a *successful* mkdirSync is unreachable without a filesystem race — the
+ * directory would have to vanish between the two calls. It cannot be triggered
+ * deterministically, and the production script is not edited to make it reachable.
  */

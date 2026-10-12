@@ -410,7 +410,7 @@ graph TB
 
 ### Color Coding with High Contrast
 
-**CRITICAL**: All Mermaid diagram styles MUST use high-contrast colors for accessibility.
+Use high-contrast colors in every style, so diagrams stay legible for low-vision readers and in both light and dark viewers.
 
 **Rule**: Light backgrounds require dark text, dark backgrounds require light text.
 
@@ -553,11 +553,9 @@ graph TB
     B --> note2
 ```
 
-### 6. CRITICAL - Ensure High-Contrast Accessibility
+### 6. Ensure High-Contrast Accessibility
 
-**MANDATORY for ALL diagrams**:
-
-Every diagram with custom styling MUST use high-contrast colors:
+Every diagram with custom styling uses high-contrast colors:
 
 ```mermaid
 graph LR

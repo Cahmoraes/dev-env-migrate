@@ -50,57 +50,14 @@ const CAP = 20000;
  * `reason`     — the claim being made. A reason starting with DEBT is the opposite of an
  *                approval: it records that load-bearing content IS being lost, with the
  *                specific work needed to close it. Deleting an entry is how a fix lands.
+ *
+ * 2026-09-13: empty. The last entry (super.subagent-driven-development, a DEBT that went
+ * 47 KB -> 32 KB across seven refactors) closed when the skill became a router under the
+ * cap: the final stage, the execution-loop mechanics, the review-shape rationale and the
+ * prohibitions' procedures all live in references/, and the in-window recovery block names
+ * every one of them. A new entry here is a new debt, and it needs a written reason.
  */
-const OUTSIDE_WINDOW = {
-  'super.subagent-driven-development': {
-    reason:
-      'DEBT, down from 47 KB -> 42 -> 39 -> 34.4 KB across four refactors. (1) The finish '
-      + 'tail was a second copy of references/finish-tail.md living past the cap; SKILL.md '
-      + 'now carries a five-gate index pointing there. (2) "### Execution Loop" went 10.535 '
-      + '-> 7.657 chars into references/execution-loop.md. (3) The third refactor closed the '
-      + 'target the previous entry named: "### Session State Re-Entry Guard" and "#### '
-      + 'Caveman State Check" moved their MECHANICS to references/session-state-and-caveman.md '
-      + 'while keeping every command inline (moving a command would trade tokens for a round '
-      + 'trip, which costs more), and the reverse tier guard — an entry-only decision, settled '
-      + 'once execution starts — moved to references/entry-routing.md. (4) Prose compaction of '
-      + 'the header, Branch Guard, Memory Gate and the parallelism check paid for the recovery '
-      + 'pointer being restored inside the window. (5) Review cost control and Red Flags moved '
-      + 'their PROSE to references/review-cost-control.md and references/red-flag-procedures.md, '
-      + 'keeping the prohibitions list and the reviewShape table inline (a prohibition you have '
-      + 'to open a file to read is a prohibition you skip). Net: 39.036 -> 33.048 chars, and '
-      + '**the whole Execution Loop sits inside the window** (12.437 -> 19.976), so a resumed '
-      + 'session keeps the spec and code-quality review steps, the full-suite checkpoint, and '
-      + 'the five-gate index with its STOP — all cut before.\n\n'
-      + 'The sections still listed below are OUT, and that is now safe by construction rather '
-      + 'than by hope: an A/B run proved it. Two fresh agents were each given only the first '
-      + '20.000 chars and asked five normative questions. Both could not answer "how many '
-      + 'reviewers does this task get" or "may I override reviewShape downward" — the agent '
-      + 'named the cause itself: "unlike the finish tail and model selection, no recovery '
-      + 'reference is offered for it". So the in-window recovery block now points at all four '
-      + 'references, not two. Anything moved out of this file from here on MUST be added to '
-      + 'that block, or the resumed run silently guesses.\n\n'
-      + '(6) 33.048 -> 32.242. This one deliberately did NOT chase the cap. A sweep of every '
-      + 'norm in the sections below, probed against the window and against references/, found '
-      + '12.431 of 13.072 outside chars already recoverable; the only orphan was "## Trade-offs" '
-      + '(rationale, not a rule), which moved into review-cost-control.md — the file whose cost '
-      + 'argument it was restating. The recovery block now names ALL SEVEN references, so '
-      + 'POINTER_OUTSIDE_OK no longer carries an entry for this skill. Driving the remaining '
-      + '12 KB under the cap would mean putting the tier->model table, the prompt templates and '
-      + 'the prohibitions behind a Read — mid-execution content, consulted every dispatch. That '
-      + 'trades a measured, fully-recoverable debt for a behaviour regression, so it was not '
-      + 'done. The ideal point for THIS skill is "everything recoverable", not "under 20.000".',
-    outside: [
-      '## Handling Implementer Status',
-      '## Handling Implementation Bugs',
-      '## Prompt Templates',
-      '## Suggesting Commit Messages',
-      '## Review cost control',
-      '## Red Flags',
-      '## Integration',
-    ],
-    straddling: ['## Model Selection'],
-  },
-};
+const OUTSIDE_WINDOW = {};
 
 /**
  * Blank out fenced code blocks, preserving length so heading offsets stay true. A `#`
@@ -146,9 +103,10 @@ test('no SKILL.md loses a section to the compaction window without a registered 
   const skills = skillFiles();
 
   // Anti-staleness floor: broken discovery would sweep nothing and pass forever.
-  assert.ok(skills.length >= 18, `swept only ${skills.length} skills — discovery is broken`);
-  const over = skills.filter((s) => fs.readFileSync(path.join(SKILLS, s, 'SKILL.md'), 'utf8').length > CAP);
-  assert.ok(over.length >= 1, 'no skill exceeds the cap — the sweep would be vacuous; check CAP');
+  assert.ok(skills.length >= 16, `swept only ${skills.length} skills — discovery is broken`);
+  // No anti-staleness floor on the over-cap count: every skill fitting under the cap is the
+  // end state this sweep was driving toward, not a sign that CAP is wrong. The floor on the
+  // roster size above is what keeps the sweep non-vacuous.
 
   const problems = [];
   for (const skill of skills) {
@@ -186,31 +144,25 @@ test('a skill that loses binding content to the window says so INSIDE the window
   // Registering a loss makes it visible to us. It does nothing for the model at runtime.
   //
   // super.subagent-driven-development is 48 KB against a 20 KB cap, and what falls off the
-  // end is not filler: the finish tail (final review -> independent verification -> QA gate
+  // end is not filler: the final stage (final review -> QA gate
   // -> finishing) and the binding tier->model policy. The trap is that the POINTERS to
   // those references sat in the lost region too — so after a compaction the model had
   // neither the content nor any sentence telling it the content existed. It resumes
   // confident and quietly skips the terminal gates.
   //
-  // So the recovery pointer has to live in the surviving half. This is not a token
-  // optimisation; the 12 KB inline copy can stay until the loop decomposition happens.
-  // It is the cheap half of that refactor, and it is what makes the DEBT survivable.
+  // So the recovery pointer has to live in the surviving half. The skill now fits under
+  // the per-skill cap, but the block stays load-bearing: the COMBINED re-attach budget
+  // (25k tokens across every invoked skill, filled most-recent-first) still drops older
+  // skills whole, and a controller resumed without this file needs the same pointers.
   const md = fs.readFileSync(path.join(SKILLS, 'super.subagent-driven-development', 'SKILL.md'), 'utf8');
   const head = md.slice(0, CAP);
 
-  assert.ok(md.length > CAP, 'anti-staleness: this test is only meaningful while the skill is over the cap');
-
   for (const [what, needle] of [
-    ['the finish tail', './references/finish-tail.md'],
+    ['the final stage', './references/final-stage.md'],
     ['the binding tier->model policy', './references/model-selection.md'],
-    // Added after an A/B run measured the gap: two fresh agents given only the first
-    // 20.000 chars could not answer "how many reviewers does this task get" or "may I
-    // override reviewShape downward", and one named the cause exactly — "unlike the
-    // finish tail and model selection, no recovery reference is offered for it". Both
-    // sections had been moved to references, but their pointers moved WITH them, past
-    // the cut. A pointer is only a pointer if it survives; re-running the same probe
-    // with these two lines in the window took the score from 3/5 to 5/5.
-    ['the review-shape policy (how many reviewers, and the no-downgrade rule)', './references/review-cost-control.md'],
+    // A section moved to references keeps its pointer INSIDE the window: a pointer that
+    // moved with the section, past the cut, is no pointer at all.
+    ['the review policy (one task reviewer per task, never skipped)', './references/review-cost-control.md'],
     ['the prohibitions and their procedures', './references/red-flag-procedures.md'],
     // Same shape, one refactor later: the execution loop's mechanics (status writes, the
     // two dispatch failure modes, the review-loop caps) moved out, and the pointer sits in
@@ -268,7 +220,7 @@ const SLO_VOCABULARY = [
   /inside the 20k/i,
 ];
 
-/** Runtime prose only: what a session can actually load. evals/ and __tests__/ are ours. */
+/** Runtime prose only: what a session can actually load. __tests__/ is ours. */
 function runtimeProse() {
   const out = [];
   const walk = (dir, rel) => {
@@ -276,7 +228,7 @@ function runtimeProse() {
       const abs = path.join(dir, e.name);
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) {
-        if (e.name === 'evals' || e.name === '__tests__' || e.name === 'node_modules') continue;
+        if (e.name === '__tests__' || e.name === 'node_modules') continue;
         walk(abs, r);
       } else if (e.name.endsWith('.md')) {
         out.push({ rel: r, text: fs.readFileSync(abs, 'utf8') });
@@ -327,6 +279,25 @@ test('the entry skill keeps every gate, the routing rule and the red flags insid
         + 'Move once-per-session material below it instead.',
     );
   }
+});
+
+test('the entry skill keeps skill priority and the invocation announcement inside the window', () => {
+  // Two rules the router owns and nothing downstream restates. Skill priority decides WHICH
+  // skill runs when a process skill and a domain skill both match; the announcement is the one
+  // line that makes the choice visible to the user. Both are one sentence each, so an edit
+  // that "tightens" the paragraph is exactly how they disappear — pin the literal wording.
+  const md = fs.readFileSync(path.join(SKILLS, 'super.using-superpowers', 'SKILL.md'), 'utf8');
+  const head = md.slice(0, CAP);
+
+  assert.ok(
+    head.includes('**Process skill first, domain skill inside it.**'),
+    'the router must state that a process skill outranks a domain skill on the same request, '
+      + 'and that the domain skill is applied inside it',
+  );
+  assert.match(
+    head, /Using <skill> to <purpose>/,
+    'the router must still carry the one-line "Using <skill> to <purpose>" announcement',
+  );
 });
 
 test('the once-per-session block stays ordered: bootstrap rule, then summary, then triage', () => {

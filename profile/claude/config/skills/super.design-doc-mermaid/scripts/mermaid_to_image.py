@@ -22,13 +22,15 @@ Requirements:
     - mermaid-cli: npm install -g @mermaid-js/mermaid-cli
 """
 
+from __future__ import annotations
+
+# `subprocess`/`tempfile`/`concurrent.futures` are imported where used (~10ms of startup
+# otherwise, paid even by --help and by argument errors).
 import argparse
 import os
-import subprocess
+import shutil
 import sys
-import tempfile
 from pathlib import Path
-from typing import Optional, List
 
 
 class MermaidRenderer:
@@ -99,6 +101,7 @@ class MermaidRenderer:
         if self.config_file and self.config_file.exists():
             cmd.extend(['-c', str(self.config_file)])
 
+        import subprocess
         try:
             result = subprocess.run(
                 cmd,
@@ -140,17 +143,17 @@ class MermaidRenderer:
         Returns:
             True if successful, False otherwise
         """
+        import tempfile
         with tempfile.NamedTemporaryFile(mode='w', suffix='.mmd', delete=False) as f:
             f.write(mermaid_code)
             temp_input = Path(f.name)
 
         try:
-            success = self.render(temp_input, output_path)
-            return success
+            return self.render(temp_input, output_path)
         finally:
             try:
                 temp_input.unlink()
-            except:
+            except OSError:
                 pass
 
     def batch_render(
@@ -186,19 +189,29 @@ class MermaidRenderer:
 
         print(f"Found {len(mmd_files)} diagram(s) to render\n")
 
-        success_count = 0
+        # Resolve every output path first (mkdir is not thread-safe to interleave with
+        # rendering into the same tree), then render concurrently: each mmdc call boots a
+        # headless browser (~0.7s) and the files are independent. Capped at 4 because every
+        # worker is a Chromium process. Results are reported in input order.
+        jobs = []
         for input_file in mmd_files:
-            # Determine output path
             if recursive:
                 relative_path = input_file.relative_to(input_dir)
                 output_file = output_dir / relative_path.with_suffix(f'.{output_format}')
                 output_file.parent.mkdir(parents=True, exist_ok=True)
             else:
                 output_file = output_dir / input_file.with_suffix(f'.{output_format}').name
+            jobs.append((input_file, output_file))
 
+        from concurrent.futures import ThreadPoolExecutor
+        workers = max(1, min(4, os.cpu_count() or 1, len(jobs)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            outcomes = list(pool.map(lambda job: self.render(*job), jobs))
+
+        success_count = 0
+        for (input_file, output_file), ok in zip(jobs, outcomes):
             print(f"  Rendering: {input_file.name} -> {output_file.name}...", end=" ")
-
-            if self.render(input_file, output_file):
+            if ok:
                 print("✅")
                 success_count += 1
             else:
@@ -209,16 +222,8 @@ class MermaidRenderer:
 
     @staticmethod
     def _check_mmdc_installed() -> bool:
-        """Check if mermaid-cli (mmdc) is installed."""
-        try:
-            result = subprocess.run(
-                ['mmdc', '--version'],
-                capture_output=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        """Check if mermaid-cli (mmdc) is installed (PATH lookup — no ~150ms `mmdc --version` spawn)."""
+        return shutil.which('mmdc') is not None
 
 
 def main():

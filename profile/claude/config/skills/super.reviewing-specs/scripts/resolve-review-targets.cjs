@@ -112,15 +112,29 @@ function gitToplevel(fromDir) {
   }
 }
 
+function statOf(p) {
+  return fs.statSync(p, { throwIfNoEntry: false });
+}
+
+function isFile(p) {
+  const st = p && statOf(p);
+  return !!(st && st.isFile());
+}
+
+function isDir(p) {
+  const st = statOf(p);
+  return !!(st && st.isDirectory());
+}
+
 function fileEntry(candidate) {
-  const exists = candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+  const exists = isFile(candidate);
   return { found: !!exists, path: exists ? candidate : null };
 }
 
 // List plans/task-NN.md individually (NOT the tasks-<feature>.md index), sorted.
 // These feed Lens 3's task-against-task consistency checks.
 function taskFileEntries(plansDir) {
-  if (!fs.existsSync(plansDir) || !fs.statSync(plansDir).isDirectory()) return [];
+  if (!isDir(plansDir)) return [];
   return fs
     .readdirSync(plansDir)
     .filter((name) => /^task-\d+\.md$/.test(name))
@@ -129,10 +143,11 @@ function taskFileEntries(plansDir) {
 }
 
 function mockupsEntry(mockupsDir) {
-  if (fs.existsSync(mockupsDir) && fs.statSync(mockupsDir).isDirectory()) {
+  if (isDir(mockupsDir)) {
     const files = fs
-      .readdirSync(mockupsDir)
-      .filter((name) => !name.startsWith('.') && fs.statSync(path.join(mockupsDir, name)).isFile())
+      .readdirSync(mockupsDir, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith('.') && (e.isFile() || (e.isSymbolicLink() && isFile(path.join(mockupsDir, e.name)))))
+      .map((e) => e.name)
       .sort();
     if (files.length > 0) return { found: true, path: mockupsDir, files };
   }
@@ -146,7 +161,7 @@ function mockupsEntry(mockupsDir) {
 // this gate exists to remove. An absent or unreadable file means "not declared" (false).
 function corporateConsent(repoRoot) {
   const prefsPath = path.join(repoRoot, '.superpowers', 'preferences.yml');
-  if (!fs.existsSync(prefsPath) || !fs.statSync(prefsPath).isFile()) return false;
+  if (!isFile(prefsPath)) return false;
   let raw;
   try {
     raw = fs.readFileSync(prefsPath, 'utf8');

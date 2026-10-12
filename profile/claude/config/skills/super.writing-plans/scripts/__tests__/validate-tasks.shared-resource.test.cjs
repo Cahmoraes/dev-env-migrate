@@ -8,7 +8,7 @@
  * flags it as a WARNING (author-blind class pulled one stage before the spec-review lens), and
  * must NOT fire on numeric/string arg divergence (legitimate per-task variation).
  *
- * Run with: node --test super.writing-plans/scripts/__tests__/
+ * Run with: node --test super.writing-plans/scripts/__tests__/validate-tasks.shared-resource.test.cjs
  */
 
 const test = require('node:test');
@@ -39,7 +39,6 @@ function taskFile({ title, body }) {
     '**Status:** PENDING',
     '**PRD:** `../prd/prd-x.md`',
     '**Spec:** `../specs/x-design.md`',
-    '**Depends on:** N/A',
     '',
     '## Passos',
     '',

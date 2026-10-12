@@ -19,7 +19,7 @@ Problem/Fix breakdown of the mistakes the Red Flags checklist guards against.
 
 **Open-ended questions**
 - **Problem:** "What should I do next?" is ambiguous
-- **Fix:** Present exactly 4 structured options (or 3 for detached HEAD)
+- **Fix:** Present the menu that matches the environment detected in Step 3 (standard, on-base-branch, or detached HEAD)
 
 **Cleaning up worktree for Option 2**
 - **Problem:** Remove worktree user needs for PR iteration

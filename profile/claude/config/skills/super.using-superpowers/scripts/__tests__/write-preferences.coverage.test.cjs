@@ -95,11 +95,11 @@ test('invalid JSON in --input-file → usage error, exit 1', () => {
 test('reads preferences from stdin (no --input-file) and writes them', () => {
   const root = mkRepo();
   try {
-    const r = runStdin(['--repo-root', root], JSON.stringify({ communication: { language: 'es' } }));
+    const r = runStdin(['--repo-root', root], JSON.stringify({ model_tiers: { capable: 'opus-x' } }));
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout.slice(r.stdout.lastIndexOf('\n{') + 1));
     assert.equal(out.written, true);
-    assert.equal(out.preferences.communication.language, 'es');
+    assert.equal(out.preferences.model_tiers.capable, 'opus-x');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -113,7 +113,7 @@ test('empty input file → all defaults are written', () => {
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout.slice(r.stdout.lastIndexOf('\n{') + 1));
     assert.equal(out.written, true);
-    assert.equal(out.preferences.communication.language, 'pt-BR');
+    assert.equal(out.preferences.claude_code.review_effort, 'medium');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -122,11 +122,11 @@ test('empty input file → all defaults are written', () => {
 test('--dry-run prints the rendered YAML and result without writing', () => {
   const root = mkRepo();
   try {
-    const f = writeInput(root, { communication: { language: 'es' } });
+    const f = writeInput(root, { model_tiers: { capable: 'opus-x' } });
     const r = run(['--input-file', f, '--repo-root', root, '--dry-run']);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /^# Superpowers Workflow Preferences/m);
-    assert.match(r.stdout, /language: es/);
+    assert.match(r.stdout, /capable: opus-x/);
     const out = JSON.parse(r.stdout.slice(r.stdout.lastIndexOf('\n{') + 1));
     assert.equal(out.written, false);
     assert.equal(out.dryRun, true);
@@ -143,7 +143,7 @@ test('a value that the parser would mangle fails round-trip validation, exit 2',
   try {
     // " #" in a value is stripped as an inline comment on re-parse, so the
     // reparsed value diverges from intended → roundTripValid:false → exit 2.
-    const f = writeInput(root, { communication: { language: 'pt #BR' } });
+    const f = writeInput(root, { model_tiers: { capable: 'opus #x' } });
     const r = run(['--input-file', f, '--repo-root', root]);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /round-trip validation failed/);
